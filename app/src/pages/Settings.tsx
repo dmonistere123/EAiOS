@@ -1,7 +1,7 @@
 /** Settings — safe config surface + allowlisted .MD/.TXT environment editor. */
 import { useEffect, useState } from 'react';
 import type { EnvironmentFile } from '../domain/types';
-import { hermes } from '../adapters/mock/MockHermesAdapter';
+import { hermes } from '../adapters';
 import { resetPanePrefs } from '../app/AppShell';
 import { toast } from '../state/runtime';
 import { Card, SectionTitle, StateBadge } from '../components/ui';

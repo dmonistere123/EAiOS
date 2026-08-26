@@ -1,7 +1,7 @@
 /** Today — executive landing: summary KPIs, operating queue, delegation. */
 import { useEffect, useMemo, useState } from 'react';
 import type { TodaySummary, WorkItem } from '../domain/types';
-import { hermes } from '../adapters/mock/MockHermesAdapter';
+import { hermes } from '../adapters';
 import { useRuntime, agentName, toast } from '../state/runtime';
 import { Card, Drawer, EmptyState, KpiCard, PriorityBadge, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 

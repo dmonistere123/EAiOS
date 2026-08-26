@@ -1,7 +1,7 @@
 /** Staff — the AI agent workforce. Status is runtime-driven, never decorative. */
 import { useMemo, useState } from 'react';
 import type { Agent } from '../domain/types';
-import { hermes } from '../adapters/mock/MockHermesAdapter';
+import { hermes } from '../adapters';
 import { useRuntime, refreshAgents, toast } from '../state/runtime';
 import { AgentStatusBadge, Card, Drawer, IndeterminateBar, RelativeTime } from '../components/ui';
 

@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { Agent, Approval, CronJob, ActivityEvent, WorkItem } from '../domain/types';
-import { hermes } from '../adapters/mock/MockHermesAdapter';
+import { hermes, adapterMode, live } from '../adapters';
 
 export interface Toast {
   id: number;
@@ -16,6 +16,7 @@ export interface Toast {
 
 interface State {
   ready: boolean;
+  gateway: 'live' | 'mock' | 'offline';
   agents: Agent[];
   work: WorkItem[];
   approvals: Approval[];
@@ -26,6 +27,7 @@ interface State {
 
 let state: State = {
   ready: false,
+  gateway: 'mock',
   agents: [],
   work: [],
   approvals: [],
@@ -63,28 +65,39 @@ export function toast(kind: Toast['kind'], message: string) {
 
 // ---------- refresh helpers (called after mutations) ----------
 
+// Per-slice sequence guards: a slower stale read must never clobber a newer
+// one (boot race: mock fallback resolving after the live read landed).
+const seqs: Record<string, number> = {};
+
+async function guarded<T>(key: string, fn: () => Promise<T>, apply: (v: T) => void) {
+  const my = (seqs[key] = (seqs[key] ?? 0) + 1);
+  const v = await fn();
+  if (seqs[key] === my) apply(v);
+}
+
 export async function refreshApprovals() {
-  set({ approvals: await hermes.listApprovals({ status: ['pending'] }) });
+  await guarded('approvals', () => hermes.listApprovals({ status: ['pending'] }), (approvals) => set({ approvals }));
 }
 
 export async function refreshAgents() {
-  set({ agents: await hermes.listAgents() });
+  await guarded('agents', () => hermes.listAgents(), (agents) => set({ agents }));
 }
 
 export async function refreshWork() {
-  set({ work: await hermes.listWorkItems() });
+  await guarded('work', () => hermes.listWorkItems(), (work) => set({ work }));
 }
 
 export async function refreshActivity() {
-  set({ activity: await hermes.listActivity(60) });
+  await guarded('activity', () => hermes.listActivity(60), (activity) => set({ activity }));
 }
 
 export async function refreshCron() {
-  set({ cron: await hermes.listCronJobs() });
+  await guarded('cron', () => hermes.listCronJobs(), (cron) => set({ cron }));
 }
 
 export async function refreshAll() {
-  await Promise.all([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity()]);
+  // Per-slice tolerance: a failing slice must never take down the rest.
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity()]);
 }
 
 // ---------- boot + live event wiring ----------
@@ -94,45 +107,23 @@ let started = false;
 export function startRuntime() {
   if (started) return;
   started = true;
+  if (adapterMode === 'live') {
+    set({ gateway: 'offline' });
+    live.onConnectionChange((connected) => {
+      set({ gateway: connected ? 'live' : 'offline' });
+      if (connected) void refreshAll();
+    });
+  }
   void refreshAll().then(() => set({ ready: true }));
-  hermes.subscribeEvents?.((evt) => {
-    // Re-pull the slices each event type can touch — the mock adapter mutates
-    // its store before emitting, and the live adapter will do the same.
-    switch (evt.type) {
-      case 'agent.started':
-      case 'agent.progress':
-      case 'agent.completed':
-      case 'agent.failed':
-      case 'agent.waiting':
-        void refreshAgents();
-        void refreshActivity();
-        break;
-      case 'work.created':
-      case 'work.updated':
-        void refreshWork();
-        void refreshAgents();
-        void refreshActivity();
-        break;
-      case 'approval.requested':
-      case 'approval.decided':
-        void refreshApprovals();
-        void refreshActivity();
-        break;
-      case 'cron.started':
-      case 'cron.completed':
-      case 'cron.failed':
-        void refreshCron();
-        void refreshActivity();
-        break;
-      case 'config.changed':
-        void refreshAgents();
-        void refreshCron();
-        void refreshActivity();
-        break;
-      default:
-        void refreshActivity();
-    }
-  });
+  // Event-driven refresh, debounced (spec §15: meaningful event rendered
+  // within ~1s). The gateway can emit bursts (e.g. sessions.changed storms);
+  // a trailing debounce keeps refreshes cheap and ordered.
+  let evtTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleEventRefresh = () => {
+    clearTimeout(evtTimer);
+    evtTimer = setTimeout(() => void refreshAll(), 800);
+  };
+  hermes.subscribeEvents?.(() => scheduleEventRefresh());
 }
 
 // ---------- selectors (contractual sorts — spec §7.1) ----------

@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Approval } from '../domain/types';
-import { hermes } from '../adapters/mock/MockHermesAdapter';
+import { hermes } from '../adapters';
 import { useRuntime, selectPendingApprovals, agentName, toast, refreshApprovals } from '../state/runtime';
 import { Card, Drawer, EmptyState, RelativeTime, RiskBadge, StateBadge } from '../components/ui';
 

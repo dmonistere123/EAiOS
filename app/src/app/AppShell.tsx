@@ -211,6 +211,18 @@ export default function AppShell() {
         <div className="flex items-center gap-2">
           <span className="text-base font-bold tracking-tight text-signal">EAiOS</span>
           <span className="hidden text-xs text-ink-faint md:inline">Executive AI Operating System</span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+              s.gateway === 'live'
+                ? 'border-ok/40 bg-ok/10 text-ok'
+                : s.gateway === 'offline'
+                  ? 'border-warn/40 bg-warn/10 text-warn'
+                  : 'border-edge bg-canvas-overlay text-ink-faint'
+            }`}
+            title={s.gateway === 'live' ? 'Connected to the live Hermes gateway' : s.gateway === 'offline' ? 'Live updates paused — reconnecting' : 'Running on mock data'}
+          >
+            {s.gateway === 'live' ? '● Live' : s.gateway === 'offline' ? '○ Reconnecting' : 'Mock'}
+          </span>
         </div>
         <div className="mx-auto w-full max-w-md">
           <input
