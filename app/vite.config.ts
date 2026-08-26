@@ -99,6 +99,12 @@ export default defineConfig(({ mode }) => {
           rewrite: (p) => p.replace(/^\/composio-api/, ''),
           headers: composioKey ? { 'x-api-key': composioKey } : {},
         },
+        // Dev: knowledge sidecar (Python, loopback) — browser stays same-origin.
+        '/knowledge-api': {
+          target: 'http://127.0.0.1:9121',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/knowledge-api/, ''),
+        },
       },
     },
   }

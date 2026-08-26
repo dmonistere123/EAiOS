@@ -15,6 +15,7 @@ const baseState = (): RuntimeState => ({
   cron: [] as CronJob[],
   activity: [] as ActivityEvent[],
   skills: [],
+  knowledge: [],
   toasts: [],
 });
 

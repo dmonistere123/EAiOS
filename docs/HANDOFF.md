@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** phases 1–4 committed, build clean, **19/19 vitest green** (`npm test`)
+**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** phases 1–5.2 committed, build clean, **23/23 vitest green** (`npm test`)
 
 ## What this is
 
@@ -10,6 +10,7 @@ Executive AI Operating System — an executive dashboard over Hermes Agent (Ally
 
 - `hermes serve` on `127.0.0.1:9119` — start via `~/eaios/scripts/start-hermes-serve.sh` (reads token from `~/.hermes/.eaios-dev-token`, chmod 600). **Must be running for live mode** (install as systemd service eventually). Note: `hermes serve --status` does NOT see it (untracked start) — check `ss -tlnp | grep 9119` instead.
 - Vite dev server on `localhost:5173` (`npm run dev` in `~/eaios/app`), preview in Hermes desktop.
+- Knowledge sidecar on `127.0.0.1:9121` — start via `~/eaios/scripts/start-knowledge-sidecar.sh` (Python venv in `~/eaios/sidecar/.venv`; app reaches it via vite proxy `/knowledge-api`). Down = Knowledge page silently falls back to mock.
 
 ## Architecture in one paragraph
 
@@ -27,8 +28,9 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 | Today summary | ✅ live | computed from kanban |
 | Connections | ✅ live (empty) | `LiveComposioAdapter` → Composio REST v3 via vite proxy `/composio-api`, key injected server-side |
 | Skills | ✅ live | `skills.manage` RPC (names+categories only — 81 platform-enabled) enriched by vite middleware `/api/skills-index` (frontmatter walk of `~/.hermes/skills`); playbooks still mock |
+| Knowledge | ✅ live | Python sidecar (`~/eaios/sidecar/server.py`, loopback :9121): upload/URL → extract (pymupdf/docx/pptx/html) → chunk → SQLite FTS5; app via `LiveKnowledgeAdapter` + `/knowledge-api` proxy; Add-source drawer, reindex/remove |
 | Schedule | 🟡 hybrid | real cron overlay; executive calendar mock (needs Google OAuth) |
-| Usage, Artifacts, Env files, Knowledge, Playbooks | ⏳ mock | Phases 5–6 |
+| Usage, Artifacts, Env files, Playbooks | ⏳ mock | Phases 5–6 |
 
 ## Hard-won gotchas (don't relearn these)
 
@@ -41,6 +43,8 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 7. React 19 + vite template: no constructor param properties (`erasableSyntaxOnly`); unused imports fail the build (TS6133).
 8. **`skills.manage` RPC returns only `{category: [names]}`** — no descriptions/versions, and `verbose`/`describe`/`view` params don't exist (unknown-action 4017). Descriptions live only in SKILL.md frontmatter → `/api/skills-index` vite middleware (vite.config.ts) walks `~/.hermes/skills` (30s cache). RPC count (81) < disk count (86): `get_available_skills` filters platform-gated skills (the 5 `apple/*` are macOS-only).
 9. `cli.exec` RPC runs **only** `python -m hermes_cli.main <argv>` (hermes subcommands), not arbitrary shell — and `hermes skills list` has no `--json` (fixed-width table, truncated names).
+10. **Knowledge decisions locked (2026-08-26):** path A Python sidecar on loopback; **FTS5 keyword first, vectors later behind the same interface**. Sidecar governance: scope/citationEnabled/allowedAgentIds stored+returned but retrieval enforcement lands with Phase 5.3 (evidence/citation contract). `uv` is NOT on background-shell PATH — use `~/.hermes/bin/uv`.
+11. Sidecar notes: FTS5 `snippet()` highlight marks are `«»`; bm25 score negated for ascending=best; multipart parsing is hand-rolled stdlib (no framework); upload cap 50MB; indexing is synchronous (fine for executive-size docs — revisit if bulk imports arrive).
 
 ## Decisions locked
 
@@ -49,8 +53,8 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 ## Next: Phase 5 (discussed with user — see below)
 
 1. ~~Skills → live~~ **DONE 2026-08-26** (81 real skills, `skills.manage` + `/api/skills-index`).
-2. **Knowledge/RAG** — biggest piece. Recommended path A: Python sidecar (loopback) — upload/URL → extract → chunk → SQLite FTS5, governed scope/freshness/citations; `KnowledgeAdapter` interface already defined; vectors later. **User hadn't picked path (A/B/C) or sidecar-vs-plugin yet — ASK.**
-3. Evidence/citation drill-down contract.
+2. ~~Knowledge/RAG~~ **DONE 2026-08-26 (milestone 1)** — sidecar + FTS5 + sources CRUD + Add-source UI. Retrieval enforcement + agent-facing query path still open.
+3. **Evidence/citation drill-down contract** — next: `/search` is live on the sidecar (snippets with «» marks, chunk ids); wire `getRetrievalEvidence` + a Try-retrieval UI; define how Ally's answers cite chunks.
 4. Playbooks: versioned md workflows; run via kanban (incl. `kanban swarm`); history from kanban runs.
 5. Tests + acceptance (spec §8.7/§8.8).
 

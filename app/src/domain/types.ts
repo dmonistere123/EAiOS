@@ -146,6 +146,8 @@ export interface KnowledgeSource {
   scope: 'private' | 'workspace' | 'agent';
   allowedAgentIds?: string[];
   indexingStatus: 'pending' | 'processing' | 'ready' | 'failed' | 'stale';
+  /** extraction/indexing error detail when indexingStatus === 'failed' */
+  error?: string;
   freshnessAt?: string;
   citationEnabled: boolean;
 }

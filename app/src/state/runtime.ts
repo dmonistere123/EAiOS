@@ -5,8 +5,8 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill } from '../domain/types';
-import { hermes, adapterMode, live } from '../adapters';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource } from '../domain/types';
+import { hermes, adapterMode, live, knowledge } from '../adapters';
 
 export interface Toast {
   id: number;
@@ -23,6 +23,7 @@ interface State {
   cron: CronJob[];
   activity: ActivityEvent[];
   skills: Skill[];
+  knowledge: KnowledgeSource[];
   toasts: Toast[];
 }
 
@@ -35,6 +36,7 @@ let state: State = {
   cron: [],
   activity: [],
   skills: [],
+  knowledge: [],
   toasts: [],
 };
 
@@ -101,9 +103,13 @@ export async function refreshSkills() {
   await guarded('skills', () => hermes.listSkills(), (skills) => set({ skills }));
 }
 
+export async function refreshKnowledge() {
+  await guarded('knowledge', () => knowledge.listSources(), (list) => set({ knowledge: list }));
+}
+
 export async function refreshAll() {
   // Per-slice tolerance: a failing slice must never take down the rest.
-  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills()]);
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge()]);
 }
 
 // ---------- boot + live event wiring ----------
