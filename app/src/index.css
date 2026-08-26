@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+/*
+ * EAiOS — Allygnment theme tokens (from build plan §23)
+ * Dark navy base, cyan primary signal, restrained status colors.
+ */
+@theme {
+  --color-canvas: #050914;
+  --color-canvas-raised: #071220;
+  --color-canvas-overlay: #0b1a2e;
+  --color-edge: #12233c;
+  --color-signal: #32c5ff;
+  --color-signal-dim: #1b7fae;
+  --color-ink: #e8f1fa;
+  --color-ink-dim: #8fa6bd;
+  --color-ink-faint: #5b7189;
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-risk: #f87171;
+  --color-secondary: #a78bfa;
+  --font-sans: "Inter", "Aptos", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Pane drag handles must never trigger text selection (spec §3.3) */
+.eaios-dragging,
+.eaios-dragging * {
+  user-select: none !important;
+  cursor: col-resize !important;
+}
+
+/* Visible focus ring matching cyan accent (spec §23) */
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 2px;
+}

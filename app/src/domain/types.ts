@@ -1,0 +1,276 @@
+/**
+ * EAiOS domain model — verbatim from the build planner §5, §9, §10.1.
+ * Mock adapters, live adapters, tests, and UI selectors all use these types.
+ * Semantic objects are stable even if field details change when wired to Hermes.
+ */
+
+// ---------- Agents (Staff = AI agents, never human users) ----------
+
+export type AgentStatus =
+  | 'idle'
+  | 'queued'
+  | 'working'
+  | 'waiting_approval'
+  | 'waiting_dependency'
+  | 'completed'
+  | 'failed'
+  | 'offline';
+
+export interface ModelRef {
+  provider: string;
+  model: string;
+  version?: string;
+}
+
+export interface ToolRef {
+  id: string;
+  name: string;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  role: string;
+  reportsToAgentId?: string; // Staff normally report to Ally
+  model: ModelRef;
+  availableModels: ModelRef[];
+  tools: ToolRef[];
+  status: AgentStatus;
+  progress?: number; // 0..100 when meaningful; otherwise use indeterminate
+  currentWorkItemId?: string;
+  lastActivityAt?: string;
+  health?: 'healthy' | 'degraded' | 'unknown';
+}
+
+// ---------- Work items ----------
+
+export type WorkState =
+  | 'new'
+  | 'ready'
+  | 'delegated'
+  | 'in_progress'
+  | 'waiting_approval'
+  | 'blocked'
+  | 'complete'
+  | 'cancelled';
+
+export interface SourceRef {
+  kind: 'email' | 'meeting' | 'message' | 'document' | 'manual' | 'agent';
+  label: string;
+  uri?: string;
+}
+
+export interface WorkItem {
+  id: string;
+  title: string;
+  summary?: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  ownerType: 'executive' | 'agent';
+  ownerId?: string;
+  state: WorkState;
+  dueAt?: string;
+  delegationCandidate?: boolean;
+  sourceRefs?: SourceRef[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------- Approvals ----------
+
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export interface EvidenceRef {
+  kind: 'file' | 'url' | 'artifact' | 'message' | 'diff';
+  label: string;
+  uri?: string;
+}
+
+export interface Approval {
+  id: string;
+  workItemId: string;
+  requestedByAgentId: string;
+  actionType: 'send' | 'write' | 'publish' | 'execute' | 'delete' | 'other';
+  targetSystem: string;
+  targetObject?: string;
+  risk: RiskLevel;
+  status: 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'expired';
+  submittedAt: string;
+  evidence: EvidenceRef[];
+  proposedDiff?: string;
+  rollbackPlan?: string;
+  expiresAt?: string;
+}
+
+export interface ApprovalDecision {
+  decision: 'approved' | 'rejected' | 'changes_requested';
+  note?: string;
+}
+
+// ---------- Cron ----------
+
+export interface CronJob {
+  id: string;
+  name: string;
+  scheduleExpression: string; // storage format verified with Hermes
+  nextRunAt: string;
+  ownerAgentId?: string;
+  connectorId?: string;
+  actionRef?: string;
+  approvalPolicy: 'pre_approved' | 'approval_on_result' | 'always_approve';
+  lastResult?: 'success' | 'failed' | 'skipped';
+  enabled: boolean;
+}
+
+// ---------- Activity ledger ----------
+
+export interface ActivityEvent {
+  id: string;
+  type: string;
+  occurredAt: string;
+  agentId?: string;
+  workItemId?: string;
+  action: string;
+  target?: string;
+  result?: string;
+  severity?: 'info' | 'warning' | 'error';
+  auditRef?: string;
+}
+
+// ---------- Knowledge ----------
+
+export interface KnowledgeSource {
+  id: string;
+  type: 'file' | 'url' | 'connector' | 'transcript' | 'text';
+  name: string;
+  uri?: string;
+  scope: 'private' | 'workspace' | 'agent';
+  allowedAgentIds?: string[];
+  indexingStatus: 'pending' | 'processing' | 'ready' | 'failed' | 'stale';
+  freshnessAt?: string;
+  citationEnabled: boolean;
+}
+
+// ---------- Artifacts ----------
+
+export interface Artifact {
+  id: string;
+  name: string;
+  mimeType: string;
+  sizeBytes?: number;
+  createdAt: string;
+  createdByAgentId: string;
+  workItemId?: string;
+  approvalId?: string;
+  state: 'draft' | 'ready' | 'approved' | 'shared' | 'archived';
+  previewAvailable?: boolean;
+}
+
+// ---------- Usage ----------
+
+export interface UsageRecord {
+  id: string;
+  agentId: string;
+  modelId: string;
+  workItemId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cost?: number;
+  occurredAt: string;
+}
+
+export interface UsageSummary {
+  rangeLabel: string;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd?: number; // undefined = not provided; never invent
+  costIsAuthoritative: boolean;
+  budgetUsd?: number;
+  byAgent: { agentId: string; inputTokens: number; outputTokens: number; costUsd?: number }[];
+  freshnessAt: string;
+}
+
+// ---------- Today ----------
+
+export interface TodaySummary {
+  greeting: string;
+  date: string;
+  executivePriorities: number;
+  delegatableCount: number;
+  approvalsWaiting: number;
+  nextMeetingAt?: string;
+  nextMeetingLabel?: string;
+  headline?: string;
+}
+
+// ---------- Runtime events (spec §4.4) ----------
+
+export type RuntimeEventType =
+  | 'work.created'
+  | 'work.updated'
+  | 'agent.started'
+  | 'agent.progress'
+  | 'agent.waiting'
+  | 'agent.completed'
+  | 'agent.failed'
+  | 'approval.requested'
+  | 'approval.decided'
+  | 'connector.called'
+  | 'cron.started'
+  | 'cron.completed'
+  | 'cron.failed'
+  | 'artifact.created'
+  | 'config.changed';
+
+export interface RuntimeEvent {
+  id: string;
+  type: RuntimeEventType;
+  occurredAt: string;
+  agentId?: string;
+  workItemId?: string;
+  payload?: Record<string, unknown>;
+}
+
+// ---------- Policy engine (spec §9) ----------
+
+export type PolicyResult =
+  | { decision: 'allow'; policyId: string }
+  | { decision: 'require_approval'; policyId: string; risk: RiskLevel }
+  | { decision: 'deny'; policyId: string; reason: string };
+
+export interface PolicyInput {
+  actorAgentId: string;
+  actionType: Approval['actionType'] | 'read';
+  connectorId?: string;
+  targetSystem: string;
+  targetObject?: string;
+  riskSignals?: string[];
+}
+
+// ---------- Write contract (spec §10.1) ----------
+
+export interface AuditResult<T = unknown> {
+  ok: boolean;
+  data?: T;
+  auditEventId: string;
+  newVersion?: string;
+  error?: {
+    code: string;
+    safeMessage: string;
+    retryable: boolean;
+  };
+}
+
+// ---------- Environment files (spec §8.11) ----------
+
+export interface EnvironmentFileRef {
+  id: string;
+  name: string;
+  path: string;
+  lastModifiedAt: string;
+}
+
+export interface EnvironmentFile {
+  ref: EnvironmentFileRef;
+  content: string;
+  version: string; // content hash — used as expectedVersion on save
+}
