@@ -347,7 +347,7 @@ class LiveHermesAdapter implements HermesAdapter {
   // ----- LIVE: cron -----
   async listCronJobs(): Promise<CronJob[]> {
     try {
-      const res = await this.rpc.call<{ jobs?: HermesCronJob[] }>('cron.manage', { action: 'list' });
+      const res = await this.rpc.call<{ jobs?: HermesCronJob[] }>('cron.manage', { action: 'list', include_disabled: true });
       return (res.jobs ?? []).map(mapCron);
     } catch {
       return this.fallback.listCronJobs();
@@ -355,14 +355,30 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   async createCronJob(input: CreateCronJob): Promise<AuditResult> {
-    const res = await this.rpc.call<AuditResult>('cron.manage', { action: 'create', ...input }).catch(() => null);
-    return res ?? this.fallback.createCronJob(input);
+    try {
+      await this.rpc.call('cron.manage', {
+        action: 'add',
+        name: input.name,
+        schedule: input.scheduleExpression,
+        prompt: input.actionRef ?? input.name,
+        ...(input.deliver ? { deliver: input.deliver } : {}),
+      });
+      return { ok: true, auditEventId: `cron-add-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'cron_create_failed', safeMessage: e instanceof Error ? e.message : 'Cron create failed.', retryable: true } };
+    }
   }
 
   async updateCronJob(id: string, patch: CronJobPatch): Promise<AuditResult> {
-    const action = patch.enabled === false ? 'pause' : patch.enabled === true ? 'resume' : 'edit';
-    const res = await this.rpc.call<AuditResult>('cron.manage', { action, name: id, ...patch }).catch(() => null);
-    return res ?? this.fallback.updateCronJob(id, patch);
+    if (patch.enabled === undefined) {
+      return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'unsupported', safeMessage: 'Only pause/resume is supported against the live scheduler right now.', retryable: false } };
+    }
+    try {
+      await this.rpc.call('cron.manage', { action: patch.enabled ? 'resume' : 'pause', name: id });
+      return { ok: true, auditEventId: `cron-${patch.enabled ? 'resume' : 'pause'}-${id}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'cron_update_failed', safeMessage: e instanceof Error ? e.message : 'Cron update failed.', retryable: true } };
+    }
   }
 
   // ----- LIVE: activity (session ledger) -----

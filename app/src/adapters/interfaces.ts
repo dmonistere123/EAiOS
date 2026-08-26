@@ -61,6 +61,8 @@ export interface CreateCronJob {
   connectorId?: string;
   actionRef?: string;
   approvalPolicy: CronJob['approvalPolicy'];
+  /** Gateway delivery target, e.g. 'telegram:-100…' — empty = save only */
+  deliver?: string;
 }
 
 export type CronJobPatch = Partial<Pick<CronJob, 'name' | 'scheduleExpression' | 'enabled' | 'approvalPolicy'>>;

@@ -1,6 +1,7 @@
-/** Connections — Composio-backed app connections (mock until Phase 4). */
-import { useState } from 'react';
-import { connections } from '../mocks/fixtures';
+/** Connections — Composio-backed app connections, via the adapter contract only. */
+import { useEffect, useState } from 'react';
+import { composio } from '../adapters';
+import type { Connection } from '../adapters/interfaces';
 import { useRuntime } from '../state/runtime';
 import { Card, RelativeTime, SectionTitle, StateBadge } from '../components/ui';
 
@@ -8,19 +9,30 @@ const stateTone = { connected: 'ok', degraded: 'warn', needs_reconnect: 'risk', 
 
 export default function Connections() {
   const s = useRuntime();
+  const [rows, setRows] = useState<Connection[]>([]);
+  const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<Record<string, string>>({});
+  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; text: string }>>({});
 
-  const cronFor = (id: string) => s.cron.filter((c) => connections.find((x) => x.id === id)?.dependentCronJobIds.includes(c.id));
+  useEffect(() => {
+    void composio.listConnections().then((r) => {
+      setRows(r);
+      setLoading(false);
+    });
+  }, []);
 
-  const test = (id: string, name: string) => {
-    setTesting(id);
-    setTimeout(() => {
-      setTesting(null);
-      const ok = connections.find((c) => c.id === id)?.state === 'connected';
-      setTestResult((r) => ({ ...r, [id]: ok ? `${name}: healthy — credentials verified just now.` : `${name}: token expired — reconnect required.` }));
-    }, 1200);
+  const cronFor = (c: Connection) => s.cron.filter((j) => c.dependentCronJobIds.includes(j.id));
+
+  const test = async (c: Connection) => {
+    setTesting(c.id);
+    const res = await composio.testConnection(c.id);
+    setTesting(null);
+    setTestResult((r) => ({ ...r, [c.id]: { ok: res.ok, text: `${c.appName}: ${res.detail}` } }));
   };
+
+  if (loading) {
+    return <div className="animate-pulse space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-36 rounded-xl bg-canvas-raised" />)}</div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -30,7 +42,7 @@ export default function Connections() {
       </header>
 
       <div className="grid gap-4 md:grid-cols-2">
-        {connections.map((c) => (
+        {rows.map((c) => (
           <Card key={c.id} className="p-5">
             <div className="flex items-start justify-between">
               <div>
@@ -50,13 +62,17 @@ export default function Connections() {
 
             <div className="mt-4 flex items-center justify-between border-t border-edge pt-3 text-[11px] text-ink-faint">
               <span>Verified <RelativeTime iso={c.lastVerifiedAt} /></span>
-              <span>{cronFor(c.id).length} dependent cron job{cronFor(c.id).length === 1 ? '' : 's'}</span>
+              <span>{cronFor(c).length} dependent cron job{cronFor(c).length === 1 ? '' : 's'}</span>
             </div>
 
-            {testResult[c.id] && <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${testResult[c.id].includes('healthy') ? 'border-ok/30 bg-ok/10 text-ok' : 'border-risk/30 bg-risk/10 text-risk'}`}>{testResult[c.id]}</p>}
+            {testResult[c.id] && (
+              <p className={`mt-3 rounded-lg border px-3 py-2 text-xs ${testResult[c.id].ok ? 'border-ok/30 bg-ok/10 text-ok' : 'border-risk/30 bg-risk/10 text-risk'}`}>
+                {testResult[c.id].text}
+              </p>
+            )}
 
             <div className="mt-4 flex gap-2">
-              <button onClick={() => test(c.id, c.appName)} disabled={testing === c.id} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
+              <button onClick={() => test(c)} disabled={testing === c.id} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
                 {testing === c.id ? 'Testing…' : 'Test connection'}
               </button>
               {c.state !== 'connected' && (
@@ -69,7 +85,7 @@ export default function Connections() {
 
       <Card className="p-5">
         <SectionTitle>Connect a new app</SectionTitle>
-        <p className="text-xs text-ink-dim">OAuth flows run inside the connector host in Phase 4 — EAiOS only ever sees safe metadata (health, scopes, last verified).</p>
+        <p className="text-xs text-ink-dim">OAuth flows run inside the connector host — EAiOS only ever sees safe metadata (health, scopes, last verified). Live Composio wiring lands when the account/tenant model is verified.</p>
         <button className="mt-3 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90">Browse app catalog</button>
       </Card>
     </div>
