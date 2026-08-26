@@ -141,7 +141,89 @@ interface HermesCronJob {
   last_status?: string;
 }
 
-// ---------- mapping helpers ----------
+// ---------- kanban shapes (verified via cli.exec probe) ----------
+
+interface KanbanTask {
+  id: string;
+  title: string;
+  body?: string | null;
+  assignee?: string | null;
+  status: 'triage' | 'todo' | 'ready' | 'running' | 'review' | 'blocked' | 'scheduled' | 'done' | 'archived';
+  priority?: number;
+  created_at?: number;
+  started_at?: number | null;
+  completed_at?: number | null;
+  result?: string | null;
+}
+
+/** Approval metadata rides in the task body as a JSON envelope (Phase 3). */
+interface ApprovalEnvelope {
+  eaios: 'approval';
+  actionType: Approval['actionType'];
+  targetSystem: string;
+  targetObject?: string;
+  risk: Approval['risk'];
+  requestedBy?: string; // profile id — approvals stay UNASSIGNED so the kanban dispatcher never executes them
+  evidence?: Approval['evidence'];
+  proposedDiff?: string;
+  rollbackPlan?: string;
+}
+
+const kanbanState: Record<KanbanTask['status'], WorkItem['state']> = {
+  triage: 'new',
+  todo: 'delegated',
+  ready: 'ready',
+  running: 'in_progress',
+  review: 'waiting_approval',
+  blocked: 'blocked',
+  scheduled: 'delegated',
+  done: 'complete',
+  archived: 'cancelled',
+};
+
+const prioLabel = (p?: number): WorkItem['priority'] => (p !== undefined && p <= 1 ? 'critical' : p === 2 ? 'high' : p === 3 ? 'medium' : 'low');
+
+function parseEnvelope(body?: string | null): ApprovalEnvelope | null {
+  if (!body) return null;
+  try {
+    const v = JSON.parse(body) as ApprovalEnvelope;
+    return v?.eaios === 'approval' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function mapTask(t: KanbanTask): WorkItem {
+  return {
+    id: t.id,
+    title: t.title,
+    summary: t.body && !parseEnvelope(t.body) ? t.body : undefined,
+    priority: prioLabel(t.priority),
+    ownerType: t.assignee ? 'agent' : 'executive',
+    ownerId: t.assignee ?? undefined,
+    state: kanbanState[t.status] ?? 'new',
+    delegationCandidate: !t.assignee && ['ready', 'triage'].includes(t.status),
+    createdAt: epochToIso(t.created_at) ?? new Date().toISOString(),
+    updatedAt: epochToIso(t.completed_at ?? t.started_at ?? t.created_at) ?? new Date().toISOString(),
+  };
+}
+
+function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
+  return {
+    id: t.id,
+    workItemId: t.id,
+    requestedByAgentId: env.requestedBy ?? t.assignee ?? 'default',
+    actionType: env.actionType,
+    targetSystem: env.targetSystem,
+    targetObject: env.targetObject,
+    risk: env.risk,
+    status: t.status === 'done' ? 'approved' : t.status === 'blocked' ? 'rejected' : t.status === 'archived' ? 'expired' : 'pending',
+    submittedAt: epochToIso(t.created_at) ?? new Date().toISOString(),
+    evidence: env.evidence ?? [],
+    proposedDiff: env.proposedDiff,
+    rollbackPlan: env.rollbackPlan,
+  };
+}
 
 const epochToIso = (secs?: number) => (secs ? new Date(secs * 1000).toISOString() : undefined);
 
@@ -211,14 +293,20 @@ function mapNotification(method: string, params: Record<string, unknown>): Runti
 
 class LiveHermesAdapter implements HermesAdapter {
   private rpc: RpcClient;
+  private url: string;
   /** mock fallback for slices not yet wired live (per-phase plan) */
   private fallback: HermesAdapter = mock;
 
   constructor() {
     const token = import.meta.env.VITE_HERMES_TOKEN as string | undefined;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${proto}://${location.host}/api/ws${token ? `?token=${token}` : ''}`;
-    this.rpc = new RpcClient(url);
+    this.url = `${proto}://${location.host}/api/ws${token ? `?token=${token}` : ''}`;
+    this.rpc = new RpcClient(this.url);
+    // NOTE: no auto-connect — call connect() explicitly (keeps tests and
+    // mock mode from ever touching the real gateway).
+  }
+
+  connect() {
     this.rpc.connect();
   }
 
@@ -295,12 +383,103 @@ class LiveHermesAdapter implements HermesAdapter {
     });
   }
 
-  // ----- MOCK until their phases -----
-  getTodaySummary(): Promise<TodaySummary> { return this.fallback.getTodaySummary(); }
-  listWorkItems(filter?: WorkFilter): Promise<WorkItem[]> { return this.fallback.listWorkItems(filter); }
-  delegateWork(id: string, req: DelegationRequest): Promise<AuditResult> { return this.fallback.delegateWork(id, req); }
-  listApprovals(filter?: ApprovalFilter): Promise<Approval[]> { return this.fallback.listApprovals(filter); }
-  decideApproval(id: string, d: ApprovalDecision): Promise<AuditResult> { return this.fallback.decideApproval(id, d); }
+  // ----- LIVE: kanban-backed work loop (Phase 3) -----
+
+  /** Run a kanban CLI command through the gateway and parse its --json output. */
+  private async kanban<T>(argv: string[]): Promise<T> {
+    const res = await this.rpc.call<{ code: number; output: string }>('cli.exec', { argv: ['kanban', ...argv] });
+    if (res.code !== 0) throw new Error(res.output.slice(0, 200) || 'kanban command failed');
+    return JSON.parse(res.output || 'null') as T;
+  }
+
+  /** Shared task fetch with a short TTL — one subprocess serves several callers. */
+  private tasksCache?: { at: number; tasks: KanbanTask[] };
+
+  private async kanbanTasks(): Promise<KanbanTask[]> {
+    if (this.tasksCache && Date.now() - this.tasksCache.at < 4000) return this.tasksCache.tasks;
+    const tasks = await this.kanban<KanbanTask[]>(['list', '--json', '--archived']);
+    this.tasksCache = { at: Date.now(), tasks: tasks ?? [] };
+    return this.tasksCache.tasks;
+  }
+
+  private invalidateTasks() {
+    this.tasksCache = undefined;
+  }
+
+  async listWorkItems(filter?: WorkFilter): Promise<WorkItem[]> {
+    try {
+      let rows = (await this.kanbanTasks()).filter((t) => !parseEnvelope(t.body)).map(mapTask);
+      if (filter?.state) rows = rows.filter((w) => filter.state!.includes(w.state));
+      if (filter?.ownerType) rows = rows.filter((w) => w.ownerType === filter.ownerType);
+      if (filter?.delegationCandidate) rows = rows.filter((w) => w.delegationCandidate);
+      return rows;
+    } catch {
+      return this.fallback.listWorkItems(filter);
+    }
+  }
+
+  async delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult> {
+    try {
+      const profile = request.agentId ?? 'default';
+      await this.kanban<unknown>(['assign', workItemId, profile]);
+      this.invalidateTasks();
+      return { ok: true, auditEventId: `kb-assign-${workItemId}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'delegate_failed', safeMessage: e instanceof Error ? e.message : 'Delegation failed.', retryable: true } };
+    }
+  }
+
+  async listApprovals(filter?: ApprovalFilter): Promise<Approval[]> {
+    try {
+      const rows = (await this.kanbanTasks())
+        .map((t) => ({ t, env: parseEnvelope(t.body) }))
+        .filter((x): x is { t: KanbanTask; env: ApprovalEnvelope } => x.env !== null)
+        .map(({ t, env }) => mapTaskToApproval(t, env));
+      let out = rows;
+      if (filter?.status) out = out.filter((a) => filter.status!.includes(a.status));
+      if (filter?.risk) out = out.filter((a) => filter.risk!.includes(a.risk));
+      return out;
+    } catch {
+      return this.fallback.listApprovals(filter);
+    }
+  }
+
+  async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
+    try {
+      if (decision.decision === 'approved') {
+        await this.kanban<unknown>(['complete', approvalId, '--result', 'Approved by executive']);
+      } else if (decision.decision === 'changes_requested') {
+        await this.kanban<unknown>(['request-changes', approvalId, decision.note ?? 'Changes requested by executive — see EAiOS approval thread.']);
+      } else {
+        await this.kanban<unknown>(['block', approvalId, decision.note ?? 'Rejected by executive']);
+      }
+      await this.kanban<unknown>(['comment', approvalId, `Executive decision recorded: ${decision.decision.replace('_', ' ')}`]).catch(() => undefined);
+      this.invalidateTasks();
+      return { ok: true, auditEventId: `kb-decision-${approvalId}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'decision_failed', safeMessage: e instanceof Error ? e.message : 'Decision failed.', retryable: true } };
+    }
+  }
+
+  async getTodaySummary(): Promise<TodaySummary> {
+    try {
+      const tasks = await this.kanbanTasks();
+      const work = tasks.filter((t) => !parseEnvelope(t.body));
+      const open = work.filter((t) => !['done', 'archived'].includes(t.status));
+      const approvals = tasks.filter((t) => parseEnvelope(t.body) && !['done', 'blocked', 'archived'].includes(t.status));
+      const h = new Date().getHours();
+      return {
+        greeting: h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening',
+        date: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
+        executivePriorities: open.filter((t) => !t.assignee).length,
+        delegatableCount: open.filter((t) => !t.assignee && ['ready', 'triage'].includes(t.status)).length,
+        approvalsWaiting: approvals.length,
+        headline: approvals.length > 0 ? `${approvals.length} item${approvals.length === 1 ? '' : 's'} need your decision.` : 'Nothing waiting on your decision.',
+      };
+    } catch {
+      return this.fallback.getTodaySummary();
+    }
+  }
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]> { return this.fallback.listArtifacts(filter); }
   getUsage(range: DateRange): Promise<UsageSummary> { return this.fallback.getUsage(range); }
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> { return this.fallback.listEditableEnvironmentFiles(); }

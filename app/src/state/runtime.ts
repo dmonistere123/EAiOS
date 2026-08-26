@@ -113,6 +113,7 @@ export function startRuntime() {
       set({ gateway: connected ? 'live' : 'offline' });
       if (connected) void refreshAll();
     });
+    live.connect();
   }
   void refreshAll().then(() => set({ ready: true }));
   // Event-driven refresh, debounced (spec §15: meaningful event rendered
