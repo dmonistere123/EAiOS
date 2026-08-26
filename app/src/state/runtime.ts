@@ -5,7 +5,7 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem } from '../domain/types';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill } from '../domain/types';
 import { hermes, adapterMode, live } from '../adapters';
 
 export interface Toast {
@@ -22,6 +22,7 @@ interface State {
   approvals: Approval[];
   cron: CronJob[];
   activity: ActivityEvent[];
+  skills: Skill[];
   toasts: Toast[];
 }
 
@@ -33,6 +34,7 @@ let state: State = {
   approvals: [],
   cron: [],
   activity: [],
+  skills: [],
   toasts: [],
 };
 
@@ -95,9 +97,13 @@ export async function refreshCron() {
   await guarded('cron', () => hermes.listCronJobs(), (cron) => set({ cron }));
 }
 
+export async function refreshSkills() {
+  await guarded('skills', () => hermes.listSkills(), (skills) => set({ skills }));
+}
+
 export async function refreshAll() {
   // Per-slice tolerance: a failing slice must never take down the rest.
-  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity()]);
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills()]);
 }
 
 // ---------- boot + live event wiring ----------

@@ -150,6 +150,17 @@ export interface KnowledgeSource {
   citationEnabled: boolean;
 }
 
+// ---------- Skills ----------
+
+export interface Skill {
+  id: string; // skill name (unique)
+  name: string;
+  category: string;
+  description?: string;
+  version?: string;
+  status: 'enabled' | 'disabled';
+}
+
 // ---------- Artifacts ----------
 
 export interface Artifact {

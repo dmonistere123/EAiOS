@@ -6,7 +6,7 @@
 import type {
   Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent,
+  UsageSummary, WorkItem, ActivityEvent, Skill,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
@@ -183,6 +183,20 @@ class MockHermesAdapter implements HermesAdapter {
   }
 
   async getUsage(_range: DateRange): Promise<UsageSummary> { await delay(); return clone(fx.usageSummary); }
+
+  async listSkills(): Promise<Skill[]> {
+    await delay();
+    return fx.skillsAndPlaybooks
+      .filter((r) => r.kind === 'skill')
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        category: 'productivity',
+        description: r.purpose,
+        version: r.version,
+        status: 'enabled' as const,
+      }));
+  }
 
   async listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> {
     await delay();

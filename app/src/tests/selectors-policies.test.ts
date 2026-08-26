@@ -14,6 +14,7 @@ const baseState = (): RuntimeState => ({
   approvals: [] as Approval[],
   cron: [] as CronJob[],
   activity: [] as ActivityEvent[],
+  skills: [],
   toasts: [],
 });
 

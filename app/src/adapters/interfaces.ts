@@ -18,6 +18,7 @@ import type {
   UsageSummary,
   WorkItem,
   KnowledgeSource,
+  Skill,
 } from '../domain/types';
 
 export type Unsubscribe = () => void;
@@ -88,6 +89,7 @@ export interface HermesAdapter {
 
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]>;
   getUsage(range: DateRange): Promise<UsageSummary>;
+  listSkills(): Promise<Skill[]>;
 
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]>;
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;

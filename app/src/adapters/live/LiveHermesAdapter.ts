@@ -11,7 +11,7 @@
 import type {
   Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent, RuntimeEventType,
+  UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
@@ -496,6 +496,40 @@ class LiveHermesAdapter implements HermesAdapter {
       return this.fallback.getTodaySummary();
     }
   }
+  // ----- LIVE: skills (Phase 5) -----
+  /**
+   * skills.manage returns {category: [names]} only — no descriptions.
+   * Descriptions/versions come from the dev-server /api/skills-index
+   * middleware (walks ~/.hermes/skills frontmatter); enrichment is optional
+   * and skipped silently where no dev server serves it (tests, packaging).
+   */
+  async listSkills(): Promise<Skill[]> {
+    try {
+      const res = await this.rpc.call<{ skills: Record<string, string[]> }>('skills.manage', { action: 'list' });
+      const byCategory = res.skills ?? {};
+      let details = new Map<string, { description?: string; version?: string }>();
+      try {
+        const idxRes = await fetch('/api/skills-index');
+        if (idxRes.ok) {
+          const idx = (await idxRes.json()) as { skills?: { name: string; description?: string; version?: string }[] };
+          details = new Map((idx.skills ?? []).map((s) => [s.name, s]));
+        }
+      } catch {
+        // enrichment unavailable — names + categories still render
+      }
+      const out: Skill[] = [];
+      for (const [category, names] of Object.entries(byCategory)) {
+        for (const name of names) {
+          const d = details.get(name);
+          out.push({ id: name, name, category, description: d?.description, version: d?.version, status: 'enabled' });
+        }
+      }
+      return out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+    } catch {
+      return this.fallback.listSkills(); // graceful degradation (spec §2)
+    }
+  }
+
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]> { return this.fallback.listArtifacts(filter); }
   getUsage(range: DateRange): Promise<UsageSummary> { return this.fallback.getUsage(range); }
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> { return this.fallback.listEditableEnvironmentFiles(); }
