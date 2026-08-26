@@ -14,11 +14,12 @@ Endpoints (JSON in/out unless noted):
   POST   /sources/<id>/reindex
   DELETE /sources/<id>
   GET    /search?q=...&limit=8       -> {"results": [{sourceId, sourceName, chunkIndex, snippet, score}]}
+  GET    /chunks/<chunk_id>          -> full chunk text + source metadata (drill-down)
 
-Governance note: scope/citationEnabled/allowedAgentIds are stored and
-returned verbatim; retrieval enforcement for agents lands with the
-evidence/citation contract (Phase 5.3). The UI never serves a source to
-agents until indexingStatus == ready (spec rule).
+Scope enforcement (spec: "scope is enforced by the runtime"): pass agent_id
+on /search and private sources are withheld; agent-scoped sources only
+surface to agents named in allowedAgentIds. No agent_id = executive context
+(sees everything). citationEnabled flags whether answers may QUOTE a chunk.
 """
 import json
 import os
@@ -278,6 +279,7 @@ class Handler(BaseHTTPRequestHandler):
                 q = parse_qs(urlparse(self.path).query)
                 query = (q.get("q", [""])[0] or "").strip()
                 limit = min(int(q.get("limit", ["8"])[0]), 25)
+                agent_id = (q.get("agent_id", [""])[0] or "").strip()
                 if not query:
                     return self._send(400, {"error": "q is required"})
                 conn = db()
@@ -285,14 +287,25 @@ class Handler(BaseHTTPRequestHandler):
                 match = " OR ".join('"' + t.replace('"', "") + '"' for t in query.split() if t)
                 if not match:
                     return self._send(400, {"error": "q has no searchable terms"})
+                # Scope enforcement: an agent query never sees private sources,
+                # and agent-scoped sources only surface for named agents.
+                scope_sql = ""
+                params: list = [match]
+                if agent_id:
+                    scope_sql = (
+                        "AND (s.scope = 'workspace' OR (s.scope = 'agent' AND EXISTS "
+                        "(SELECT 1 FROM json_each(s.allowed_agent_ids) je WHERE je.value = ?)))"
+                    )
+                    params.append(agent_id)
+                params.append(limit)
                 rows = conn.execute(
-                    """SELECT c.chunk_id, c.source_id, c.chunk_index,
+                    f"""SELECT c.chunk_id, c.source_id, c.chunk_index,
                               snippet(chunks, 3, '«', '»', '…', 32) AS snip,
                               bm25(chunks) AS score, s.name, s.citation_enabled
                        FROM chunks c JOIN sources s ON s.id = c.source_id
-                       WHERE chunks MATCH ? AND s.indexing_status = 'ready'
+                       WHERE chunks MATCH ? AND s.indexing_status = 'ready' {scope_sql}
                        ORDER BY score LIMIT ?""",
-                    (match, limit),
+                    params,
                 ).fetchall()
                 return self._send(200, {"results": [
                     {
@@ -306,6 +319,28 @@ class Handler(BaseHTTPRequestHandler):
                     }
                     for r in rows
                 ]})
+            m = re.fullmatch(r"/chunks/([\w:-]+)", self.path)
+            if m:
+                conn = db()
+                r = conn.execute(
+                    """SELECT c.chunk_id, c.source_id, c.chunk_index, c.text,
+                              s.name, s.scope, s.citation_enabled, s.uri
+                       FROM chunks c JOIN sources s ON s.id = c.source_id
+                       WHERE c.chunk_id = ?""",
+                    (m.group(1),),
+                ).fetchone()
+                if not r:
+                    return self._send(404, {"error": "chunk not found"})
+                return self._send(200, {
+                    "chunkId": r["chunk_id"],
+                    "sourceId": r["source_id"],
+                    "sourceName": r["name"],
+                    "sourceUri": r["uri"],
+                    "scope": r["scope"],
+                    "chunkIndex": r["chunk_index"],
+                    "text": r["text"],
+                    "citationEnabled": bool(r["citation_enabled"]),
+                })
             return self._send(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()

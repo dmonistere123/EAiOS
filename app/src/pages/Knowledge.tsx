@@ -1,13 +1,122 @@
 /** Knowledge — governed RAG sources. Live via the Python sidecar
- * (/knowledge-api proxy) with mock fallback; FTS5 indexing, citations 5.3. */
-import { useRef, useState } from 'react';
+ * (/knowledge-api proxy) with mock fallback; FTS5 retrieval + chunk
+ * drill-down wired in Phase 5.3 (citation contract in adapters/interfaces). */
+import { useEffect, useRef, useState } from 'react';
 import { useRuntime, refreshKnowledge, toast } from '../state/runtime';
 import { knowledge } from '../adapters';
 import type { KnowledgeSource } from '../domain/types';
+import type { KnowledgeChunk, KnowledgeSearchResult } from '../adapters/interfaces';
 import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
 
 const statusTone = { pending: 'warn', processing: 'signal', ready: 'ok', failed: 'risk', stale: 'warn' } as const;
 const typeIcon = { file: '▤', url: '⬡', connector: '⬢', transcript: '❝', text: '¶' } as const;
+
+/** Render a sidecar snippet with « » match marks as highlights. */
+function Snippet({ text }: { text: string }) {
+  const parts = text.split(/(«[^»]*»)/g);
+  return (
+    <span>
+      {parts.map((p, i) =>
+        p.startsWith('«') && p.endsWith('»') ? (
+          <mark key={i} className="rounded bg-signal/20 px-0.5 text-signal">{p.slice(1, -1)}</mark>
+        ) : (
+          <span key={i}>{p}</span>
+        ),
+      )}
+    </span>
+  );
+}
+
+function ChunkDrawer({ chunkId, onClose }: { chunkId: string; onClose: () => void }) {
+  const [chunk, setChunk] = useState<KnowledgeChunk | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    knowledge.getChunk(chunkId).then(
+      (c) => live && setChunk(c),
+      (e) => live && setError(e instanceof Error ? e.message : 'Load failed.'),
+    );
+    return () => {
+      live = false;
+    };
+  }, [chunkId]);
+  return (
+    <Drawer title={`Citation ${chunkId}`} onClose={onClose} width={520}>
+      {error && <p className="text-sm text-risk">{error}</p>}
+      {!chunk && !error && <p className="text-sm text-ink-dim">Loading chunk…</p>}
+      {chunk && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium text-ink">{chunk.sourceName}</span>
+            <StateBadge label={chunk.scope} tone="neutral" />
+            <StateBadge label={chunk.citationEnabled ? 'citable' : 'not citable'} tone={chunk.citationEnabled ? 'ok' : 'risk'} />
+            <span className="text-ink-faint">chunk #{chunk.chunkIndex}</span>
+          </div>
+          {chunk.sourceUri && <a href={chunk.sourceUri} target="_blank" rel="noreferrer" className="block truncate text-xs text-signal hover:underline">{chunk.sourceUri}</a>}
+          <p className="whitespace-pre-wrap rounded-lg border border-edge bg-canvas p-4 text-sm leading-relaxed text-ink">{chunk.text}</p>
+          <p className="text-xs text-ink-faint">Cite as <code className="rounded bg-canvas-overlay px-1 font-mono">eaios://chunk/{chunk.chunkId}</code></p>
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function RetrievalPanel() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<KnowledgeSearchResult[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [openChunk, setOpenChunk] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!query.trim()) return;
+    setBusy(true);
+    try {
+      setResults(await knowledge.searchKnowledge(query.trim()));
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Retrieval failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-semibold">Try retrieval</h2>
+      <p className="mt-0.5 text-xs text-ink-faint">Executive context — searches every ready source. Agent queries are scope-filtered by the sidecar.</p>
+      <div className="mt-3 flex gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && void run()}
+          placeholder="Ask the knowledge base…"
+          aria-label="Retrieval query"
+          className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm outline-none focus:border-signal/60"
+        />
+        <button onClick={() => void run()} disabled={busy} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+          {busy ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+      {results && (
+        <ul className="mt-4 space-y-2">
+          {results.length === 0 && <li className="text-sm text-ink-faint">No matching chunks in ready sources.</li>}
+          {results.map((r) => (
+            <li key={r.chunkId}>
+              <button onClick={() => setOpenChunk(r.chunkId)} className="w-full rounded-lg border border-edge/70 bg-canvas px-4 py-3 text-left hover:border-signal/50">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-medium text-ink">{r.sourceName}</span>
+                  <span className={r.citationEnabled ? 'text-ok' : 'text-risk'}>{r.citationEnabled ? 'citable' : 'not citable'}</span>
+                </div>
+                <div className="mt-1 text-sm text-ink-dim"><Snippet text={r.snippet} /></div>
+                <div className="mt-1 font-mono text-[10px] text-ink-faint">{r.chunkId}</div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {openChunk && <ChunkDrawer chunkId={openChunk} onClose={() => setOpenChunk(null)} />}
+    </Card>
+  );
+}
 
 function AddSourceDrawer({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<'file' | 'url'>('file');
@@ -129,6 +238,8 @@ export default function Knowledge() {
         </div>
         <button onClick={() => setAdding(true)} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90">Add source</button>
       </header>
+
+      <RetrievalPanel />
 
       {s.knowledge.length === 0 ? (
         <EmptyState title="No knowledge sources" hint="Upload files or add URLs to ground Ally's answers." />

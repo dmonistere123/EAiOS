@@ -6,7 +6,7 @@
  * the mock adapter (graceful degradation, spec §2).
  */
 import type { AuditResult, EvidenceRef, KnowledgeSource } from '../../domain/types';
-import type { KnowledgeAdapter, KnowledgeSourceInput } from '../interfaces';
+import type { KnowledgeAdapter, KnowledgeChunk, KnowledgeSearchResult, KnowledgeSourceInput } from '../interfaces';
 import { knowledge as mock } from '../mock/MockKnowledgeAdapter';
 
 class LiveKnowledgeAdapter implements KnowledgeAdapter {
@@ -89,8 +89,23 @@ class LiveKnowledgeAdapter implements KnowledgeAdapter {
     }
   }
 
+  searchKnowledge(query: string, limit = 8): Promise<KnowledgeSearchResult[]> {
+    return this.call(
+      // Executive context: no agent_id — the UI sees every ready source.
+      async () => (await this.api<{ results: KnowledgeSearchResult[] }>(`/search?q=${encodeURIComponent(query)}&limit=${limit}`)).results,
+      () => mock.searchKnowledge(query, limit),
+    );
+  }
+
+  getChunk(chunkId: string): Promise<KnowledgeChunk> {
+    return this.call(
+      () => this.api<KnowledgeChunk>(`/chunks/${encodeURIComponent(chunkId)}`),
+      () => mock.getChunk(chunkId),
+    );
+  }
+
   getRetrievalEvidence(answerId: string): Promise<EvidenceRef[]> {
-    return mock.getRetrievalEvidence(answerId); // Phase 5.3
+    return mock.getRetrievalEvidence(answerId); // answer→chunk store lands with the live Assistant page
   }
 }
 

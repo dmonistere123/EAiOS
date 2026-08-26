@@ -36,6 +36,38 @@ describe('knowledge slice (mock adapter contract)', () => {
   it('runtime hydration populates state.knowledge', async () => {
     await waitFor(() => expect(getState().knowledge.length).toBeGreaterThan(0), { timeout: 4000 });
   });
+
+  it('searchKnowledge returns citable chunk refs; getChunk drills down', async () => {
+    const results = await knowledge.searchKnowledge('brand');
+    expect(results.length).toBeGreaterThan(0);
+    const r = results[0];
+    expect(r.chunkId).toMatch(/^.+:\d+$/);
+    expect(r.sourceName).toBeTruthy();
+    const chunk = await knowledge.getChunk(r.chunkId);
+    expect(chunk.chunkId).toBe(r.chunkId);
+    expect(chunk.text.length).toBeGreaterThan(0);
+    expect(chunk.scope).toBeTruthy();
+  });
+});
+
+describe('Knowledge page — retrieval (Phase 5.3)', () => {
+  it('searches and renders snippets with citable badges', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Knowledge />
+      </MemoryRouter>,
+    );
+    // Fixture source appears after hydration
+    expect(await screen.findByText('Q3 board deck (working).pptx', undefined, { timeout: 4000 })).toBeInTheDocument();
+
+    const spy = vi.spyOn(knowledge, 'searchKnowledge');
+    await user.type(screen.getByLabelText('Retrieval query'), 'brand');
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith('brand'), { timeout: 4000 });
+    // Mock adapter matches the 'allygnment.com — brand guidelines' fixture
+    expect((await screen.findAllByText(/brand guidelines/)).length).toBeGreaterThan(0);
+  });
 });
 
 describe('Knowledge page', () => {

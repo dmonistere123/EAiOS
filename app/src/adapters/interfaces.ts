@@ -150,12 +150,43 @@ export interface KnowledgeSourceInput {
   citationEnabled: boolean;
 }
 
+/** One retrieved chunk from the knowledge index (sidecar /search). */
+export interface KnowledgeSearchResult {
+  chunkId: string; // 'k-xxxxxxxx:N' — the citation handle answers reference
+  sourceId: string;
+  sourceName: string;
+  chunkIndex: number;
+  snippet: string; // may contain « » highlight marks around matched terms
+  score: number;
+  citationEnabled: boolean;
+}
+
+/** Full chunk drill-down (sidecar /chunks/<id>). */
+export interface KnowledgeChunk {
+  chunkId: string;
+  sourceId: string;
+  sourceName: string;
+  sourceUri?: string;
+  scope: KnowledgeSource['scope'];
+  chunkIndex: number;
+  text: string;
+  citationEnabled: boolean;
+}
+
+/**
+ * Citation contract (Phase 5.3): an answer citing knowledge carries
+ * EvidenceRef { kind: 'file'|'url', label: <sourceName>, uri: 'eaios://chunk/<chunkId>' }.
+ * The uri resolves through getChunk for drill-down. getRetrievalEvidence
+ * hydrates those refs once the Assistant page stores answer→chunk links.
+ */
 export interface KnowledgeAdapter {
   listSources(): Promise<KnowledgeSource[]>;
   uploadSource(file: File, metadata: KnowledgeSourceInput): Promise<KnowledgeSource>;
   addUrl(url: string, metadata: KnowledgeSourceInput): Promise<KnowledgeSource>;
   reindex(sourceId: string): Promise<AuditResult>;
   removeSource(sourceId: string): Promise<AuditResult>;
+  searchKnowledge(query: string, limit?: number): Promise<KnowledgeSearchResult[]>;
+  getChunk(chunkId: string): Promise<KnowledgeChunk>;
   getRetrievalEvidence(answerId: string): Promise<import('../domain/types').EvidenceRef[]>;
 }
 
