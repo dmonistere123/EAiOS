@@ -7,6 +7,17 @@ import { useRuntime, refreshAgents, toast } from '../state/runtime';
 import { AgentStatusBadge, Card, Drawer, IndeterminateBar, RelativeTime } from '../components/ui';
 
 /** Add Agent drawer (Phase 6.5) — profile creation via the live model catalog. */
+
+/** Natural input → slug: "Sales Scout!" → "sales-scout". Empty when nothing usable remains. */
+export function slugify(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/^(\d)/, 'a$1'); // ids must start with a letter
+}
+
 function AddAgentDrawer({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
@@ -14,6 +25,7 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState(''); // "provider/model"
   const [soul, setSoul] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null); // persistent — a 4s toast is too easy to miss
 
   useEffect(() => {
     let live = true;
@@ -31,25 +43,28 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
   const create = async () => {
     const [provider, ...rest] = picked.split('/');
     const model = rest.join('/');
-    if (!name.trim() || !provider || !model) return;
+    if (!slug || !provider || !model) return;
     setBusy(true);
+    setError(null);
     const res = await hermes.createAgent({
-      name: name.trim(),
+      name: slug,
       role: role.trim() || 'Specialist agent',
       model: { provider, model },
       ...(soul.trim() ? { soul: soul.trim() } : {}),
     });
     setBusy(false);
     if (res.ok) {
-      toast('ok', `Agent "${name.trim()}" created. Audit ${res.auditEventId}.`);
+      toast('ok', `Agent "${slug}" created. Audit ${res.auditEventId}.`);
       await refreshAgents();
       onClose();
     } else {
-      toast('error', res.error?.safeMessage ?? 'Agent creation failed.');
+      setError(res.error?.safeMessage ?? 'Agent creation failed.');
     }
   };
 
-  const slugOk = /^[a-z][a-z0-9-]*$/.test(name.trim());
+  const slug = slugify(name);
+  const slugOk = /^[a-z][a-z0-9-]*$/.test(slug);
+  const disabledReason = !slugOk ? 'Agent id needs at least one letter or digit.' : !picked ? 'Waiting for the model catalog…' : null;
 
   return (
     <Drawer title="Add agent" onClose={onClose} width={460}>
@@ -58,15 +73,20 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
           Creates a new Hermes profile — a real staff agent that can infer out of the box (credentials mirror from the default profile). Config write: audited, no approval needed.
         </p>
         <div>
-          <label htmlFor="agent-name" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Agent id</label>
+          <label htmlFor="agent-name" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Name</label>
           <input
             id="agent-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. scout, ledger, quill"
-            className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-sm text-ink placeholder:text-ink-faint"
+            placeholder="e.g. Sales Scout"
+            className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
           />
-          {name.trim() && !slugOk && <p className="mt-1 text-[11px] text-warn">Lowercase slug: letters, digits, dashes — start with a letter.</p>}
+          {name.trim() && (
+            <p className="mt-1 text-[11px] text-ink-faint">
+              Agent id: <code className="font-mono text-signal">{slug || '—'}</code>
+              {!slug && <span className="text-warn"> — needs at least one letter or digit</span>}
+            </p>
+          )}
         </div>
         <div>
           <label htmlFor="agent-role" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Role</label>
@@ -107,6 +127,11 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
             className="mt-1 w-full rounded-lg border border-edge bg-canvas p-3 font-mono text-xs text-ink placeholder:text-ink-faint"
           />
         </div>
+        {error && (
+          <div role="alert" className="rounded-lg border border-risk/30 bg-risk/10 p-3 text-xs text-risk">
+            {error}
+          </div>
+        )}
         <button
           onClick={() => void create()}
           disabled={busy || !slugOk || !picked}
@@ -114,6 +139,7 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
         >
           {busy ? 'Creating…' : 'Create agent'}
         </button>
+        {disabledReason && !busy && <p className="text-[11px] text-ink-faint">{disabledReason}</p>}
       </div>
     </Drawer>
   );

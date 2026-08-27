@@ -10,7 +10,7 @@ import { describe, expect, it, beforeAll, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import Staff from '../pages/Staff';
+import Staff, { slugify } from '../pages/Staff';
 import { startRuntime } from '../state/runtime';
 import { hermes, live } from '../adapters';
 
@@ -137,6 +137,16 @@ describe('mock agent factory', () => {
 
 // ---------- page ----------
 
+describe('slugify', () => {
+  it('turns natural names into valid slugs', () => {
+    expect(slugify('Sales Scout')).toBe('sales-scout');
+    expect(slugify('  Research  Agent! ')).toBe('research-agent');
+    expect(slugify('quill')).toBe('quill');
+    expect(slugify('!!!')).toBe('');
+    expect(slugify('2nd-opinion')).toBe('a2nd-opinion'); // must start with a letter
+  });
+});
+
 describe('Staff page — Add Agent drawer (mock mode)', () => {
   it('opens the drawer with the grouped catalog and creates an agent that lands on the grid', async () => {
     const user = userEvent.setup();
@@ -150,13 +160,13 @@ describe('Staff page — Add Agent drawer (mock mode)', () => {
     const select = await screen.findByLabelText('Model', undefined, { timeout: 4000 });
     expect(await within(select).findByRole('group', { name: 'Nous Portal' }, { timeout: 4000 })).toBeInTheDocument();
 
-    // invalid slug → hint + disabled create
-    await user.type(screen.getByLabelText('Agent id'), 'Bad Name');
-    expect(screen.getByText(/Lowercase slug/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Create agent' })).toBeDisabled();
+    // natural names derive a slug, shown live — no silent blocking
+    await user.type(screen.getByLabelText('Name'), 'Bad Name');
+    expect(screen.getByText('bad-name')).toBeInTheDocument(); // derived id preview
+    expect(screen.getByRole('button', { name: 'Create agent' })).toBeEnabled();
 
-    await user.clear(screen.getByLabelText('Agent id'));
-    await user.type(screen.getByLabelText('Agent id'), 'page-test');
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'page-test');
     await user.type(screen.getByLabelText('Role'), 'Drawer-created specialist');
     await user.click(screen.getByRole('button', { name: 'Create agent' }));
 
