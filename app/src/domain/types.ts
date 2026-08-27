@@ -163,6 +163,38 @@ export interface Skill {
   status: 'enabled' | 'disabled';
 }
 
+// ---------- Playbooks ----------
+
+export interface Playbook {
+  id: string; // file slug, e.g. 'weekly-investor-update'
+  name: string;
+  description: string;
+  version: string;
+  status: 'draft' | 'published';
+  ownerAgentId?: string;
+  mode: 'task' | 'swarm';
+  /** default profile to run as; undefined = executive chooses at run time */
+  assignee?: string;
+  body: string; // workflow instructions (markdown)
+  skills: string[];
+  /** swarm mode only */
+  workers?: string[];
+  verifier?: string;
+  synthesizer?: string;
+}
+
+export interface PlaybookRun {
+  id: string; // kanban task id
+  playbookId: string;
+  playbookVersion: string;
+  title: string;
+  assignee?: string;
+  state: WorkItem['state'];
+  createdAt: string;
+  completedAt?: string;
+  result?: string;
+}
+
 // ---------- Artifacts ----------
 
 export interface Artifact {

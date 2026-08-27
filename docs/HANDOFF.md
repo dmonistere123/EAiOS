@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** phases 1–5.3 committed, build clean, **25/25 vitest green** (`npm test`)
+**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** phases 1–5.4 committed, build clean, **27/27 vitest green** (`npm test`)
 
 ## What this is
 
@@ -27,10 +27,11 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 | Approvals | ✅ live | kanban tasks with JSON envelope in body (`{"eaios":"approval",...}`) — **kept UNASSIGNED on purpose** |
 | Today summary | ✅ live | computed from kanban |
 | Connections | ✅ live (empty) | `LiveComposioAdapter` → Composio REST v3 via vite proxy `/composio-api`, key injected server-side |
-| Skills | ✅ live | `skills.manage` RPC (names+categories only — 81 platform-enabled) enriched by vite middleware `/api/skills-index` (frontmatter walk of `~/.hermes/skills`); playbooks still mock |
+| Skills | ✅ live | `skills.manage` RPC (names+categories only — 81 platform-enabled) enriched by vite middleware `/api/skills-index` (frontmatter walk of `~/.hermes/skills`) |
+| Playbooks | ✅ live | versioned md in `~/eaios/playbooks/` via `/api/playbooks-index` middleware; runs = `kanban create`/`swarm` with `eaios-playbook: <id>@v<ver>` body marker; history = kanban marker query; run-confirm drawer (unassigned option = no execution) |
 | Knowledge | ✅ live | Python sidecar (`~/eaios/sidecar/server.py`, loopback :9121): upload/URL → extract (pymupdf/docx/pptx/html) → chunk → SQLite FTS5; app via `LiveKnowledgeAdapter` + `/knowledge-api` proxy; Add-source drawer, reindex/remove, **Try-retrieval panel + chunk drill-down drawer (5.3)**; agent path = `eaios-knowledge-retrieval` skill (curl with agent_id) |
 | Schedule | 🟡 hybrid | real cron overlay; executive calendar mock (needs Google OAuth) |
-| Usage, Artifacts, Env files, Playbooks | ⏳ mock | Phases 5–6 |
+| Usage, Artifacts, Env files | ⏳ mock | Phase 6 |
 
 ## Hard-won gotchas (don't relearn these)
 
@@ -45,6 +46,8 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 9. `cli.exec` RPC runs **only** `python -m hermes_cli.main <argv>` (hermes subcommands), not arbitrary shell — and `hermes skills list` has no `--json` (fixed-width table, truncated names).
 10. **Knowledge decisions locked (2026-08-26):** path A Python sidecar on loopback; **FTS5 keyword first, vectors later behind the same interface**. Scope enforcement is server-side on `/search` via `agent_id` (private withheld from agents; agent-scoped via `json_each(allowed_agent_ids)`); no agent_id = executive sees all. **Citation contract:** answers cite `eaios://chunk/<chunkId>` (resolves via `GET /chunks/<id>`); `citationEnabled=false` may inform but never be quoted. Agent path = `eaios-knowledge-retrieval` skill in ~/.hermes/skills/productivity. `uv` is NOT on background-shell PATH — use `~/.hermes/bin/uv`.
 11. Sidecar notes: FTS5 `snippet()` highlight marks are `«»`; bm25 score negated for ascending=best; multipart parsing is hand-rolled stdlib (no framework); upload cap 50MB; indexing is synchronous (fine for executive-size docs — revisit if bulk imports arrive).
+12. **A prior session left partial 5.4 work** (Playbook types, unused interface imports, a playbooks middleware, competitor-deep-dive.md with `title/purpose/type` frontmatter) — merged/normalized 2026-08-26 to the canonical schema: `name/description/version/status/mode/assignee/owner/skills/workers/verifier/synthesizer`. If the app behaves oddly around playbooks, check for other unmerged fragments first.
+13. `kanban create --json` returns the task object directly (`{id, assignee, status, ...}`); `kanban archive <id>` prints `Archived <id>`. Unassigned create → status `ready`, dispatcher does NOT pick it up (safe for verification). Archived playbook runs remain in history as state `cancelled` (honest record — e.g. verification run t_4714271b).
 
 ## Decisions locked
 
@@ -55,8 +58,8 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 1. ~~Skills → live~~ **DONE 2026-08-26** (81 real skills, `skills.manage` + `/api/skills-index`).
 2. ~~Knowledge/RAG~~ **DONE 2026-08-26 (milestone 1)** — sidecar + FTS5 + sources CRUD + Add-source UI. Retrieval enforcement + agent-facing query path still open.
 3. ~~Evidence/citation drill-down contract~~ **DONE 2026-08-26** — `/search` + `/chunks/<id>` live, scope enforcement verified (executive 3 / scout 2 / quill 1 on seeded test set), Try-retrieval UI + drill-down drawer, citation contract in `adapters/interfaces.ts`, `eaios-knowledge-retrieval` skill for agents. Remaining: answer→chunk link store once the Assistant page goes live (Phase 6).
-4. Playbooks: versioned md workflows; run via kanban (incl. `kanban swarm`); history from kanban runs.
-5. Tests + acceptance (spec §8.7/§8.8).
+4. ~~Playbooks~~ **DONE 2026-08-26** — 3 playbooks on disk (weekly-investor-update, monthly-expense-audit, competitor-deep-dive swarm), run via kanban create/swarm, history from marker query, run-confirm drawer + history UI. Open: swarm run never executed end-to-end (needs a real goal + executive consent); playbook edit/new-version UI not built (edit md on disk for now).
+5. Tests + acceptance (spec §8.7/§8.8) — **remaining Phase 5 item**.
 
 ## Open items awaiting the user
 

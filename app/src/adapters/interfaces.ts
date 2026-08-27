@@ -19,6 +19,8 @@ import type {
   WorkItem,
   KnowledgeSource,
   Skill,
+  Playbook,
+  PlaybookRun,
 } from '../domain/types';
 
 export type Unsubscribe = () => void;
@@ -90,6 +92,17 @@ export interface HermesAdapter {
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]>;
   getUsage(range: DateRange): Promise<UsageSummary>;
   listSkills(): Promise<Skill[]>;
+
+  listPlaybooks(): Promise<Playbook[]>;
+  /**
+   * Start a run: creates a kanban task (task mode) or swarm graph (swarm
+   * mode) whose body carries the playbook instructions plus an
+   * `eaios-playbook: <id>@v<version>` marker for history. Assigning to a
+   * profile means the kanban dispatcher WILL execute it — external writes
+   * still gate on approvals.
+   */
+  runPlaybook(playbookId: string, opts?: { assignee?: string }): Promise<AuditResult<PlaybookRun>>;
+  listPlaybookRuns(playbookId?: string): Promise<PlaybookRun[]>;
 
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]>;
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;

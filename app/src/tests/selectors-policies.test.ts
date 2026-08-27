@@ -16,6 +16,8 @@ const baseState = (): RuntimeState => ({
   activity: [] as ActivityEvent[],
   skills: [],
   knowledge: [],
+  playbooks: [],
+  playbookRuns: [],
   toasts: [],
 });
 

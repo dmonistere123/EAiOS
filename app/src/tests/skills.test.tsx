@@ -3,7 +3,7 @@
  * vitest env) hydrates the runtime skills slice; the Skills page renders
  * runtime skills in the skills tab and fixture playbooks in the other.
  */
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -46,8 +46,39 @@ describe('Skills page', () => {
     expect(screen.getByRole('tab', { name: /Skills \(\d+\)/ })).toHaveAttribute('aria-selected', 'true');
 
     // Playbooks tab: fixture playbook appears
-    await user.click(screen.getByRole('tab', { name: 'Playbooks' }));
+    await user.click(screen.getByRole('tab', { name: /Playbooks/ }));
     expect(await screen.findByText('Weekly Investor Update')).toBeInTheDocument();
     expect(screen.queryByText('competitor-news-monitor')).not.toBeInTheDocument();
+  });
+});
+
+describe('Playbooks (Phase 5.4, mock adapter)', () => {
+  it('runPlaybook creates a run and history reflects it', async () => {
+    const res = await hermes.runPlaybook('p-02', { assignee: 'ally' });
+    expect(res.ok).toBe(true);
+    const run = res.data!;
+    expect(run.playbookId).toBe('p-02');
+    expect(run.state).toBe('delegated');
+    const runs = await hermes.listPlaybookRuns('p-02');
+    expect(runs.some((r) => r.id === run.id)).toBe(true);
+  });
+
+  it('playbooks tab opens the run drawer and confirms through the adapter', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Skills />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('tab', { name: /Playbooks/ }));
+    expect(await screen.findByText('Monthly Expense Audit', undefined, { timeout: 4000 })).toBeInTheDocument();
+
+    const spy = vi.spyOn(hermes, 'runPlaybook');
+    const runButtons = await screen.findAllByRole('button', { name: 'Run' });
+    await user.click(runButtons[0]);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Confirm run/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 4000 });
   });
 });

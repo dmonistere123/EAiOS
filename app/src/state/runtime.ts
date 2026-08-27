@@ -5,7 +5,7 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource } from '../domain/types';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun } from '../domain/types';
 import { hermes, adapterMode, live, knowledge } from '../adapters';
 
 export interface Toast {
@@ -24,6 +24,8 @@ interface State {
   activity: ActivityEvent[];
   skills: Skill[];
   knowledge: KnowledgeSource[];
+  playbooks: Playbook[];
+  playbookRuns: PlaybookRun[];
   toasts: Toast[];
 }
 
@@ -37,6 +39,8 @@ let state: State = {
   activity: [],
   skills: [],
   knowledge: [],
+  playbooks: [],
+  playbookRuns: [],
   toasts: [],
 };
 
@@ -107,9 +111,17 @@ export async function refreshKnowledge() {
   await guarded('knowledge', () => knowledge.listSources(), (list) => set({ knowledge: list }));
 }
 
+export async function refreshPlaybooks() {
+  await guarded('playbooks', () => hermes.listPlaybooks(), (playbooks) => set({ playbooks }));
+}
+
+export async function refreshPlaybookRuns() {
+  await guarded('playbookRuns', () => hermes.listPlaybookRuns(), (playbookRuns) => set({ playbookRuns }));
+}
+
 export async function refreshAll() {
   // Per-slice tolerance: a failing slice must never take down the rest.
-  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge()]);
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns()]);
 }
 
 // ---------- boot + live event wiring ----------

@@ -6,7 +6,7 @@
 import type {
   Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent, Skill,
+  UsageSummary, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
@@ -196,6 +196,79 @@ class MockHermesAdapter implements HermesAdapter {
         version: r.version,
         status: 'enabled' as const,
       }));
+  }
+
+  // ----- playbooks (Phase 5.4) -----
+
+  private playbooks: Playbook[] = fx.skillsAndPlaybooks
+    .filter((r) => r.kind === 'playbook')
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.purpose,
+      version: r.version,
+      status: r.status,
+      ownerAgentId: r.ownerAgentId,
+      mode: 'task' as const,
+      body: `# ${r.name}\n\nMock workflow body — the live adapter reads the real markdown from ~/eaios/playbooks.`,
+      skills: [],
+    }));
+
+  private playbookRuns: PlaybookRun[] = [
+    {
+      id: 'run-seed-01',
+      playbookId: 'p-02',
+      playbookVersion: '1.2.0',
+      title: 'Playbook: Monthly Expense Audit v1.2.0',
+      assignee: 'ledger',
+      state: 'complete',
+      createdAt: new Date(Date.now() - 3 * 86400_000).toISOString(),
+      completedAt: new Date(Date.now() - 3 * 86400_000 + 540_000).toISOString(),
+      result: 'Digest archived; 4 anomalies (1 medium, 3 low).',
+    },
+  ];
+
+  async listPlaybooks(): Promise<Playbook[]> {
+    await delay();
+    return clone(this.playbooks);
+  }
+
+  async runPlaybook(playbookId: string, opts?: { assignee?: string }): Promise<AuditResult<PlaybookRun>> {
+    await delay(250);
+    const pb = this.playbooks.find((p) => p.id === playbookId);
+    if (!pb) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Playbook not found.', retryable: false } };
+    const assignee = opts?.assignee ?? pb.assignee;
+    const run: PlaybookRun = {
+      id: uid('run'),
+      playbookId: pb.id,
+      playbookVersion: pb.version,
+      title: `Playbook: ${pb.name} v${pb.version}`,
+      assignee,
+      state: assignee ? 'delegated' : 'ready',
+      createdAt: new Date().toISOString(),
+    };
+    this.playbookRuns = [run, ...this.playbookRuns];
+    this.emit('work.updated', assignee, `Playbook run started: ${pb.name}`);
+    if (assignee) {
+      // Simulate pickup + completion like delegateWork does.
+      setTimeout(() => {
+        this.playbookRuns = this.playbookRuns.map((r) => (r.id === run.id ? { ...r, state: 'in_progress' } : r));
+        this.emit('agent.started', assignee, `Running playbook ${pb.name}`);
+      }, 3000);
+      setTimeout(() => {
+        this.playbookRuns = this.playbookRuns.map((r) =>
+          r.id === run.id ? { ...r, state: 'complete', completedAt: new Date().toISOString(), result: 'Mock run complete.' } : r,
+        );
+        this.emit('agent.completed', assignee, `Playbook ${pb.name} finished`);
+      }, 8000);
+    }
+    return audit(clone(run));
+  }
+
+  async listPlaybookRuns(playbookId?: string): Promise<PlaybookRun[]> {
+    await delay();
+    const rows = playbookId ? this.playbookRuns.filter((r) => r.playbookId === playbookId) : this.playbookRuns;
+    return clone(rows);
   }
 
   async listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> {

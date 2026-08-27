@@ -11,7 +11,7 @@
 import type {
   Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill,
+  UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
@@ -527,6 +527,101 @@ class LiveHermesAdapter implements HermesAdapter {
       return out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     } catch {
       return this.fallback.listSkills(); // graceful degradation (spec §2)
+    }
+  }
+
+  // ----- LIVE: playbooks (Phase 5.4) -----
+  /**
+   * Definitions come from /api/playbooks-index (vite middleware over
+   * ~/eaios/playbooks/*.md); RUNS go through kanban. A run's body carries
+   * the instructions + an `eaios-playbook: <id>@v<version>` marker so
+   * history is just a kanban query — and the run shows up as a governed
+   * WorkItem (approvals still gate external writes).
+   */
+  private playbooksCache?: { at: number; playbooks: Playbook[] };
+  private static PLAYBOOK_MARKER = /eaios-playbook: ([\w-]+)@v([\d.]+)/;
+
+  private async playbookDefs(): Promise<Playbook[]> {
+    if (this.playbooksCache && Date.now() - this.playbooksCache.at < 30_000) return this.playbooksCache.playbooks;
+    const res = await fetch('/api/playbooks-index');
+    if (!res.ok) throw new Error(`playbooks-index HTTP ${res.status}`);
+    const data = (await res.json()) as { playbooks?: Playbook[] };
+    const playbooks = data.playbooks ?? [];
+    this.playbooksCache = { at: Date.now(), playbooks };
+    return playbooks;
+  }
+
+  async listPlaybooks(): Promise<Playbook[]> {
+    try {
+      return await this.playbookDefs();
+    } catch {
+      return this.fallback.listPlaybooks();
+    }
+  }
+
+  async runPlaybook(playbookId: string, opts?: { assignee?: string }): Promise<AuditResult<PlaybookRun>> {
+    const fail = (code: string, safeMessage: string, retryable: boolean): AuditResult<PlaybookRun> =>
+      ({ ok: false, auditEventId: `pb-err-${Date.now()}`, error: { code, safeMessage, retryable } });
+    try {
+      const pb = (await this.playbookDefs()).find((p) => p.id === playbookId);
+      if (!pb) return fail('not_found', 'Playbook not found.', false);
+      const assignee = opts?.assignee ?? pb.assignee;
+      const title = `Playbook: ${pb.name} v${pb.version}`;
+      const body = `${pb.body}\n\n---\neaios-playbook: ${pb.id}@v${pb.version}`;
+      let taskId: string;
+      if (pb.mode === 'swarm') {
+        if (!pb.verifier || !pb.synthesizer || !(pb.workers ?? []).length) {
+          return fail('invalid_playbook', 'Swarm playbooks need workers, a verifier, and a synthesizer.', false);
+        }
+        const argv = ['swarm', `${title}\n\n${body}`, '--verifier', pb.verifier, '--synthesizer', pb.synthesizer, '--json'];
+        for (const w of pb.workers ?? []) argv.push('--worker', w);
+        const out = await this.kanban<{ root_task_id?: string; id?: string; task_id?: string }>(argv);
+        taskId = out.root_task_id ?? out.id ?? out.task_id ?? 'unknown';
+      } else {
+        const argv = ['create', title, '--body', body, '--json'];
+        if (assignee) argv.push('--assignee', assignee);
+        for (const sk of pb.skills) argv.push('--skill', sk);
+        const out = await this.kanban<{ id?: string; task_id?: string }>(argv);
+        taskId = out.id ?? out.task_id ?? 'unknown';
+      }
+      this.invalidateTasks();
+      const run: PlaybookRun = {
+        id: taskId,
+        playbookId: pb.id,
+        playbookVersion: pb.version,
+        title,
+        assignee,
+        state: assignee ? 'delegated' : 'ready',
+        createdAt: new Date().toISOString(),
+      };
+      return { ok: true, data: run, auditEventId: `pb-run-${taskId}` };
+    } catch (e) {
+      return fail('run_failed', e instanceof Error ? e.message : 'Playbook run failed.', true);
+    }
+  }
+
+  async listPlaybookRuns(playbookId?: string): Promise<PlaybookRun[]> {
+    try {
+      const rows: PlaybookRun[] = [];
+      for (const t of await this.kanbanTasks()) {
+        const m = t.body?.match(LiveHermesAdapter.PLAYBOOK_MARKER);
+        if (!m) continue;
+        if (playbookId && m[1] !== playbookId) continue;
+        rows.push({
+          id: t.id,
+          playbookId: m[1],
+          playbookVersion: m[2],
+          title: t.title,
+          assignee: t.assignee ?? undefined,
+          state: kanbanState[t.status] ?? 'new',
+          createdAt: epochToIso(t.created_at) ?? new Date().toISOString(),
+          completedAt: epochToIso(t.completed_at ?? undefined),
+          result: t.result ?? undefined,
+        });
+      }
+      return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    } catch {
+      return this.fallback.listPlaybookRuns(playbookId);
     }
   }
 
