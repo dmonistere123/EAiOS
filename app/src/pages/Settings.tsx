@@ -89,30 +89,28 @@ export default function Settings() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
-          <SectionTitle>Model defaults</SectionTitle>
+          <SectionTitle right={<StateBadge label="mock — live write lands with agent factory (6.5)" tone="warn" />}>Model defaults</SectionTitle>
           <label className="block text-xs text-ink-dim" htmlFor="def-model">Default model for new agents</label>
-          <select id="def-model" className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink">
+          <select id="def-model" disabled className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink opacity-50">
             <option>kimi-coding / kimi-k3</option>
-            <option>anthropic / claude-sonnet-4.6</option>
-            <option>openai / gpt-5.2</option>
           </select>
-          <button className="mt-3 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90" onClick={() => toast('ok', 'Model default saved. Audit event recorded.')}>Save</button>
+          <p className="mt-2 text-xs text-ink-faint">Model writes go through <code className="text-signal">profiles.configure</code> with the live <code className="text-signal">model.options</code> catalog — arriving with the agent factory, not as a hardcoded list.</p>
         </Card>
 
         <Card className="p-5">
-          <SectionTitle>Approval defaults</SectionTitle>
+          <SectionTitle right={<StateBadge label="mock — policy editor not live yet" tone="warn" />}>Approval defaults</SectionTitle>
           {[
             ['External sends (email, messages)', true],
             ['Publishing (web, social)', true],
             ['Deletes & destructive updates', true],
             ['Reads & retrieval', false],
           ].map(([label, on]) => (
-            <label key={label as string} className="mt-2 flex items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink-dim">
+            <label key={label as string} className="mt-2 flex items-center justify-between rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink-dim opacity-60">
               {label}
-              <input type="checkbox" defaultChecked={on as boolean} className="accent-[#32c5ff]" aria-label={`Require approval: ${label}`} />
+              <input type="checkbox" defaultChecked={on as boolean} disabled className="accent-[#32c5ff]" aria-label={`Require approval: ${label}`} />
             </label>
           ))}
-          <button className="mt-3 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90" onClick={() => toast('ok', 'Approval policy saved. Audit event recorded.')}>Save policy</button>
+          <p className="mt-2 text-xs text-ink-faint">These reflect the built-in workspace policy (domain/policies.ts). An editable, persisted policy surface is a deferred roadmap item — this card never claimed a save it didn't make.</p>
         </Card>
 
         <Card className="p-5">

@@ -227,6 +227,16 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
 
 const epochToIso = (secs?: number) => (secs ? new Date(secs * 1000).toISOString() : undefined);
 
+/** FNV-1a 32-bit hex — content hash for env-file optimistic concurrency. */
+function contentHash(text: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
+
 /** /api/usage middleware response (state.db session_model_usage aggregates). */
 export interface UsageIndexResponse {
   range: { from: string; to: string };
@@ -678,9 +688,58 @@ class LiveHermesAdapter implements HermesAdapter {
       return this.fallback.getUsage(range); // graceful degradation (spec §2)
     }
   }
-  listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> { return this.fallback.listEditableEnvironmentFiles(); }
-  readEnvironmentFile(id: string): Promise<EnvironmentFile> { return this.fallback.readEnvironmentFile(id); }
-  writeEnvironmentFile(id: string, v: string, c: string): Promise<AuditResult> { return this.fallback.writeEnvironmentFile(id, v, c); }
+  // ----- LIVE: environment files (Phase 6.2) -----
+  /**
+   * D4 allowlist: SOUL.md of each Hermes profile — the only .MD the gateway
+   * exposes (profiles.describe returns `soul`; profiles.configure writes it).
+   * No generic file RPC exists, and the mock's ALLY.md/OPERATING_RULES.txt
+   * never existed on disk — the live list shows exactly what the host
+   * supports. lastModifiedAt is omitted (no mtime in the RPC).
+   */
+  async listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> {
+    try {
+      const res = await this.rpc.call<{ profiles: HermesProfile[] }>('profiles.list');
+      return (res.profiles ?? []).map((p) => ({
+        id: `soul-${p.name}`,
+        name: p.is_default ? 'SOUL.md (Ally — default profile)' : `SOUL.md (${p.display_name || p.name})`,
+        path: p.is_default ? '~/.hermes/SOUL.md' : `~/.hermes/profiles/${p.name}/SOUL.md`,
+      }));
+    } catch {
+      return this.fallback.listEditableEnvironmentFiles(); // graceful degradation (spec §2)
+    }
+  }
+
+  async readEnvironmentFile(id: string): Promise<EnvironmentFile> {
+    const profile = id.replace(/^soul-/, '');
+    try {
+      const d = await this.rpc.call<{ soul?: string }>('profiles.describe', { name: profile });
+      const content = d.soul ?? '';
+      const refs = await this.listEditableEnvironmentFiles();
+      const ref = refs.find((r) => r.id === id) ?? { id, name: `SOUL.md (${profile})`, path: `~/.hermes/profiles/${profile}/SOUL.md` };
+      return { ref, content, version: contentHash(content) };
+    } catch {
+      return this.fallback.readEnvironmentFile(id); // graceful degradation (spec §2)
+    }
+  }
+
+  /**
+   * Read-compare-write against the gateway. NOT atomic — the host has no
+   * soul write precondition, so the CAS window is the editor's save click
+   * (recorded in docs/phase6-brief.md §6.2; fine at executive scale).
+   */
+  async writeEnvironmentFile(id: string, expectedVersion: string, content: string): Promise<AuditResult> {
+    const profile = id.replace(/^soul-/, '');
+    try {
+      const fresh = await this.rpc.call<{ soul?: string }>('profiles.describe', { name: profile });
+      if (contentHash(fresh.soul ?? '') !== expectedVersion) {
+        return { ok: false, auditEventId: `env-conflict-${id}-${Date.now()}`, error: { code: 'version_conflict', safeMessage: 'File changed since you opened it. Reload before saving.', retryable: true } };
+      }
+      await this.rpc.call('profiles.configure', { name: profile, soul: content });
+      return { ok: true, auditEventId: `env-write-${id}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `env-err-${Date.now()}`, error: { code: 'env_write_failed', safeMessage: e instanceof Error ? e.message : 'Save failed.', retryable: true } };
+    }
+  }
 }
 
 export const live = new LiveHermesAdapter();

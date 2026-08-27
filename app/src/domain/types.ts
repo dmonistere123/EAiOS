@@ -311,7 +311,7 @@ export interface EnvironmentFileRef {
   id: string;
   name: string;
   path: string;
-  lastModifiedAt: string;
+  lastModifiedAt?: string; // optional: the live RPC surface has no mtime source
 }
 
 export interface EnvironmentFile {

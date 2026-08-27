@@ -74,14 +74,58 @@ and sketches the rest; later items get detailed here when they start.
 
 ---
 
-## 6.2 Settings/env files → live (§8.11) — sketch
+## 6.2 Settings/env files → live (§8.11) — DETAILED 2026-08-26
 
-Allowlisted `.MD`/`.TXT` read/write through the gateway where a file RPC
-exists, else a dev middleware over an explicit allowlist recorded in-repo
-(D4). `expectedVersion` optimistic concurrency already specified by mock
-tests. Writes audited (`config.changed`). Probe first: does the gateway expose
-file read/write? If not, middleware + allowlist is the fallback and the gap
-is documented.
+**Probe results (live box):**
+- No generic file read/write RPC exists. `profiles.get_asset/set_asset` =
+  avatar images only. `config.get` is key-limited (provider/etc.); there is
+  no `config.yaml` write RPC.
+- **`profiles.describe` returns `soul`** (verified: default profile, 514
+  chars) and **`profiles.configure` accepts `soul`** (full SOUL.md
+  replacement). This is the native env-file surface.
+- Mock fixture files (ALLY.md, OPERATING_RULES.txt) **do not exist on disk** —
+  the mock invented them. Real allowlisted file on this box: `SOUL.md` per
+  profile (`~/.hermes/SOUL.md` for default).
+
+**Design:**
+- **D4 allowlist (recorded here, in-repo):** `SOUL.md` of each Hermes
+  profile. Ids: `soul-<profileName>`. Nothing else is listed until a host
+  surface exists for it — the allowlist grows by explicit decision, never by
+  globbing the filesystem.
+- Read: `profiles.describe` → content + version (content hash).
+  `lastModifiedAt` has no RPC source → domain type makes it **optional**
+  (mock still provides it; live omits — honest absence).
+- Write: adapter-side read-compare-write — fresh `profiles.describe`, hash
+  compare against `expectedVersion`, then `profiles.configure {soul}`.
+  **Non-atomic CAS window documented** (host has no soul precondition; the
+  window is the editor's save click — acceptable at executive scale, noted
+  here so nobody believes it's transactional).
+- Audit: synthetic id `env-write-<id>-<ts>` (same pattern as live cron/kanban
+  mutations; §10.1 AuditResult contract held).
+- Mock parity: mock keeps its two fixture files; contract tests in
+  interactions.test.tsx (stale-version reject, good-version accept) already
+  cover the contract and stay green.
+- **Honesty fix in scope:** the Settings page's "Model defaults" and
+  "Approval defaults" cards are mock UI whose Save buttons toast fake
+  success + fake audit events. They get honest "not live yet" badges and the
+  lying toasts are removed (model default lands properly with 6.5's
+  `model.options` catalog; policy editor is F2-adjacent).
+- **F15 (usage budget)** lands here as a second commit: no host config-write
+  RPC → EAiOS-owned `~/eaios/settings.local.json` (gitignored) behind an
+  `/api/eaios-settings` middleware with a server-side key allowlist
+  (`usageBudgetUsd` only). Adapter `setUsageBudget`; Usage page budget card
+  becomes an editor; `getUsage` merges the stored budget.
+
+**Acceptance:**
+- [ ] Settings lists SOUL.md live; opening shows real content (514+ chars,
+      not the mock text); save round-trips through the gateway and re-read
+      shows the new content.
+- [ ] Stale expectedVersion → `version_conflict` error, no write (unit).
+- [ ] Gateway down → mock fallback list (unit).
+- [ ] Model/Approval cards no longer claim fake saves.
+- [ ] Budget: set → persists across reload → Usage page shows bar; unset →
+      "No budget set". F15 closed in ROADMAP.
+- [ ] `npm test` + `npm run test:sidecar` + build green.
 
 ## 6.3 Artifacts → live (§8.9) — sketch
 
