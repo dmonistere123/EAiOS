@@ -251,11 +251,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("content-type", "application/json")
-        self.send_header("content-length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client disconnected mid-response — nothing to report
 
     def _read_body(self) -> bytes:
         n = int(self.headers.get("content-length", 0))
