@@ -72,6 +72,48 @@ describe('live adapter getUsage — graceful degradation (spec §2)', () => {
   });
 });
 
+describe('usage budget (F15)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('live getUsage merges the stored budget; settings failure leaves it unset', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/usage')) return { ok: true, json: async () => idxResponse() };
+      if (url === '/api/eaios-settings') return { ok: true, json: async () => ({ usageBudgetUsd: 500 }) };
+      throw new Error(`unexpected ${url}`);
+    }));
+    const u = await live.getUsage({ from: '2026-08-01T00:00:00Z', to: '2026-08-26T00:00:00Z' });
+    expect(u.budgetUsd).toBe(500);
+
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.startsWith('/api/usage')) return { ok: true, json: async () => idxResponse() };
+      throw new Error('settings down');
+    }));
+    const u2 = await live.getUsage({ from: '2026-08-01T00:00:00Z', to: '2026-08-26T00:00:00Z' });
+    expect(u2.budgetUsd).toBeUndefined(); // honest absence, totals still render
+    expect(u2.inputTokens).toBe(1000);
+  });
+
+  it('live setUsageBudget PUTs and reports errors instead of pretending', async () => {
+    const put = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal('fetch', put);
+    const ok = await live.setUsageBudget(250);
+    expect(ok.ok).toBe(true);
+    expect(put).toHaveBeenCalledWith('/api/eaios-settings', expect.objectContaining({ method: 'PUT' }));
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500 })));
+    const bad = await live.setUsageBudget(250);
+    expect(bad.ok).toBe(false);
+    expect(bad.error?.code).toBe('settings_write_failed');
+  });
+
+  it('mock setUsageBudget updates the fixture so getUsage reflects it', async () => {
+    const before = (await hermes.getUsage({ from: '', to: '' })).budgetUsd;
+    await hermes.setUsageBudget(777);
+    expect((await hermes.getUsage({ from: '', to: '' })).budgetUsd).toBe(777);
+    await hermes.setUsageBudget(before ?? null); // restore for other tests
+  });
+});
+
 describe('usage slice (mock adapter contract)', () => {
   it('getUsage returns a labeled summary with by-agent rows', async () => {
     const u = await hermes.getUsage({ from: '2026-08-01T00:00:00Z', to: '2026-08-26T00:00:00Z' });

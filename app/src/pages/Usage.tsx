@@ -1,8 +1,67 @@
 /** Usage — tokens, cost, budget. Estimated vs authoritative is always labeled. */
-import { useRuntime, agentName } from '../state/runtime';
+import { useState } from 'react';
+import { hermes } from '../adapters';
+import { useRuntime, agentName, refreshUsage, toast } from '../state/runtime';
 import { Card, KpiCard, RelativeTime, SectionTitle, StateBadge } from '../components/ui';
 
 const fmt = (n: number) => n.toLocaleString();
+
+/** Monthly budget KPI with inline editor (F15 — EAiOS-owned settings store). */
+function BudgetCard({ budgetUsd }: { budgetUsd?: number }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const save = async (value: number | null) => {
+    setSaving(true);
+    const res = await hermes.setUsageBudget(value);
+    setSaving(false);
+    if (res.ok) {
+      toast('ok', value === null ? 'Budget cleared.' : `Budget set to $${value}.`);
+      setEditing(false);
+      void refreshUsage();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Budget save failed.');
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-edge bg-canvas-raised p-5">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Monthly budget</div>
+        {!editing && (
+          <button onClick={() => { setDraft(budgetUsd ? String(budgetUsd) : ''); setEditing(true); }} className="text-[11px] text-signal hover:underline">
+            {budgetUsd ? 'Edit' : 'Set'}
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <form
+          className="mt-2 flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = Number(draft);
+            if (Number.isFinite(v) && v > 0) void save(Math.round(v));
+          }}
+        >
+          <input
+            type="number" min="1" step="1" required autoFocus value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            aria-label="Monthly budget in USD"
+            className="w-24 rounded-lg border border-edge bg-canvas px-2 py-1 text-sm text-ink"
+          />
+          <button type="submit" disabled={saving} className="rounded-lg bg-signal px-2.5 py-1 text-xs font-semibold text-canvas disabled:opacity-50">Save</button>
+          {budgetUsd !== undefined && (
+            <button type="button" disabled={saving} onClick={() => void save(null)} className="text-xs text-warn hover:underline">Clear</button>
+          )}
+          <button type="button" onClick={() => setEditing(false)} className="text-xs text-ink-faint hover:text-ink-dim">Cancel</button>
+        </form>
+      ) : (
+        <div className="mt-2 text-3xl font-semibold text-signal">{budgetUsd ? `$${budgetUsd}` : 'No budget set'}</div>
+      )}
+    </div>
+  );
+}
 
 export default function Usage() {
   const s = useRuntime();
@@ -33,7 +92,7 @@ export default function Usage() {
         <KpiCard label="Input tokens" value={fmt(u.inputTokens)} />
         <KpiCard label="Output tokens" value={fmt(u.outputTokens)} />
         <KpiCard label="Cost to date" value={u.costUsd !== undefined ? `$${u.costUsd.toFixed(2)}` : 'Not provided'} hint={u.costUsd !== undefined ? (u.costIsAuthoritative ? 'from provider billing' : 'estimate') : 'provider reports no pricing'} tone={u.costIsAuthoritative ? 'ok' : 'warn'} />
-        <KpiCard label="Monthly budget" value={u.budgetUsd ? `$${u.budgetUsd}` : 'No budget set'} />
+        <BudgetCard budgetUsd={u.budgetUsd} />
       </div>
 
       {budgetPct !== null && (

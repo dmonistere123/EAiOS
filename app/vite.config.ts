@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
@@ -249,6 +249,73 @@ function usageMiddleware() {
   }
 }
 
+/**
+ * Dev-only middleware: GET/PUT /api/eaios-settings — EAiOS-owned settings
+ * (Phase 6.2, F15 usage budget). The gateway has no generic config-write
+ * RPC, and these are EAiOS concerns (not Hermes'), so they live in
+ * ~/eaios/settings.local.json (gitignored). Server-side key allowlist —
+ * arbitrary keys are rejected, never written. Writes are atomic
+ * (tmp + rename). No secrets: do NOT allowlist anything credential-shaped.
+ */
+function eaiosSettingsMiddleware() {
+  const file = join(__dirname, '..', 'settings.local.json')
+  const ALLOWED = new Set(['usageBudgetUsd'])
+
+  const readAll = (): Record<string, unknown> => {
+    try {
+      const parsed = JSON.parse(readFileSync(file, 'utf8'))
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {} // missing/corrupt file = empty settings, never a 500
+    }
+  }
+
+  return {
+    name: 'eaios-settings',
+    configureServer(server: { middlewares: { use: (path: string, fn: (req: { method?: string; on: (ev: string, cb: (chunk?: Buffer) => void) => void }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }) => void) => void } }) {
+      server.middlewares.use('/api/eaios-settings', (req, res) => {
+        res.setHeader('content-type', 'application/json')
+        if (req.method === 'PUT') {
+          let body = ''
+          req.on('data', (chunk) => { body += chunk })
+          req.on('end', () => {
+            try {
+              const patch = JSON.parse(body || '{}')
+              const keys = Object.keys(patch)
+              if (!keys.length || keys.some((k) => !ALLOWED.has(k))) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: `keys must be within: ${[...ALLOWED].join(', ')}` }))
+                return
+              }
+              if (patch.usageBudgetUsd !== null && (typeof patch.usageBudgetUsd !== 'number' || !(patch.usageBudgetUsd > 0))) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'usageBudgetUsd must be a positive number or null' }))
+                return
+              }
+              const next = readAll()
+              for (const k of keys) {
+                if (patch[k] === null) delete next[k]
+                else next[k] = patch[k]
+              }
+              const tmp = `${file}.tmp`
+              writeFileSync(tmp, JSON.stringify(next, null, 2))
+              renameSync(tmp, file)
+              res.statusCode = 200
+              res.end(JSON.stringify(next))
+            } catch (e) {
+              res.statusCode = 500
+              res.end(JSON.stringify({ error: String(e) }))
+            }
+          })
+          return
+        }
+        res.statusCode = 200
+        res.end(JSON.stringify(readAll()))
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Node-side env (NOT inlined into the client bundle — safe for secrets).
@@ -256,7 +323,7 @@ export default defineConfig(({ mode }) => {
   const composioKey = env.COMPOSIO_API_KEY ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware(), eaiosSettingsMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

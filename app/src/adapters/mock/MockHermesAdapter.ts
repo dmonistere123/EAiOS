@@ -184,6 +184,14 @@ class MockHermesAdapter implements HermesAdapter {
 
   async getUsage(_range: DateRange): Promise<UsageSummary> { await delay(); return clone(fx.usageSummary); }
 
+  /** F15: mock budget lives in the fixture — edits persist for the session. */
+  async setUsageBudget(budgetUsd: number | null): Promise<AuditResult> {
+    await delay(150);
+    fx.usageSummary.budgetUsd = budgetUsd ?? undefined;
+    this.emit('config.changed', undefined, budgetUsd === null ? 'Usage budget cleared' : `Usage budget set to $${budgetUsd}`);
+    return audit();
+  }
+
   async listSkills(): Promise<Skill[]> {
     await delay();
     return fx.skillsAndPlaybooks

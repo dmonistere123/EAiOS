@@ -91,6 +91,8 @@ export interface HermesAdapter {
 
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]>;
   getUsage(range: DateRange): Promise<UsageSummary>;
+  /** Set (or clear, with null) the EAiOS-owned monthly usage budget (F15). */
+  setUsageBudget(budgetUsd: number | null): Promise<AuditResult>;
   listSkills(): Promise<Skill[]>;
 
   listPlaybooks(): Promise<Playbook[]>;

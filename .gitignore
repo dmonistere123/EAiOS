@@ -2,3 +2,6 @@ node_modules/
 sidecar/.venv/
 sidecar/data/
 sidecar/__pycache__/
+# EAiOS-owned local settings (Phase 6.2 F15) — per-machine, never committed
+settings.local.json
+settings.local.json.tmp

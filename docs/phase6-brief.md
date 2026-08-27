@@ -116,16 +116,22 @@ and sketches the rest; later items get detailed here when they start.
   (`usageBudgetUsd` only). Adapter `setUsageBudget`; Usage page budget card
   becomes an editor; `getUsage` merges the stored budget.
 
-**Acceptance:**
-- [ ] Settings lists SOUL.md live; opening shows real content (514+ chars,
+**Acceptance — ALL MET 2026-08-26:**
+- [x] Settings lists SOUL.md live; opening shows real content (514+ chars,
       not the mock text); save round-trips through the gateway and re-read
-      shows the new content.
-- [ ] Stale expectedVersion → `version_conflict` error, no write (unit).
-- [ ] Gateway down → mock fallback list (unit).
-- [ ] Model/Approval cards no longer claim fake saves.
-- [ ] Budget: set → persists across reload → Usage page shows bar; unset →
-      "No budget set". F15 closed in ROADMAP.
-- [ ] `npm test` + `npm run test:sidecar` + build green.
+      shows the new content. **Verified:** `profiles.configure` round-trip on
+      the live box (`applied:{soul:true}`, content identical after); page
+      lists "SOUL.md (Ally — default profile)" live.
+- [x] Stale expectedVersion → `version_conflict` error, no write (unit —
+      asserts `profiles.configure` never fires).
+- [x] Gateway down → mock fallback list (unit).
+- [x] Model/Approval cards no longer claim fake saves (badges + disabled
+      controls; test asserts the fake Save buttons are gone).
+- [x] Budget: set → persists across reload → Usage page shows bar; unset →
+      "No budget set". **Verified:** PUT 500 → GET 500 → on disk; bad key /
+      bad value → 400; live page shows $500 with Edit. F15 closed in ROADMAP.
+- [x] `npm test` + `npm run test:sidecar` + build green. **47 vitest +
+      8 sidecar, build clean.**
 
 ## 6.3 Artifacts → live (§8.9) — sketch
 

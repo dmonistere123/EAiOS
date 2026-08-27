@@ -683,9 +683,36 @@ class LiveHermesAdapter implements HermesAdapter {
     try {
       const res = await fetch(`/api/usage?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`);
       if (!res.ok) throw new Error(`usage index ${res.status}`);
-      return mapUsageResponse((await res.json()) as UsageIndexResponse);
+      const summary = mapUsageResponse((await res.json()) as UsageIndexResponse);
+      // EAiOS-owned budget rides alongside (F15) — optional enrichment,
+      // exactly like the skills-index pattern: missing = no budget set.
+      try {
+        const s = await fetch('/api/eaios-settings');
+        if (s.ok) {
+          const settings = (await s.json()) as { usageBudgetUsd?: number };
+          if (typeof settings.usageBudgetUsd === 'number') summary.budgetUsd = settings.usageBudgetUsd;
+        }
+      } catch {
+        // settings unavailable — budget stays unset, totals still render
+      }
+      return summary;
     } catch {
       return this.fallback.getUsage(range); // graceful degradation (spec §2)
+    }
+  }
+
+  /** Writes go to the EAiOS settings store; failure = error, never mock-pretend. */
+  async setUsageBudget(budgetUsd: number | null): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/eaios-settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ usageBudgetUsd: budgetUsd }),
+      });
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      return { ok: true, auditEventId: `settings-budget-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Budget save failed.', retryable: true } };
     }
   }
   // ----- LIVE: environment files (Phase 6.2) -----
