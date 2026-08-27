@@ -1,31 +1,71 @@
-/** My Assistant — Ally: conversation + visible orchestration (not just chat). */
+/** My Assistant — Ally: live conversation + visible orchestration (spec §8.2). */
+import { useEffect, useRef, useState } from 'react';
+import type { ChatMessage } from '../domain/types';
+import { hermes } from '../adapters';
 import { Card, SectionTitle, StateBadge, AgentStatusBadge, IndeterminateBar } from '../components/ui';
-import { useRuntime, agentName, selectPendingApprovals } from '../state/runtime';
-
-const THREAD = [
-  { from: 'you' as const, text: 'Ally, get the September investor update ready to send by tomorrow.' },
-  { from: 'ally' as const, text: 'On it. I\'ve pulled the Q3 metrics from Ledger\'s last digest and I\'m drafting with Quill. Plan: (1) metrics summary, (2) narrative draft, (3) your approval before anything sends.' },
-  { from: 'you' as const, text: 'Keep the tone confident but conservative on pipeline numbers.' },
-  { from: 'ally' as const, text: 'Noted — I\'ve removed the unaudited pipeline figure and flagged it in the approval diff. Draft is ~70% done; I\'ll route it to Approvals when ready.' },
-];
-
-const PLAN = [
-  { step: 1, title: 'Compile Q3 metrics', agentId: 'ledger', state: 'complete' as const },
-  { step: 2, title: 'Draft narrative + metrics email', agentId: 'ally', state: 'in_progress' as const },
-  { step: 3, title: 'Executive approval → send', agentId: 'ally', state: 'ready' as const },
-];
+import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
 
 export default function Assistant() {
   const s = useRuntime();
-  const ally = s.agents.find((a) => a.id === 'ally');
+  const ally = s.agents.find((a) => a.id === 'ally' || a.id === 'default');
   const approvals = selectPendingApprovals(s);
+  const [thread, setThread] = useState<ChatMessage[]>([]);
+  const [streaming, setStreaming] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate the authoritative history once, then ride streaming events.
+  useEffect(() => {
+    void hermes.getAssistantHistory().then(setThread);
+    const unsub = hermes.subscribeAssistant((e) => {
+      if (e.kind === 'start') setStreaming('');
+      else if (e.kind === 'delta') setStreaming((t) => (t ?? '') + e.text);
+      else if (e.kind === 'complete') {
+        setStreaming(null);
+        void hermes.getAssistantHistory().then(setThread); // authoritative, deduped by row_id
+      } else if (e.kind === 'error') {
+        setStreaming(null);
+        toast('error', e.message);
+      }
+    });
+    return unsub;
+  }, []);
+
+  // Keep the latest exchange in view.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [thread, streaming]);
+
+  const send = async () => {
+    const text = draft.trim();
+    if (!text || sending || streaming !== null) return;
+    setSending(true);
+    setDraft('');
+    const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text, at: new Date().toISOString() };
+    setThread((t) => [...t, optimistic]);
+    const res = await hermes.sendAssistantMessage(text);
+    setSending(false);
+    if (!res.ok) {
+      setThread((t) => t.filter((m) => m.id !== optimistic.id)); // never pretend it sent
+      toast('error', res.error?.safeMessage ?? 'Message failed to send.');
+    }
+  };
+
+  const busy = sending || streaming !== null;
+  const activeWork = s.work
+    .filter((w) => w.state === 'in_progress' || w.state === 'waiting_approval')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 5);
+  const knowledgeReady = s.knowledge.filter((k) => k.indexingStatus === 'ready').length;
+  const knowledgeIndexing = s.knowledge.filter((k) => k.indexingStatus === 'processing').length;
 
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My Assistant</h1>
-          <p className="mt-1 text-sm text-ink-dim">Ally — chief of staff. Conversation plus what it\'s actually doing.</p>
+          <p className="mt-1 text-sm text-ink-dim">Ally — chief of staff. Conversation plus what it's actually doing.</p>
         </div>
         {ally && <AgentStatusBadge status={ally.status} />}
       </header>
@@ -34,55 +74,73 @@ export default function Assistant() {
         {/* conversation */}
         <Card className="flex flex-col p-4 xl:col-span-3">
           <SectionTitle>Conversation</SectionTitle>
-          <div className="flex-1 space-y-3 overflow-y-auto">
-            {THREAD.map((m, i) => (
-              <div key={i} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.from === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
-                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.from === 'you' ? 'You' : 'Ally'}</div>
-                {m.text}
+          <div ref={scrollRef} className="max-h-[52vh] flex-1 space-y-3 overflow-y-auto">
+            {thread.length === 0 && streaming === null && (
+              <p className="text-xs text-ink-faint">Starting a conversation with Ally…</p>
+            )}
+            {thread.map((m) => (
+              <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</div>
+                <div className="whitespace-pre-wrap">{m.text}</div>
               </div>
             ))}
-            {ally?.status === 'working' && (
-              <div className="max-w-[85%] rounded-xl bg-canvas-overlay px-4 py-2.5">
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Ally is working</div>
-                <IndeterminateBar />
+            {streaming !== null && (
+              <div className="max-w-[85%] rounded-xl bg-canvas-overlay px-4 py-2.5 text-sm text-ink">
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Ally</div>
+                {streaming ? <div className="whitespace-pre-wrap">{streaming}</div> : <IndeterminateBar />}
               </div>
             )}
           </div>
-          <div className="mt-4 flex gap-2">
+          <form
+            className="mt-4 flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send();
+            }}
+          >
             <input
-              placeholder="Message Ally… (mock mode — wires to prompt.submit in Phase 2)"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder={busy ? 'Ally is responding…' : 'Message Ally…'}
               aria-label="Message Ally"
               className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
             />
-            <button className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90">Send</button>
-          </div>
+            <button type="submit" disabled={busy || !draft.trim()} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+              Send
+            </button>
+          </form>
         </Card>
 
         {/* orchestration */}
         <div className="space-y-4 xl:col-span-2">
           <Card className="p-4">
-            <SectionTitle>Current orchestration plan</SectionTitle>
-            <ol className="space-y-3">
-              {PLAN.map((p) => (
-                <li key={p.step} className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-edge bg-canvas text-[11px] text-ink-dim">{p.step}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-ink">{p.title}</div>
-                    <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-faint">
-                      {agentName(s, p.agentId)} <StateBadge label={p.state.replace('_', ' ')} tone={p.state === 'complete' ? 'ok' : p.state === 'in_progress' ? 'signal' : 'neutral'} />
+            <SectionTitle>Current orchestration</SectionTitle>
+            {activeWork.length === 0 ? (
+              <p className="text-xs text-ink-dim">No active agent work right now.</p>
+            ) : (
+              <ol className="space-y-3">
+                {activeWork.map((w, i) => (
+                  <li key={w.id} className="flex items-start gap-3">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-edge bg-canvas text-[11px] text-ink-dim">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-ink">{w.title}</div>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-faint">
+                        {w.ownerId ? agentName(s, w.ownerId) : 'Executive'} <StateBadge label={w.state.replace('_', ' ')} tone={w.state === 'in_progress' ? 'signal' : 'warn'} />
+                      </div>
                     </div>
-                  </div>
-                </li>
-              ))}
-            </ol>
+                  </li>
+                ))}
+              </ol>
+            )}
           </Card>
 
           <Card className="p-4">
             <SectionTitle>Context in scope</SectionTitle>
             <ul className="space-y-1.5 text-xs text-ink-dim">
               <li>Workspace: <span className="text-ink">EAiOS</span></li>
-              <li>Knowledge: <span className="text-ink">3 sources ready, 1 indexing</span></li>
-              <li>Connected apps: <span className="text-ink">Gmail, Calendar, Mailchimp</span></li>
+              <li>
+                Knowledge: <span className="text-ink">{knowledgeReady} source{knowledgeReady === 1 ? '' : 's'} ready{knowledgeIndexing ? `, ${knowledgeIndexing} indexing` : ''}</span>
+              </li>
             </ul>
           </Card>
 

@@ -9,7 +9,9 @@ import type {
   Approval,
   ApprovalDecision,
   Artifact,
+  AssistantEvent,
   AuditResult,
+  ChatMessage,
   CronJob,
   EnvironmentFile,
   EnvironmentFileRef,
@@ -113,6 +115,14 @@ export interface HermesAdapter {
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]>;
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;
   writeEnvironmentFile(id: string, expectedVersion: string, content: string): Promise<AuditResult>;
+
+  // ---------- Assistant chat (Phase 6.4a) ----------
+  /** Authoritative conversation with Ally (hydrates the chat on load). */
+  getAssistantHistory(): Promise<ChatMessage[]>;
+  /** Send a message to Ally; her reply arrives via subscribeAssistant events. */
+  sendAssistantMessage(text: string): Promise<AuditResult>;
+  /** Streaming chat events for the EAiOS assistant session ONLY — other sessions' events never surface here. */
+  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe;
 }
 
 // ---------- Composio (mock until Phase 4) ----------

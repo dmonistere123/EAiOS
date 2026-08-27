@@ -4,7 +4,7 @@
  * live in mock mode (spec §13: mocks are acceptance fixtures, not filler).
  */
 import type {
-  Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
+  Agent, Approval, ApprovalDecision, Artifact, AssistantEvent, AuditResult, ChatMessage, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
   UsageSummary, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
@@ -311,6 +311,40 @@ class MockHermesAdapter implements HermesAdapter {
     await delay();
     const rows = playbookId ? this.playbookRuns.filter((r) => r.playbookId === playbookId) : this.playbookRuns;
     return clone(rows);
+  }
+
+  // ----- mock assistant chat (Phase 6.4a) -----
+  private assistantThread: ChatMessage[] = [
+    { id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() },
+  ];
+  private assistantHandlers = new Set<(e: AssistantEvent) => void>();
+
+  async getAssistantHistory(): Promise<ChatMessage[]> {
+    await delay();
+    return clone(this.assistantThread);
+  }
+
+  /** Mock send: appends the user message, then streams a canned Ally reply. */
+  async sendAssistantMessage(text: string): Promise<AuditResult> {
+    await delay(120);
+    this.assistantThread.push({ id: `m-${Date.now()}-u`, role: 'you', text, at: new Date().toISOString() });
+    const reply = `On it — "${text.slice(0, 60)}". (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.)`;
+    const emit = (e: AssistantEvent) => this.assistantHandlers.forEach((h) => h(e));
+    setTimeout(() => {
+      emit({ kind: 'start' });
+      const words = reply.split(' ');
+      words.forEach((w, i) => setTimeout(() => emit({ kind: 'delta', text: (i ? ' ' : '') + w }), 25 * (i + 1)));
+      setTimeout(() => {
+        this.assistantThread.push({ id: `m-${Date.now()}-a`, role: 'ally', text: reply, at: new Date().toISOString() });
+        emit({ kind: 'complete', text: reply });
+      }, 25 * words.length + 80);
+    }, 80);
+    return audit();
+  }
+
+  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe {
+    this.assistantHandlers.add(handler);
+    return () => this.assistantHandlers.delete(handler);
   }
 
   async listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> {

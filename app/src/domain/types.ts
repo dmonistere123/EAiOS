@@ -305,6 +305,21 @@ export interface AuditResult<T = unknown> {
   };
 }
 
+// ---------- Assistant chat (spec §8.2, Phase 6.4) ----------
+
+export interface ChatMessage {
+  id: string; // history row_id, or synthetic for optimistic/streaming rows
+  role: 'you' | 'ally';
+  text: string;
+  at: string; // ISO
+}
+
+export type AssistantEvent =
+  | { kind: 'start' }
+  | { kind: 'delta'; text: string }
+  | { kind: 'complete'; text: string }
+  | { kind: 'error'; message: string };
+
 // ---------- Environment files (spec §8.11) ----------
 
 export interface EnvironmentFileRef {

@@ -9,7 +9,7 @@
  * must never make the UI look broken.
  */
 import type {
-  Agent, Approval, ApprovalDecision, Artifact, AuditResult, CronJob,
+  Agent, Approval, ApprovalDecision, Artifact, AssistantEvent, AuditResult, ChatMessage, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
   UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
@@ -803,6 +803,102 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Budget save failed.', retryable: true } };
     }
   }
+  // ----- LIVE: assistant chat (Phase 6.4a, spec §8.2) -----
+  /**
+   * Session lifecycle (probed 2026-08-26): session.create returns a runtime
+   * session_id (dies with the gateway) + stored_session_id (durable). The
+   * stored id rides localStorage (UI state, not a secret); resume-or-create
+   * on load, recreate-once-and-retry on a stale runtime sid (4001). Turn
+   * events arrive as method 'event' with params.type; EVERY session's events
+   * share the socket, so the filter is strict on our sid. Completion is
+   * 'message.complete' — turn.end does not fire on this path.
+   */
+  private assistantSid?: string;
+  private assistantHandlers = new Set<(e: AssistantEvent) => void>();
+  private assistantWired = false;
+  private static assistantStoredKey = 'eaios.assistant.storedSessionId';
+
+  private async ensureAssistantSession(): Promise<string> {
+    if (this.assistantSid) return this.assistantSid;
+    const stored = localStorage.getItem(LiveHermesAdapter.assistantStoredKey);
+    if (stored) {
+      try {
+        const r = await this.rpc.call<{ session_id: string }>('session.resume', { session_id: stored });
+        if (r.session_id) {
+          this.assistantSid = r.session_id;
+          return this.assistantSid;
+        }
+      } catch {
+        // stale stored id — fall through to create
+      }
+    }
+    const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', { title: 'EAiOS — My Assistant' });
+    this.assistantSid = c.session_id;
+    if (c.stored_session_id) localStorage.setItem(LiveHermesAdapter.assistantStoredKey, c.stored_session_id);
+    return this.assistantSid!;
+  }
+
+  private wireAssistant() {
+    if (this.assistantWired) return;
+    this.assistantWired = true;
+    this.rpc.onNotify((method, params) => {
+      if (method !== 'event') return;
+      const evtSid = params.session_id ?? params.sid; // turn.error uses 'sid'
+      if (evtSid !== this.assistantSid) return; // strict filter — every session shares the socket
+      const type = String(params.type ?? '');
+      const payload = (params.payload ?? {}) as Record<string, unknown>;
+      const emit = (e: AssistantEvent) => this.assistantHandlers.forEach((h) => h(e));
+      if (type === 'message.start') emit({ kind: 'start' });
+      else if (type === 'message.delta') emit({ kind: 'delta', text: String(payload.text ?? '') });
+      else if (type === 'message.complete') emit({ kind: 'complete', text: String(payload.text ?? '') });
+      else if (type === 'turn.error') emit({ kind: 'error', message: String(params.message ?? payload.message ?? 'Turn failed.') });
+    });
+  }
+
+  async getAssistantHistory(): Promise<ChatMessage[]> {
+    try {
+      const sid = await this.ensureAssistantSession();
+      const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+        'session.history',
+        { session_id: sid },
+      );
+      return (h.messages ?? [])
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({
+          id: String(m.row_id ?? `${m.role}-${m.timestamp ?? 0}`),
+          role: m.role === 'user' ? ('you' as const) : ('ally' as const),
+          text: m.text ?? '',
+          at: m.timestamp ? new Date(m.timestamp * 1000).toISOString() : new Date().toISOString(),
+        }));
+    } catch {
+      return this.fallback.getAssistantHistory(); // graceful degradation (spec §2)
+    }
+  }
+
+  async sendAssistantMessage(text: string): Promise<AuditResult> {
+    try {
+      let sid = await this.ensureAssistantSession();
+      try {
+        await this.rpc.call('prompt.submit', { session_id: sid, text });
+      } catch (e) {
+        // Stale runtime sid (gateway restarted): drop it, resume/create, retry ONCE.
+        if (!/4001|session not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
+        this.assistantSid = undefined;
+        sid = await this.ensureAssistantSession();
+        await this.rpc.call('prompt.submit', { session_id: sid, text });
+      }
+      return { ok: true, auditEventId: `chat-send-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_send_failed', safeMessage: e instanceof Error ? e.message : 'Message failed to send.', retryable: true } };
+    }
+  }
+
+  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe {
+    this.wireAssistant();
+    this.assistantHandlers.add(handler);
+    return () => this.assistantHandlers.delete(handler);
+  }
+
   // ----- LIVE: environment files (Phase 6.2) -----
   /**
    * D4 allowlist: SOUL.md of each Hermes profile — the only .MD the gateway

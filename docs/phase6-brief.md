@@ -192,11 +192,67 @@ and sketches the rest; later items get detailed here when they start.
 - [x] Mock parity + contract tests; `npm test` + sidecar + build green.
       **57 vitest + 8 sidecar, build clean.**
 
-## 6.4 Assistant → live (§8.2) — sketch
+## 6.4 Assistant → live (§8.2) — DETAILED 2026-08-26
 
-Largest item; split 6.4a live chat with Ally via gateway / 6.4b answer→chunk
-citation store completing §8.2's evidence links (F8). Orchestration plan
-panel + approval forecast ride the chat session's kanban/approvals slices.
+**Probe results (live box, real turn executed):**
+- `session.create {title, hidden}` → `{session_id` (runtime, in-memory),
+  `stored_session_id` (durable state.db id), `messages`, `info}`. Runtime
+  sids die with the gateway; `session.resume {session_id: stored}` rebinds.
+  `session.delete` takes the **stored** id (runtime id → 4007).
+- `prompt.submit {session_id, text}` → `{status:'streaming'}` immediately;
+  mid-turn submits queue server-side. EAiOS disables Send while streaming
+  anyway.
+- Turn events arrive as method `event`, `params.type` ∈ `message.start`,
+  `thinking.delta` (spinner), `reasoning.delta`, **`message.delta` (reply
+  stream)**, `reasoning.available`, **`message.complete` (full text +
+  usage)**, `session.title`, `sessions.changed` — all carrying `session_id`
+  + `seq`. **Every session's events share the socket → strict sid filter.**
+  NOTE: `turn.end` does NOT fire on this path (that's the compute-host
+  naming); completion = `message.complete`. Adapter's mapNotification is
+  unaffected (it maps turn.end defensively).
+- `session.history {session_id}` → `{count, messages:[{role, text,
+  timestamp, row_id, reasoning?}]}` — authoritative rehydration.
+- The current page is 100% static mock: hardcoded THREAD/PLAN, dead input,
+  and a "Context in scope" card that lies (fake source/app counts).
+
+**Design (6.4a — chat):**
+- Adapter chat surface on HermesAdapter: `getAssistantHistory()` →
+  `ChatMessage[]`; `sendAssistantMessage(text)` → AuditResult (reply
+  streams via events); `subscribeAssistant(handler)` → chat events
+  (start/delta/complete/error) filtered to the EAiOS session only.
+- Live: ensure-session flow — runtime sid in memory; stored id in
+  **localStorage (`eaios.assistant.storedSessionId`, not a secret — pane
+  prefs precedent)**; resume-or-create on load; on 4001 stale → recreate
+  once and retry. `session.create {title:'EAiOS — My Assistant'}`.
+- Page: hydrate from history on mount; optimistic user bubble; streaming
+  Ally bubble from deltas; on `complete` re-pull history (authoritative,
+  deduped by row_id). Honest side panels: orchestration plan ← **real
+  in-progress work items** (kanban slice), context ← real knowledge-source
+  counts; approval forecast already live. Mock parity: in-memory thread +
+  canned streamed reply.
+- Gateway busy/down → send returns error AuditResult; mock fallback only
+  for reads (writes never pretend).
+
+**Design (6.4b — citations, second commit):**
+- Ally's knowledge-grounded answers carry `eaios://chunk/<id>` (Phase 5
+  contract). 6.4b parses those refs out of complete assistant messages and
+  renders citation chips → chunk drill-down drawer (existing
+  `/knowledge-api/chunks/<id>` + Knowledge-page drawer pattern).
+- **Decision recorded:** the message itself (persisted in session history)
+  IS the answer→chunk record — no separate link store needed; the sidecar
+  `getRetrievalEvidence` stub stays mock-only. F8 closes on the UI
+  contract being end-to-end clickable.
+
+**Acceptance:**
+- [ ] Real conversation on the live page: send → streamed reply → history
+      persists across page reload (resume path).
+- [ ] Events from OTHER sessions never render in the EAiOS thread (sid
+      filter unit test).
+- [ ] Stale runtime sid → recreate + retry once, no lost message (unit).
+- [ ] Mock mode: canned streamed reply; contract tests green.
+- [ ] Side panels show real data (work items, knowledge counts).
+- [ ] 6.4b: citation chip → chunk drawer opens with real chunk text.
+- [ ] `npm test` + sidecar + build green.
 
 ## 6.5 Agent factory (§8.3 Add Agent) — sketch
 
