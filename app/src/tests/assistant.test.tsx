@@ -23,7 +23,8 @@ beforeAll(() => {
 type NotifyFn = (method: string, params: Record<string, unknown>) => void;
 const holder = live as unknown as {
   rpc: { call: (m: string, p?: Record<string, unknown>) => Promise<unknown>; onNotify: (fn: NotifyFn) => void };
-  assistantSid?: string;
+  assistantLanes?: Map<string, { sid?: string }>;
+  assistantSidToAgent?: Map<string, string>;
   assistantWired: boolean;
 };
 const realRpc = holder.rpc;
@@ -43,7 +44,8 @@ function stubRpc(handler: (method: string, params: Record<string, unknown>) => P
 
 beforeEach(() => {
   localStorage.clear();
-  holder.assistantSid = undefined;
+  holder.assistantLanes?.clear();
+  holder.assistantSidToAgent?.clear();
   holder.assistantWired = false;
 });
 
@@ -114,6 +116,19 @@ describe('live assistant session lifecycle', () => {
     const res = await live.sendAssistantMessage('hello');
     expect(res.ok).toBe(false);
     expect(res.error?.safeMessage).toContain('provider overloaded');
+  });
+
+  it('routes agent chat to the selected Hermes profile', async () => {
+    const { calls } = stubRpc(async (m) => {
+      if (m === 'session.create') return { session_id: 'rt-quill', stored_session_id: 'stored-quill' };
+      if (m === 'prompt.submit') return { status: 'streaming' };
+      throw new Error(`unexpected ${m}`);
+    });
+    const res = await live.sendAssistantMessage('hello quill', 'quill');
+    expect(res.ok).toBe(true);
+    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — quill', profile: 'quill' } });
+    expect(localStorage.getItem('eaios.assistant.storedSessionId.quill')).toBe('stored-quill');
+    expect(calls[1]).toEqual({ method: 'prompt.submit', params: { session_id: 'rt-quill', text: 'hello quill' } });
   });
 });
 
@@ -221,5 +236,18 @@ describe('Assistant page (mock mode)', () => {
     expect(await screen.findByText('status on the investor update')).toBeInTheDocument();
     // streamed reply completes and history re-pulls
     expect(await screen.findByText(/On it — "status on the investor update"/, undefined, { timeout: 6000 })).toBeInTheDocument();
+  });
+
+  it('lets you choose a staff agent to message directly', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    const picker = await screen.findByLabelText('Agent');
+    await screen.findByRole('option', { name: 'Scout' });
+    await user.selectOptions(picker, 'scout');
+    expect(await screen.findByLabelText('Message Scout')).toBeInTheDocument();
   });
 });

@@ -18,9 +18,11 @@ const stateTone: Record<WorkItem['state'], 'neutral' | 'ok' | 'warn' | 'risk' | 
 
 function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void }) {
   const s = useRuntime();
-  const [agentId, setAgentId] = useState('ally');
+  const preferredAgentId = s.agents.find((a) => a.id === 'default')?.id ?? s.agents.find((a) => a.id === 'ally')?.id ?? s.agents[0]?.id ?? 'default';
+  const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const staff = s.agents;
+  const agentId = pickedAgentId && staff.some((a) => a.id === pickedAgentId) ? pickedAgentId : preferredAgentId;
 
   const confirm = async () => {
     setBusy(true);
@@ -45,7 +47,7 @@ function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void
       <select
         id="agent-pick"
         value={agentId}
-        onChange={(e) => setAgentId(e.target.value)}
+        onChange={(e) => setPickedAgentId(e.target.value)}
         className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink"
       >
         {staff.map((a) => (

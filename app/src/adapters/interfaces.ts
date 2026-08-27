@@ -141,12 +141,12 @@ export interface HermesAdapter {
   writeEnvironmentFile(id: string, expectedVersion: string, content: string): Promise<AuditResult>;
 
   // ---------- Assistant chat (Phase 6.4a) ----------
-  /** Authoritative conversation with Ally (hydrates the chat on load). */
-  getAssistantHistory(): Promise<ChatMessage[]>;
-  /** Send a message to Ally; her reply arrives via subscribeAssistant events. */
-  sendAssistantMessage(text: string): Promise<AuditResult>;
-  /** Streaming chat events for the EAiOS assistant session ONLY — other sessions' events never surface here. */
-  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe;
+  /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */
+  getAssistantHistory(agentId?: string): Promise<ChatMessage[]>;
+  /** Send a message to a staff agent (default = Ally); the reply arrives via subscribeAssistant events. */
+  sendAssistantMessage(text: string, agentId?: string): Promise<AuditResult>;
+  /** Streaming chat events for the selected agent session ONLY — other sessions' events never surface here. */
+  subscribeAssistant(handler: (event: AssistantEvent) => void, agentId?: string): Unsubscribe;
 }
 
 // ---------- Composio (mock until Phase 4) ----------

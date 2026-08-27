@@ -34,7 +34,11 @@ function CitationChips({ text, onOpen }: { text: string; onOpen: (chunkId: strin
 
 export default function Assistant() {
   const s = useRuntime();
-  const ally = s.agents.find((a) => a.id === 'ally' || a.id === 'default');
+  const preferredAgentId = s.agents.find((a) => a.id === 'default')?.id ?? s.agents.find((a) => a.id === 'ally')?.id ?? s.agents[0]?.id ?? 'default';
+  const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
+  const agentId = pickedAgentId && s.agents.some((a) => a.id === pickedAgentId) ? pickedAgentId : preferredAgentId;
+  const activeAgent = s.agents.find((a) => a.id === agentId) ?? s.agents.find((a) => a.id === 'default' || a.id === 'ally');
+  const activeAgentName = activeAgent?.name ?? 'Ally';
   const approvals = selectPendingApprovals(s);
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -43,22 +47,22 @@ export default function Assistant() {
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Hydrate the authoritative history once, then ride streaming events.
+  // Hydrate the selected agent's authoritative history, then ride streaming events.
   useEffect(() => {
-    void hermes.getAssistantHistory().then(setThread);
+    void hermes.getAssistantHistory(agentId).then(setThread);
     const unsub = hermes.subscribeAssistant((e) => {
       if (e.kind === 'start') setStreaming('');
       else if (e.kind === 'delta') setStreaming((t) => (t ?? '') + e.text);
       else if (e.kind === 'complete') {
         setStreaming(null);
-        void hermes.getAssistantHistory().then(setThread); // authoritative, deduped by row_id
+        void hermes.getAssistantHistory(agentId).then(setThread); // authoritative, deduped by row_id
       } else if (e.kind === 'error') {
         setStreaming(null);
         toast('error', e.message);
       }
-    });
+    }, agentId);
     return unsub;
-  }, []);
+  }, [agentId]);
 
   // Keep the latest exchange in view.
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function Assistant() {
     setDraft('');
     const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text, at: new Date().toISOString() };
     setThread((t) => [...t, optimistic]);
-    const res = await hermes.sendAssistantMessage(text);
+    const res = await hermes.sendAssistantMessage(text, agentId);
     setSending(false);
     if (!res.ok) {
       setThread((t) => t.filter((m) => m.id !== optimistic.id)); // never pretend it sent
@@ -90,12 +94,30 @@ export default function Assistant() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My Assistant</h1>
-          <p className="mt-1 text-sm text-ink-dim">Ally — chief of staff. Conversation plus what it's actually doing.</p>
+          <p className="mt-1 text-sm text-ink-dim">Talk to Ally or any staff agent directly. Conversation plus what it's actually doing.</p>
         </div>
-        {ally && <AgentStatusBadge status={ally.status} />}
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium uppercase tracking-wider text-ink-faint" htmlFor="assistant-agent">Agent</label>
+          <select
+            id="assistant-agent"
+            aria-label="Agent"
+            value={agentId}
+            onChange={(e) => {
+              setStreaming(null);
+              setThread([]);
+              setPickedAgentId(e.target.value);
+            }}
+            className="rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink"
+          >
+            {s.agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
+          </select>
+          {activeAgent && <AgentStatusBadge status={activeAgent.status} />}
+        </div>
       </header>
 
       <div className="grid gap-4 xl:grid-cols-5">
@@ -104,18 +126,18 @@ export default function Assistant() {
           <SectionTitle>Conversation</SectionTitle>
           <div ref={scrollRef} className="max-h-[52vh] flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
-              <p className="text-xs text-ink-faint">Starting a conversation with Ally…</p>
+              <p className="text-xs text-ink-faint">Starting a conversation with {activeAgentName}…</p>
             )}
             {thread.map((m) => (
               <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
-                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</div>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : activeAgentName}</div>
                 <div className="whitespace-pre-wrap">{m.text}</div>
                 {m.role === 'ally' && <CitationChips text={m.text} onOpen={setOpenChunk} />}
               </div>
             ))}
             {streaming !== null && (
               <div className="max-w-[85%] rounded-xl bg-canvas-overlay px-4 py-2.5 text-sm text-ink">
-                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Ally</div>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{activeAgentName}</div>
                 {streaming ? <div className="whitespace-pre-wrap">{streaming}</div> : <IndeterminateBar />}
               </div>
             )}
@@ -130,8 +152,8 @@ export default function Assistant() {
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={busy ? 'Ally is responding…' : 'Message Ally…'}
-              aria-label="Message Ally"
+              placeholder={busy ? `${activeAgentName} is responding…` : `Message ${activeAgentName}…`}
+              aria-label={`Message ${activeAgentName}`}
               className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
             />
             <button type="submit" disabled={busy || !draft.trim()} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">

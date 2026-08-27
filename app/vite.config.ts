@@ -432,6 +432,7 @@ export default defineConfig(({ mode }) => {
   // Node-side env (NOT inlined into the client bundle — safe for secrets).
   const env = loadEnv(mode, __dirname, '')
   const composioKey = env.COMPOSIO_API_KEY ?? ''
+  const hermesToken = env.VITE_HERMES_TOKEN ?? ''
 
   return {
     plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
@@ -440,7 +441,23 @@ export default defineConfig(({ mode }) => {
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],
       proxy: {
         // Dev: forward the gateway socket to the local hermes serve instance.
-        '/api/ws': { target: 'ws://127.0.0.1:9119', ws: true, changeOrigin: true },
+        '/api/ws': {
+          target: 'ws://127.0.0.1:9119',
+          ws: true,
+          changeOrigin: true,
+          // Tailscale Serve is a public-origin reverse proxy: the browser sends
+          // Origin: https://ally-landry-ser9... and Serve can drop the WS query
+          // string. hermes serve only accepts loopback origins + ?token=..., so
+          // re-stamp both at the local edge before the upgrade reaches 9119.
+          configure: (proxy) => {
+            proxy.on('proxyReqWs', (proxyReq) => {
+              proxyReq.removeHeader('origin')
+              if (hermesToken && !/[?&]token=/.test(proxyReq.path)) {
+                proxyReq.path = `${proxyReq.path}${proxyReq.path.includes('?') ? '&' : '?'}token=${encodeURIComponent(hermesToken)}`
+              }
+            })
+          },
+        },
         // Dev: Composio REST with the API key injected server-side — the
         // browser bundle never carries the key (spec: no secrets in client).
         '/composio-api': {

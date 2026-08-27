@@ -28,7 +28,9 @@ class RpcClient {
   private seq = 0;
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private notifyHandlers = new Set<NotifyHandler>();
+  private openWaiters = new Set<() => void>();
   private reconnectDelay = 1000;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
   private closed = false;
   connected = false;
   onConnectionChange?: (connected: boolean) => void;
@@ -40,6 +42,11 @@ class RpcClient {
 
   connect() {
     if (this.closed) return;
+    if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     try {
       this.ws = new WebSocket(this.url);
     } catch {
@@ -49,6 +56,9 @@ class RpcClient {
     this.ws.onopen = () => {
       this.connected = true;
       this.reconnectDelay = 1000;
+      const waiters = [...this.openWaiters];
+      this.openWaiters.clear();
+      waiters.forEach((fn) => fn());
       this.onConnectionChange?.(true);
     };
     this.ws.onmessage = (ev) => {
@@ -76,20 +86,37 @@ class RpcClient {
   }
 
   private scheduleReconnect() {
-    if (this.closed) return;
-    setTimeout(() => this.connect(), this.reconnectDelay);
+    if (this.closed || this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.connect();
+    }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 15_000);
   }
 
-  call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  private waitForOpen(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
     return new Promise((resolve, reject) => {
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      const timer = setTimeout(() => {
+        this.openWaiters.delete(onOpen);
         reject(new Error(`gateway not connected (readyState=${this.ws?.readyState ?? 'none'})`));
-        return;
-      }
+      }, 15_000);
+      const onOpen = () => {
+        clearTimeout(timer);
+        this.openWaiters.delete(onOpen);
+        resolve();
+      };
+      this.openWaiters.add(onOpen);
+    });
+  }
+
+  async call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    if (!this.ws) this.connect();
+    await this.waitForOpen();
+    return new Promise((resolve, reject) => {
       const id = ++this.seq;
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
-      this.ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+      this.ws!.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
@@ -394,6 +421,7 @@ class LiveHermesAdapter implements HermesAdapter {
 
   onConnectionChange(fn: (connected: boolean) => void) {
     this.rpc.onConnectionChange = fn;
+    fn(this.rpc.connected); // late subscribers still get the current socket state
   }
 
   // ----- LIVE: agents (profiles + active sessions) -----
@@ -858,29 +886,53 @@ class LiveHermesAdapter implements HermesAdapter {
    * share the socket, so the filter is strict on our sid. Completion is
    * 'message.complete' — turn.end does not fire on this path.
    */
-  private assistantSid?: string;
-  private assistantHandlers = new Set<(e: AssistantEvent) => void>();
+  private assistantLanes = new Map<string, { sid?: string; handlers: Set<(e: AssistantEvent) => void> }>();
+  private assistantSidToAgent = new Map<string, string>();
   private assistantWired = false;
-  private static assistantStoredKey = 'eaios.assistant.storedSessionId';
 
-  private async ensureAssistantSession(): Promise<string> {
-    if (this.assistantSid) return this.assistantSid;
-    const stored = localStorage.getItem(LiveHermesAdapter.assistantStoredKey);
+  private static assistantStoredKey(agentId: string) {
+    return agentId === 'default' ? 'eaios.assistant.storedSessionId' : `eaios.assistant.storedSessionId.${agentId}`;
+  }
+
+  private assistantLane(agentId: string) {
+    let lane = this.assistantLanes.get(agentId);
+    if (!lane) {
+      lane = { handlers: new Set<(e: AssistantEvent) => void>() };
+      this.assistantLanes.set(agentId, lane);
+    }
+    return lane;
+  }
+
+  private assistantProfileParams(agentId: string) {
+    return agentId && agentId !== 'default' ? { profile: agentId } : {};
+  }
+
+  private async ensureAssistantSession(agentId = 'default'): Promise<string> {
+    const lane = this.assistantLane(agentId);
+    if (lane.sid) return lane.sid;
+    const storedKey = LiveHermesAdapter.assistantStoredKey(agentId);
+    const profileParams = this.assistantProfileParams(agentId);
+    const stored = localStorage.getItem(storedKey);
     if (stored) {
       try {
-        const r = await this.rpc.call<{ session_id: string }>('session.resume', { session_id: stored });
+        const r = await this.rpc.call<{ session_id: string }>('session.resume', { session_id: stored, ...profileParams });
         if (r.session_id) {
-          this.assistantSid = r.session_id;
-          return this.assistantSid;
+          lane.sid = r.session_id;
+          this.assistantSidToAgent.set(lane.sid, agentId);
+          return lane.sid;
         }
       } catch {
         // stale stored id — fall through to create
       }
     }
-    const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', { title: 'EAiOS — My Assistant' });
-    this.assistantSid = c.session_id;
-    if (c.stored_session_id) localStorage.setItem(LiveHermesAdapter.assistantStoredKey, c.stored_session_id);
-    return this.assistantSid!;
+    const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
+      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
+      ...profileParams,
+    });
+    lane.sid = c.session_id;
+    this.assistantSidToAgent.set(lane.sid, agentId);
+    if (c.stored_session_id) localStorage.setItem(storedKey, c.stored_session_id);
+    return lane.sid!;
   }
 
   private wireAssistant() {
@@ -888,11 +940,14 @@ class LiveHermesAdapter implements HermesAdapter {
     this.assistantWired = true;
     this.rpc.onNotify((method, params) => {
       if (method !== 'event') return;
-      const evtSid = params.session_id ?? params.sid; // turn.error uses 'sid'
-      if (evtSid !== this.assistantSid) return; // strict filter — every session shares the socket
+      const evtSid = String(params.session_id ?? params.sid ?? ''); // turn.error uses 'sid'
+      const agentId = this.assistantSidToAgent.get(evtSid);
+      if (!agentId) return; // strict filter — every session shares the socket
+      const lane = this.assistantLanes.get(agentId);
+      if (!lane) return;
       const type = String(params.type ?? '');
       const payload = (params.payload ?? {}) as Record<string, unknown>;
-      const emit = (e: AssistantEvent) => this.assistantHandlers.forEach((h) => h(e));
+      const emit = (e: AssistantEvent) => lane.handlers.forEach((h) => h(e));
       if (type === 'message.start') emit({ kind: 'start' });
       else if (type === 'message.delta') emit({ kind: 'delta', text: String(payload.text ?? '') });
       else if (type === 'message.complete') emit({ kind: 'complete', text: String(payload.text ?? '') });
@@ -900,9 +955,9 @@ class LiveHermesAdapter implements HermesAdapter {
     });
   }
 
-  async getAssistantHistory(): Promise<ChatMessage[]> {
+  async getAssistantHistory(agentId = 'default'): Promise<ChatMessage[]> {
     try {
-      const sid = await this.ensureAssistantSession();
+      const sid = await this.ensureAssistantSession(agentId);
       const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
         'session.history',
         { session_id: sid },
@@ -920,16 +975,17 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  async sendAssistantMessage(text: string): Promise<AuditResult> {
+  async sendAssistantMessage(text: string, agentId = 'default'): Promise<AuditResult> {
     try {
-      let sid = await this.ensureAssistantSession();
+      let sid = await this.ensureAssistantSession(agentId);
       try {
         await this.rpc.call('prompt.submit', { session_id: sid, text });
       } catch (e) {
         // Stale runtime sid (gateway restarted): drop it, resume/create, retry ONCE.
         if (!/4001|session not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
-        this.assistantSid = undefined;
-        sid = await this.ensureAssistantSession();
+        this.assistantSidToAgent.delete(sid);
+        this.assistantLane(agentId).sid = undefined;
+        sid = await this.ensureAssistantSession(agentId);
         await this.rpc.call('prompt.submit', { session_id: sid, text });
       }
       return { ok: true, auditEventId: `chat-send-${Date.now()}` };
@@ -938,10 +994,11 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe {
+  subscribeAssistant(handler: (event: AssistantEvent) => void, agentId = 'default'): Unsubscribe {
     this.wireAssistant();
-    this.assistantHandlers.add(handler);
-    return () => this.assistantHandlers.delete(handler);
+    const lane = this.assistantLane(agentId);
+    lane.handlers.add(handler);
+    return () => lane.handlers.delete(handler);
   }
 
   // ----- LIVE: environment files (Phase 6.2) -----
