@@ -1,0 +1,56 @@
+# EAiOS — Build Roadmap (living document)
+
+**Purpose:** the single source of truth for what's built, what's deferred, and
+why. HANDOFF.md carries session state and gotchas; THIS file carries scope
+decisions. Update it every phase — an item that isn't here doesn't exist.
+
+**Governance invariants (never defer these):** pages talk only to typed
+adapters · mock-first per slice with live fallback · no secrets in the client
+bundle · external writes gate on approvals · honest degradation over fake
+success (spec §2) · tests green before commit.
+
+## Phase status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Integration matrix, repo, design tokens | ✅ |
+| 1 | Executive shell, 11 routes, mock adapters | ✅ |
+| 2 | Live adapter (agents, cron, activity) + seq-guarded runtime | ✅ |
+| 3 | Governed work loop: kanban WorkItems, approvals, policies (§9) | ✅ |
+| 4 | Schedule (live cron overlay + create), Connections (Composio) | ✅ |
+| 5 | Skills, Knowledge/RAG + citations, Playbooks, acceptance | ✅ 2026-08-26 |
+| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | ◻ next |
+| 7 | Packaging for other CEOs' boxes (prod server, systemd, installer) | ◻ future |
+
+## Deferred-items register
+
+Every known "not yet", with rationale and target. Add items here the moment
+they're noticed — never leave them as tribal knowledge.
+
+| # | Item | Why deferred | Target |
+|---|---|---|---|
+| F1 | **Playbook create/edit/new-version UI** | Versioning model is file+git; run/history path had to land first. Today: edit md on disk, bump version. | Phase 6 polish or 7 |
+| F2 | **Skill enable/disable from EAiOS** | Hermes owns skill lifecycle (`skills.disabled` config); exec-UI toggle needs a config-write path + policy check. Decision needed: read-only library vs. exec control. | Phase 6 (decision), 7 (build) |
+| F3 | **Skill authoring from EAiOS** | Authoring is the agent's job (Hermes `skills.manage`). Exec path should be "request skill" → delegated WorkItem to Ally, not a markdown editor. | Phase 7 |
+| F4 | **Swarm playbook end-to-end run** | Needs a real competitor target + executive consent (spawns real agent work); verified only up to graph creation. | First real use |
+| F5 | **Executive calendar live** | Needs user's one-time Google OAuth consent. | User action |
+| F6 | **Composio app linking (Gmail etc.)** | Needs auth configs in Composio dashboard (account currently has 0 connected apps). | User action |
+| F7 | **Morning briefing cron → Ally's Portal (7am)** | Explicit user consent pending. | User action |
+| F8 | **Answer→chunk citation store** | Completes §8.7 end-to-end; needs the live Assistant page (answer persistence) first. | Phase 6 (with Assistant) |
+| F9 | **hermes serve + sidecar as systemd services** | Dev background procs today; fine while iterating. | Phase 7 packaging |
+| F10 | **Prod discovery for skills/playbooks index** | Both ride vite dev middleware; packaging needs them served by the production server (or sidecar). | Phase 7 packaging |
+| F11 | **Vectors/semantic retrieval** | FTS5-first decision locked 2026-08-26; vectors slot behind the same sidecar HTTP surface. | When FTS5 recall proves insufficient |
+| F12 | **Preview-pane click harness flaky** | Hermes desktop delta engine loses sync; verify via vitest interaction tests instead. | External (Hermes) |
+| F13 | **Retrieval enforcement for connector sources** | KnowledgeSource type 'connector' exists but no ingestion path (Composio-linked docs). | Phase 7+ |
+
+## Open design decisions (need the executive)
+
+- **D-open-1 (F2):** should the CEO be able to disable an agent's skill from the dashboard, or is the library strictly read-only + request-via-delegation?
+- **D-open-2:** playbook edit UI — simple create/edit drawer, or stay file+git (developers edit, CEOs just run)?
+
+## Process rule adopted 2026-08-26
+
+The original §-numbered product spec lived only in chat sessions; 5.5 had to
+recover §8.7/§8.8 from session history. From now on every phase brief lands
+in `~/eaios/docs/` BEFORE the phase starts, and this register is updated in
+the same commit as the phase it affects.
