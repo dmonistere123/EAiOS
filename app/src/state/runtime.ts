@@ -5,7 +5,7 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun } from '../domain/types';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary } from '../domain/types';
 import { hermes, adapterMode, live, knowledge } from '../adapters';
 
 export interface Toast {
@@ -26,6 +26,7 @@ interface State {
   knowledge: KnowledgeSource[];
   playbooks: Playbook[];
   playbookRuns: PlaybookRun[];
+  usage: UsageSummary | null;
   toasts: Toast[];
 }
 
@@ -41,6 +42,7 @@ let state: State = {
   knowledge: [],
   playbooks: [],
   playbookRuns: [],
+  usage: null,
   toasts: [],
 };
 
@@ -119,9 +121,19 @@ export async function refreshPlaybookRuns() {
   await guarded('playbookRuns', () => hermes.listPlaybookRuns(), (playbookRuns) => set({ playbookRuns }));
 }
 
+/** Usage range: current month-to-date (matches the fixture's contract). */
+export function usageRangeMonthToDate() {
+  const now = new Date();
+  return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), to: now.toISOString() };
+}
+
+export async function refreshUsage() {
+  await guarded('usage', () => hermes.getUsage(usageRangeMonthToDate()), (usage) => set({ usage }));
+}
+
 export async function refreshAll() {
   // Per-slice tolerance: a failing slice must never take down the rest.
-  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns()]);
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns(), refreshUsage()]);
 }
 
 // ---------- boot + live event wiring ----------

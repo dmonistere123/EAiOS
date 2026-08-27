@@ -19,7 +19,7 @@ success (spec §2) · tests green before commit.
 | 3 | Governed work loop: kanban WorkItems, approvals, policies (§9) | ✅ |
 | 4 | Schedule (live cron overlay + create), Connections (Composio) | ✅ |
 | 5 | Skills, Knowledge/RAG + citations, Playbooks, acceptance | ✅ 2026-08-26 |
-| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | ◻ next |
+| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | 🔄 6.1 ✅ 2026-08-26 |
 | 7 | Packaging for other CEOs' boxes (prod server, systemd, installer) | ◻ future |
 
 ## Deferred-items register
@@ -43,6 +43,8 @@ they're noticed — never leave them as tribal knowledge.
 | F12 | **Preview-pane click harness flaky** | Hermes desktop delta engine loses sync; verify via vitest interaction tests instead. | External (Hermes) |
 | F13 | **Retrieval enforcement for connector sources** | KnowledgeSource type 'connector' exists but no ingestion path (Composio-linked docs). | Phase 7+ |
 | F14 | **Agent factory (spin up agents w/ model choice, OpenRouter)** | New exec requirement 2026-08-26. Host RPCs verified: `model.options` (live catalog), `profiles.create` (model+provider pin, mirror_credentials). | Phase 6.5 |
+| F15 | **Usage budget config** | No host source for a monthly budget; live Usage renders "No budget set". Needs an EAiOS-owned settings store (or a policy file) — arrives with 6.2 settings work. | Phase 6.2 / 7 |
+| F16 | **Usage range picker** | 6.1 ships month-to-date only (fixture contract). Range UI (week/quarter/custom) is page polish once the slice is proven live. | Phase 7 polish |
 
 ## Open design decisions (need the executive)
 

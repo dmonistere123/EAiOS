@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** **Phase 5 COMPLETE (5.1–5.5)**, build clean, **30/30 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
+**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md, phase6-brief.md) · **Git:** **Phase 6.1 COMPLETE (Usage live)**, build clean, **38/38 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
 
 ## What this is
 
@@ -30,8 +30,9 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 | Skills | ✅ live | `skills.manage` RPC (names+categories only — 81 platform-enabled) enriched by vite middleware `/api/skills-index` (frontmatter walk of `~/.hermes/skills`) |
 | Playbooks | ✅ live | versioned md in `~/eaios/playbooks/` via `/api/playbooks-index` middleware; runs = `kanban create`/`swarm` with `eaios-playbook: <id>@v<ver>` body marker; history = kanban marker query; run-confirm drawer (unassigned option = no execution) |
 | Knowledge | ✅ live | Python sidecar (`~/eaios/sidecar/server.py`, loopback :9121): upload/URL → extract (pymupdf/docx/pptx/html) → chunk → SQLite FTS5; app via `LiveKnowledgeAdapter` + `/knowledge-api` proxy; Add-source drawer, reindex/remove, **Try-retrieval panel + chunk drill-down drawer (5.3)**; agent path = `eaios-knowledge-retrieval` skill (curl with agent_id) |
-| Schedule | 🟡 hybrid | real cron overlay; executive calendar mock (needs Google OAuth) |
-| Usage, Artifacts, Env files | ⏳ mock | Phase 6 |
+|| Schedule | 🟡 hybrid | real cron overlay; executive calendar mock (needs Google OAuth) |
+|| Usage | ✅ live | `/api/usage` vite middleware (node:sqlite, state.db `session_model_usage` read-only, 30s cache) → `LiveHermesAdapter.getUsage` → runtime `usage` slice. D7 labeling: actual>0 authoritative, else estimated>0 estimate, else "Not provided". No budget source → "No budget set" (F15); month-to-date only (F16) |
+|| Artifacts, Env files | ⏳ mock | Phase 6 |
 
 ## Hard-won gotchas (don't relearn these)
 
@@ -48,6 +49,7 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 11. Sidecar notes: FTS5 `snippet()` highlight marks are `«»`; bm25 score negated for ascending=best; multipart parsing is hand-rolled stdlib (no framework); upload cap 50MB; indexing is synchronous (fine for executive-size docs — revisit if bulk imports arrive).
 12. **A prior session left partial 5.4 work** (Playbook types, unused interface imports, a playbooks middleware, competitor-deep-dive.md with `title/purpose/type` frontmatter) — merged/normalized 2026-08-26 to the canonical schema: `name/description/version/status/mode/assignee/owner/skills/workers/verifier/synthesizer`. If the app behaves oddly around playbooks, check for other unmerged fragments first.
 13. `kanban create --json` returns the task object directly (`{id, assignee, status, ...}`); `kanban archive <id>` prints `Archived <id>`. Unassigned create → status `ready`, dispatcher does NOT pick it up (safe for verification). Archived playbook runs remain in history as state `cancelled` (honest record — e.g. verification run t_4714271b).
+14. **Usage data (6.1):** `insights.get` RPC = `{days, sessions, messages}` only (no tokens/cost); `hermes insights` CLI has no `--json`. Real source = state.db `session_model_usage` (per-session/model/task rows; `estimated_cost_usd`/`actual_cost_usd`/`cost_status`/`cost_source`; join `sessions.profile_name` — NULL = default profile). App reads it via `/api/usage` middleware (node:sqlite, **Node ≥24 built-in, no dep**, read-only open). kimi-coding reports NO pricing → costs all 0.0 → honest UI shows "Not provided". Direct WS probe: `ws://127.0.0.1:9119/api/ws?token=…` (path required; root path fails).
 
 ## Decisions locked
 
@@ -61,13 +63,13 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 4. ~~Playbooks~~ **DONE 2026-08-26** — 3 playbooks on disk (weekly-investor-update, monthly-expense-audit, competitor-deep-dive swarm), run via kanban create/swarm, history from marker query, run-confirm drawer + history UI. Open: swarm run never executed end-to-end (needs a real goal + executive consent); playbook edit/new-version UI not built (edit md on disk for now).
 5. ~~Tests + acceptance (spec §8.7/§8.8)~~ **DONE 2026-08-26** — sidecar suite (`sidecar/test_sidecar.py`, black-box subprocess: state machine pending→ready/failed + error kept + reindex recovery; scope enforcement executive/scout/quill; citation round-trip; non-citable flag) via `npm run test:sidecar`; app suite `src/tests/acceptance-phase5.test.tsx` (cite-as URI in drawer, failed-source error display, playbook version history). Sidecar env overrides for tests: `EAIOS_KNOWLEDGE_DATA_DIR/HOST/PORT`.
 
-## Phase 6 candidates (not started)
+## Phase 6 progress
 
-- Usage → live via `insights.get` / state.db `session_model_usage` (D7: estimated+actual).
-- Artifacts → live (draft→approved lifecycle; kanban attachments?).
-- Env files → live (ALLY.md etc. via gateway file RPC?).
-- Assistant page → live chat + answer→chunk citation store (`getRetrievalEvidence`).
-- Executive calendar → Google OAuth (user action pending, see below).
+1. ~~Usage → live~~ **DONE 2026-08-26 (6.1)** — `/api/usage` middleware (node:sqlite over state.db), D7 cost labeling, runtime usage slice, page rewired off direct-fixture import; 38 vitest + 8 sidecar green, live-verified vs SQL. Budget config F15, range picker F16. Details: `docs/phase6-brief.md`.
+2. Settings/env files → live (6.2) — **next**.
+3. Artifacts → live (6.3).
+4. Assistant → live (6.4, split chat / citation store).
+5. Agent factory (6.5).
 
 ## Open items awaiting the user
 
@@ -77,4 +79,4 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 
 ## To resume in a new session
 
-"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.1 Usage → live). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.
+"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.2 Settings/env files → live; brief in docs/phase6-brief.md). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.

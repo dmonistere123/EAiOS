@@ -227,6 +227,43 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
 
 const epochToIso = (secs?: number) => (secs ? new Date(secs * 1000).toISOString() : undefined);
 
+/** /api/usage middleware response (state.db session_model_usage aggregates). */
+export interface UsageIndexResponse {
+  range: { from: string; to: string };
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+  actualCostUsd: number;
+  byAgent: { agentId: string; inputTokens: number; outputTokens: number; estimatedCostUsd: number; actualCostUsd: number }[];
+  freshnessAt: string;
+}
+
+/**
+ * Map usage aggregates onto UsageSummary with honest cost labeling (D7):
+ * actual > 0 → authoritative; else estimated > 0 → estimate; else undefined
+ * (UI renders "Not provided" — never invent a dollar figure).
+ */
+export function mapUsageResponse(res: UsageIndexResponse): UsageSummary {
+  const pick = (estimated: number, actual: number): { costUsd?: number; authoritative: boolean } =>
+    actual > 0 ? { costUsd: actual, authoritative: true } : estimated > 0 ? { costUsd: estimated, authoritative: false } : { authoritative: false };
+  const total = pick(res.estimatedCostUsd, res.actualCostUsd);
+  const from = new Date(res.range.from);
+  const rangeLabel = `${from.toLocaleString('en-US', { month: 'long', year: 'numeric' })} (to date)`;
+  return {
+    rangeLabel,
+    inputTokens: res.inputTokens,
+    outputTokens: res.outputTokens,
+    costUsd: total.costUsd,
+    costIsAuthoritative: total.authoritative,
+    budgetUsd: undefined, // no host source — page renders "No budget set"
+    byAgent: res.byAgent.map((a) => {
+      const c = pick(a.estimatedCostUsd, a.actualCostUsd);
+      return { agentId: a.agentId, inputTokens: a.inputTokens, outputTokens: a.outputTokens, costUsd: c.costUsd };
+    }),
+    freshnessAt: res.freshnessAt,
+  };
+}
+
 function mapProfile(p: HermesProfile, activeProfileNames: Set<string>): Agent {
   const isAlly = p.is_default === true;
   const active = activeProfileNames.has(p.name);
@@ -626,7 +663,21 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]> { return this.fallback.listArtifacts(filter); }
-  getUsage(range: DateRange): Promise<UsageSummary> { return this.fallback.getUsage(range); }
+  // ----- LIVE: usage (Phase 6.1) -----
+  /**
+   * insights.get RPC carries no token/cost data (verified 2026-08-26), so
+   * aggregates come from the dev-server /api/usage middleware over state.db
+   * session_model_usage. Mock fallback on any failure (spec §2).
+   */
+  async getUsage(range: DateRange): Promise<UsageSummary> {
+    try {
+      const res = await fetch(`/api/usage?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`);
+      if (!res.ok) throw new Error(`usage index ${res.status}`);
+      return mapUsageResponse((await res.json()) as UsageIndexResponse);
+    } catch {
+      return this.fallback.getUsage(range); // graceful degradation (spec §2)
+    }
+  }
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> { return this.fallback.listEditableEnvironmentFiles(); }
   readEnvironmentFile(id: string): Promise<EnvironmentFile> { return this.fallback.readEnvironmentFile(id); }
   writeEnvironmentFile(id: string, v: string, c: string): Promise<AuditResult> { return this.fallback.writeEnvironmentFile(id, v, c); }

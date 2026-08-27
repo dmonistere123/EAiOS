@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { homedir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 
 /**
  * Dev-only middleware: GET /api/skills-index → frontmatter metadata for every
@@ -157,6 +158,97 @@ function playbooksIndexMiddleware() {
   }
 }
 
+/**
+ * Dev-only middleware: GET /api/usage?from=<iso>&to=<iso> → token/cost
+ * aggregates from Hermes' state.db `session_model_usage` (Phase 6.1).
+ * The gateway's insights.get RPC returns only {days, sessions, messages} —
+ * no token/cost data — and the CLI has no --json, so the live adapter reads
+ * the authoritative store directly. node:sqlite is built into Node ≥24
+ * (zero new deps); the DB is opened READ-ONLY and every query is a SELECT.
+ * Costs stay exactly as Hermes recorded them (estimated vs actual columns +
+ * cost_status) — the adapter labels, never invents (D7). DB missing/locked/
+ * error → 503 → adapter falls back to mock (graceful degradation, spec §2).
+ */
+function usageMiddleware() {
+  const dbPath = join(process.env.HERMES_HOME ?? join(homedir(), '.hermes'), 'state.db')
+  let cache: { key: string; at: number; body: string } | undefined
+
+  const query = (fromIso: string, toIso: string) => {
+    const from = Date.parse(fromIso) / 1000
+    const to = Date.parse(toIso) / 1000
+    if (!Number.isFinite(from) || !Number.isFinite(to)) throw new Error('bad range')
+    const db = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const rows = db
+        .prepare(
+          `SELECT COALESCE(s.profile_name, 'default') AS agent,
+                  SUM(u.input_tokens)        AS input_tokens,
+                  SUM(u.output_tokens)       AS output_tokens,
+                  SUM(u.estimated_cost_usd)  AS estimated_cost_usd,
+                  SUM(u.actual_cost_usd)     AS actual_cost_usd,
+                  MAX(u.last_seen)           AS last_seen
+           FROM session_model_usage u
+           LEFT JOIN sessions s ON s.id = u.session_id
+           WHERE u.last_seen >= ? AND u.last_seen <= ?
+           GROUP BY agent
+           ORDER BY input_tokens DESC`,
+        )
+        .all(from, to) as {
+        agent: string
+        input_tokens: number | null
+        output_tokens: number | null
+        estimated_cost_usd: number | null
+        actual_cost_usd: number | null
+        last_seen: number | null
+      }[]
+      const byAgent = rows.map((r) => ({
+        agentId: r.agent,
+        inputTokens: r.input_tokens ?? 0,
+        outputTokens: r.output_tokens ?? 0,
+        estimatedCostUsd: r.estimated_cost_usd ?? 0,
+        actualCostUsd: r.actual_cost_usd ?? 0,
+      }))
+      return {
+        range: { from: fromIso, to: toIso },
+        inputTokens: byAgent.reduce((n, r) => n + r.inputTokens, 0),
+        outputTokens: byAgent.reduce((n, r) => n + r.outputTokens, 0),
+        estimatedCostUsd: byAgent.reduce((n, r) => n + r.estimatedCostUsd, 0),
+        actualCostUsd: byAgent.reduce((n, r) => n + r.actualCostUsd, 0),
+        byAgent,
+        freshnessAt: rows.length
+          ? new Date(Math.max(...rows.map((r) => r.last_seen ?? 0)) * 1000).toISOString()
+          : new Date().toISOString(),
+      }
+    } finally {
+      db.close()
+    }
+  }
+
+  return {
+    name: 'eaios-usage',
+    configureServer(server: { middlewares: { use: (path: string, fn: (req: { url?: string }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }) => void) => void } }) {
+      server.middlewares.use('/api/usage', (req, res) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost')
+          const now = new Date()
+          const from = url.searchParams.get('from') ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+          const to = url.searchParams.get('to') ?? now.toISOString()
+          const key = `${from}|${to}`
+          if (!cache || cache.key !== key || Date.now() - cache.at > 30_000) {
+            cache = { key, at: Date.now(), body: JSON.stringify(query(from, to)) }
+          }
+          res.statusCode = 200
+          res.setHeader('content-type', 'application/json')
+          res.end(cache.body)
+        } catch (e) {
+          res.statusCode = 503
+          res.end(JSON.stringify({ error: String(e) }))
+        }
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Node-side env (NOT inlined into the client bundle — safe for secrets).
@@ -164,7 +256,7 @@ export default defineConfig(({ mode }) => {
   const composioKey = env.COMPOSIO_API_KEY ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

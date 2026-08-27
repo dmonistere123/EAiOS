@@ -18,6 +18,7 @@ const baseState = (): RuntimeState => ({
   knowledge: [],
   playbooks: [],
   playbookRuns: [],
+  usage: null,
   toasts: [],
 });
 

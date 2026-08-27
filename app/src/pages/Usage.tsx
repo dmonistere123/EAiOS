@@ -1,5 +1,4 @@
 /** Usage — tokens, cost, budget. Estimated vs authoritative is always labeled. */
-import { usageSummary } from '../mocks/fixtures';
 import { useRuntime, agentName } from '../state/runtime';
 import { Card, KpiCard, RelativeTime, SectionTitle, StateBadge } from '../components/ui';
 
@@ -7,7 +6,17 @@ const fmt = (n: number) => n.toLocaleString();
 
 export default function Usage() {
   const s = useRuntime();
-  const u = usageSummary;
+  const u = s.usage;
+
+  if (!u) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Usage</h1>
+        <p className="text-sm text-ink-dim">Loading usage…</p>
+      </div>
+    );
+  }
+
   const budgetPct = u.budgetUsd && u.costUsd ? Math.min(100, (u.costUsd / u.budgetUsd) * 100) : null;
 
   return (
@@ -23,8 +32,8 @@ export default function Usage() {
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <KpiCard label="Input tokens" value={fmt(u.inputTokens)} />
         <KpiCard label="Output tokens" value={fmt(u.outputTokens)} />
-        <KpiCard label="Cost to date" value={u.costUsd !== undefined ? `$${u.costUsd.toFixed(2)}` : 'Not provided'} hint={u.costIsAuthoritative ? 'from provider billing' : 'estimate'} tone={u.costIsAuthoritative ? 'ok' : 'warn'} />
-        <KpiCard label="Monthly budget" value={u.budgetUsd ? `$${u.budgetUsd}` : 'Unlimited'} />
+        <KpiCard label="Cost to date" value={u.costUsd !== undefined ? `$${u.costUsd.toFixed(2)}` : 'Not provided'} hint={u.costUsd !== undefined ? (u.costIsAuthoritative ? 'from provider billing' : 'estimate') : 'provider reports no pricing'} tone={u.costIsAuthoritative ? 'ok' : 'warn'} />
+        <KpiCard label="Monthly budget" value={u.budgetUsd ? `$${u.budgetUsd}` : 'No budget set'} />
       </div>
 
       {budgetPct !== null && (
@@ -63,7 +72,7 @@ export default function Usage() {
         </table>
       </Card>
 
-      <p className="text-xs text-ink-faint">Costs are labeled estimates until provider billing confirms them — the live adapter reads Hermes' <code className="text-signal">cost_source</code> field, which already distinguishes the two.</p>
+      <p className="text-xs text-ink-faint">Costs are labeled estimates until provider billing confirms them — the live adapter reads Hermes' <code className="text-signal">session_model_usage</code> estimated/actual columns and never invents a figure.</p>
     </div>
   );
 }
