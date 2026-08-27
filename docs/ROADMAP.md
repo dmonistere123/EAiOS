@@ -19,7 +19,7 @@ success (spec §2) · tests green before commit.
 | 3 | Governed work loop: kanban WorkItems, approvals, policies (§9) | ✅ |
 | 4 | Schedule (live cron overlay + create), Connections (Composio) | ✅ |
 | 5 | Skills, Knowledge/RAG + citations, Playbooks, acceptance | ✅ 2026-08-26 |
-| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | 🔄 6.1–6.2 ✅ 2026-08-26 |
+| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | 🔄 6.1–6.3 ✅ 2026-08-26 |
 | 7 | Packaging for other CEOs' boxes (prod server, systemd, installer) | ◻ future |
 
 ## Deferred-items register
@@ -45,6 +45,9 @@ they're noticed — never leave them as tribal knowledge.
 | F14 | **Agent factory (spin up agents w/ model choice, OpenRouter)** | New exec requirement 2026-08-26. Host RPCs verified: `model.options` (live catalog), `profiles.create` (model+provider pin, mirror_credentials). | Phase 6.5 |
 | F15 | ~~Usage budget config~~ **DONE 2026-08-26 (6.2)** — no host config-write RPC, so EAiOS-owned `~/eaios/settings.local.json` (gitignored) behind `/api/eaios-settings` middleware with a server-side key allowlist (`usageBudgetUsd`); `setUsageBudget` adapter method; Usage page inline budget editor | — |
 | F16 | **Usage range picker** | 6.1 ships month-to-date only (fixture contract). Range UI (week/quarter/custom) is page polish once the slice is proven live. | Phase 7 polish |
+| F17 | **Artifact attach-from-UI upload** | Needs multipart middleware + `kanban attach`; 6.3 shipped list/preview/download/share. Executives can attach via chat today. | Phase 7 |
+| F18 | **Per-artifact archive + versioning** | Host has only destructive `attach-rm` and keeps no version history; per-artifact archive would need an EAiOS-side state store. | Phase 7+ / host feature |
+| F19 | **Post-approval share execution** | 6.3 share creates the governed approval (decision record); actually sending after approval is the agent's work and needs an executor convention. | First real share |
 
 ## Open design decisions (need the executive)
 

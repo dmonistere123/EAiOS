@@ -90,6 +90,10 @@ export interface HermesAdapter {
   subscribeEvents?(handler: (event: RuntimeEvent) => void): Unsubscribe;
 
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]>;
+  /** Text preview of an artifact's content; null = unavailable (type, size, or fetch failure). */
+  getArtifactPreview(id: string): Promise<string | null>;
+  /** Governed share (§8.9): creates a pending approval — never sends directly. */
+  shareArtifact(id: string): Promise<AuditResult>;
   getUsage(range: DateRange): Promise<UsageSummary>;
   /** Set (or clear, with null) the EAiOS-owned monthly usage budget (F15). */
   setUsageBudget(budgetUsd: number | null): Promise<AuditResult>;

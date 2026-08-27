@@ -274,6 +274,41 @@ export function mapUsageResponse(res: UsageIndexResponse): UsageSummary {
   };
 }
 
+/** /api/artifacts middleware row (kanban task_attachments JOIN tasks). */
+export interface ArtifactIndexRow {
+  id: string;
+  taskId: string;
+  taskTitle: string | null;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedBy: string | null;
+  agentId: string;
+  taskStatus: string | null;
+  createdAt: string;
+}
+
+/**
+ * Map an attachment row onto Artifact (§8.9). State is derived from the
+ * parent task: done→ready, archived→archived, else draft. 'approved' and
+ * 'shared' have no host concept and are never emitted live.
+ */
+export function mapArtifactRow(r: ArtifactIndexRow): Artifact {
+  const state: Artifact['state'] = r.taskStatus === 'done' ? 'ready' : r.taskStatus === 'archived' ? 'archived' : 'draft';
+  const textish = /^(text\/|application\/(json|csv))/.test(r.mimeType);
+  return {
+    id: r.id,
+    name: r.name,
+    mimeType: r.mimeType,
+    sizeBytes: r.sizeBytes,
+    createdAt: r.createdAt,
+    createdByAgentId: r.agentId,
+    workItemId: r.taskId,
+    state,
+    previewAvailable: textish && r.sizeBytes <= 1_048_576,
+  };
+}
+
 function mapProfile(p: HermesProfile, activeProfileNames: Set<string>): Agent {
   const isAlly = p.is_default === true;
   const active = activeProfileNames.has(p.name);
@@ -672,7 +707,60 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]> { return this.fallback.listArtifacts(filter); }
+  // ----- LIVE: artifacts (Phase 6.3, spec §8.9) -----
+  /** Kanban attachments via /api/artifacts middleware (kanban.db read-only). */
+  async listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]> {
+    try {
+      const res = await fetch('/api/artifacts');
+      if (!res.ok) throw new Error(`artifacts index ${res.status}`);
+      const data = (await res.json()) as { artifacts?: ArtifactIndexRow[] };
+      let rows = (data.artifacts ?? []).map(mapArtifactRow);
+      if (filter?.state) rows = rows.filter((a) => filter.state!.includes(a.state));
+      if (filter?.createdByAgentId) rows = rows.filter((a) => a.createdByAgentId === filter.createdByAgentId);
+      return rows;
+    } catch {
+      return this.fallback.listArtifacts(filter); // graceful degradation (spec §2)
+    }
+  }
+
+  async getArtifactPreview(id: string): Promise<string | null> {
+    try {
+      const res = await fetch(`/api/artifacts/${encodeURIComponent(id)}/raw`);
+      if (!res.ok) return null;
+      return (await res.text()).slice(0, 200_000); // preview cap
+    } catch {
+      return this.fallback.getArtifactPreview(id);
+    }
+  }
+
+  /**
+   * Governed share: creates an UNASSIGNED kanban task carrying an approval
+   * envelope — it surfaces on the Approvals page and the kanban dispatcher
+   * never executes it (approvals-stay-unassigned invariant). Approving is a
+   * decision record, not a send: post-approval execution is the agent's work.
+   */
+  async shareArtifact(id: string): Promise<AuditResult> {
+    try {
+      const all = await this.listArtifacts();
+      const a = all.find((x) => x.id === id);
+      if (!a) return { ok: false, auditEventId: `art-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Artifact not found.', retryable: false } };
+      const envelope = {
+        eaios: 'approval',
+        actionType: 'send',
+        targetSystem: 'external',
+        targetObject: a.name,
+        risk: 'medium',
+        requestedBy: a.createdByAgentId,
+        evidence: [{ kind: 'artifact', label: a.name, uri: `eaios://artifact/${a.id}` }],
+        rollbackPlan: 'Share not yet executed — approving records the decision; the sharing agent executes under the approvals policy.',
+      };
+      await this.kanban<unknown>(['create', `Share externally: ${a.name}`, '--body', JSON.stringify(envelope), '--json']);
+      this.invalidateTasks();
+      return { ok: true, auditEventId: `art-share-${id}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `art-err-${Date.now()}`, error: { code: 'share_failed', safeMessage: e instanceof Error ? e.message : 'Share request failed.', retryable: true } };
+    }
+  }
   // ----- LIVE: usage (Phase 6.1) -----
   /**
    * insights.get RPC carries no token/cost data (verified 2026-08-26), so

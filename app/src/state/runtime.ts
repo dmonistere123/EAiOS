@@ -5,7 +5,7 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary } from '../domain/types';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary, Artifact } from '../domain/types';
 import { hermes, adapterMode, live, knowledge } from '../adapters';
 
 export interface Toast {
@@ -27,6 +27,7 @@ interface State {
   playbooks: Playbook[];
   playbookRuns: PlaybookRun[];
   usage: UsageSummary | null;
+  artifacts: Artifact[];
   toasts: Toast[];
 }
 
@@ -43,6 +44,7 @@ let state: State = {
   playbooks: [],
   playbookRuns: [],
   usage: null,
+  artifacts: [],
   toasts: [],
 };
 
@@ -131,9 +133,13 @@ export async function refreshUsage() {
   await guarded('usage', () => hermes.getUsage(usageRangeMonthToDate()), (usage) => set({ usage }));
 }
 
+export async function refreshArtifacts() {
+  await guarded('artifacts', () => hermes.listArtifacts(), (artifacts) => set({ artifacts }));
+}
+
 export async function refreshAll() {
   // Per-slice tolerance: a failing slice must never take down the rest.
-  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns(), refreshUsage()]);
+  await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns(), refreshUsage(), refreshArtifacts()]);
 }
 
 // ---------- boot + live event wiring ----------

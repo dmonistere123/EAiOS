@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md, phase6-brief.md) · **Git:** **Phase 6.1–6.2 COMPLETE (Usage + Env files live, F15 closed)**, build clean, **47/47 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
+**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md, phase6-brief.md) · **Git:** **Phase 6.1–6.3 COMPLETE (Usage, Env files, Artifacts live; F15 closed)**, build clean, **57/57 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
 
 ## What this is
 
@@ -33,7 +33,7 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 || Schedule | 🟡 hybrid | real cron overlay; executive calendar mock (needs Google OAuth) |
 || Usage | ✅ live | `/api/usage` vite middleware (node:sqlite, state.db `session_model_usage` read-only, 30s cache) → `LiveHermesAdapter.getUsage` → runtime `usage` slice. D7 labeling: actual>0 authoritative, else estimated>0 estimate, else "Not provided". Budget via `/api/eaios-settings` → gitignored `~/eaios/settings.local.json` (F15 done); month-to-date only (F16) |
 || Env files | ✅ live | D4 allowlist = SOUL.md per profile. Read `profiles.describe`→soul, write `profiles.configure{soul}`; FNV content-hash read-compare-write (non-atomic CAS, documented); mock fallback. Settings Model/Approval cards = honest badges, not fake saves |
-|| Artifacts | ⏳ mock | Phase 6.3 |
+|| Artifacts | ✅ live | `/api/artifacts` middleware (node:sqlite, kanban.db `task_attachments` JOIN tasks read-only; `/raw` with root confinement + nosniff) → runtime `artifacts` slice. State from parent task (done→ready etc.; approved/shared never emitted — no host concept). Preview drawer (text ≤1MB), real download, **governed Share → unassigned approval task** (§8.9). Upload F17, per-artifact archive/versioning F18, post-approval execution F19 |
 
 ## Hard-won gotchas (don't relearn these)
 
@@ -69,8 +69,8 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 
 1. ~~Usage → live~~ **DONE 2026-08-26 (6.1)** — `/api/usage` middleware (node:sqlite over state.db), D7 cost labeling, runtime usage slice, page rewired off direct-fixture import; live-verified vs SQL. Range picker F16. Details: `docs/phase6-brief.md`.
 2. ~~Settings/env files → live~~ **DONE 2026-08-26 (6.2)** — SOUL.md per profile via `profiles.describe`/`profiles.configure` (no generic file RPC; mock's ALLY.md never existed); FNV-hash read-compare-write (non-atomic CAS documented); mock Model/Approval cards badged honest (fake save toasts removed); **F15 closed**: budget via `/api/eaios-settings` middleware → gitignored `~/eaios/settings.local.json` (server-side key allowlist), inline editor on Usage page; 47 vitest + 8 sidecar green.
-3. Artifacts → live (6.3) — **next**.
-4. Assistant → live (6.4, split chat / citation store).
+3. ~~Artifacts → live~~ **DONE 2026-08-26 (6.3)** — `/api/artifacts` middleware over kanban.db `task_attachments` (agents already attach deliverables on completion), preview drawer + real download with root confinement (escape attempt → 503, verified), governed Share → unassigned approval task (end-to-end verified, cleaned up), page rewired off direct-fixture import; F17–F19 registered; 57 vitest + 8 sidecar green.
+4. Assistant → live (6.4, split chat / citation store) — **next**.
 5. Agent factory (6.5).
 
 ## Open items awaiting the user
@@ -81,4 +81,4 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 
 ## To resume in a new session
 
-"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.3 Artifacts → live; brief in docs/phase6-brief.md). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.
+"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.4 Assistant → live, split 6.4a chat / 6.4b citation store; brief in docs/phase6-brief.md). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.

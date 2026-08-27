@@ -1,8 +1,10 @@
-/** Artifacts — large agent-created outputs with provenance. */
-import { useMemo, useState } from 'react';
-import { artifacts } from '../mocks/fixtures';
-import { useRuntime, agentName } from '../state/runtime';
-import { Card, EmptyState, RelativeTime, StateBadge } from '../components/ui';
+/** Artifacts — large agent-created outputs with provenance (spec §8.9). */
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import type { Artifact } from '../domain/types';
+import { hermes, adapterMode } from '../adapters';
+import { useRuntime, agentName, refreshApprovals, toast } from '../state/runtime';
+import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
 
 const stateTone = { draft: 'warn', ready: 'ok', approved: 'signal', shared: 'signal', archived: 'neutral' } as const;
 
@@ -18,14 +20,56 @@ function fmtSize(bytes?: number) {
   return bytes > 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 
+function PreviewDrawer({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+  const [text, setText] = useState<string | null | undefined>(undefined); // undefined = loading
+
+  useEffect(() => {
+    let live = true;
+    void hermes.getArtifactPreview(artifact.id).then((t) => {
+      if (live) setText(t);
+    });
+    return () => {
+      live = false;
+    };
+  }, [artifact.id]);
+
+  return (
+    <Drawer title={artifact.name} onClose={onClose} width={560}>
+      <div className="flex-1 overflow-y-auto p-5">
+        {text === undefined ? (
+          <p className="text-xs text-ink-dim">Loading preview…</p>
+        ) : text === null ? (
+          <p className="text-xs text-ink-dim">Preview unavailable for this artifact. Download is still available where permitted (§8.9).</p>
+        ) : (
+          <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-dim">{text}</pre>
+        )}
+      </div>
+    </Drawer>
+  );
+}
+
 export default function Artifacts() {
   const s = useRuntime();
   const [q, setQ] = useState('');
+  const [preview, setPreview] = useState<Artifact | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   const rows = useMemo(
-    () => artifacts.filter((a) => a.name.toLowerCase().includes(q.toLowerCase())),
-    [q],
+    () => s.artifacts.filter((a) => a.name.toLowerCase().includes(q.toLowerCase())),
+    [s.artifacts, q],
   );
+
+  const share = async (a: Artifact) => {
+    setSharingId(a.id);
+    const res = await hermes.shareArtifact(a.id);
+    setSharingId(null);
+    if (res.ok) {
+      toast('ok', `Share approval requested for ${a.name} — decide it on the Approvals page.`);
+      void refreshApprovals();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Share request failed.');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -54,20 +98,55 @@ export default function Artifacts() {
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-sm text-ink">{a.name}</div>
                 <div className="mt-0.5 text-xs text-ink-faint">
-                  {agentName(s, a.createdByAgentId)} · {a.workItemId ?? 'no work item'} · <RelativeTime iso={a.createdAt} /> · {fmtSize(a.sizeBytes)}
+                  {agentName(s, a.createdByAgentId)} ·{' '}
+                  {a.workItemId ? (
+                    <Link to="/today" className="text-signal hover:underline" title="Open work items">
+                      {a.workItemId}
+                    </Link>
+                  ) : (
+                    'no work item'
+                  )}{' '}
+                  · <RelativeTime iso={a.createdAt} /> · {fmtSize(a.sizeBytes)}
                 </div>
               </div>
               <StateBadge label={a.state} tone={stateTone[a.state]} />
               <div className="flex gap-2">
-                <button className="rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay" disabled={!a.previewAvailable} title={a.previewAvailable ? 'Preview' : 'Preview unavailable for this type'}>
+                <button
+                  onClick={() => setPreview(a)}
+                  className="rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay"
+                  disabled={!a.previewAvailable}
+                  title={a.previewAvailable ? 'Preview' : 'Preview unavailable for this type'}
+                >
                   Preview
                 </button>
-                <button className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">Download</button>
+                {adapterMode === 'live' ? (
+                  <a
+                    href={`/api/artifacts/${encodeURIComponent(a.id)}/raw?download=1`}
+                    download={a.name}
+                    className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10"
+                  >
+                    Download
+                  </a>
+                ) : (
+                  <button disabled title="Download needs the live artifact store" className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal opacity-40">
+                    Download
+                  </button>
+                )}
+                <button
+                  onClick={() => void share(a)}
+                  disabled={sharingId === a.id}
+                  title="Routes through the Approvals page — nothing is sent directly (§8.9)"
+                  className="rounded-lg border border-warn/40 px-3 py-1.5 text-xs font-medium text-warn hover:bg-warn/10 disabled:opacity-50"
+                >
+                  {sharingId === a.id ? 'Requesting…' : 'Share…'}
+                </button>
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      {preview && <PreviewDrawer artifact={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

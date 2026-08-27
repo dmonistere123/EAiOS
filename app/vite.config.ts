@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 
@@ -316,6 +316,117 @@ function eaiosSettingsMiddleware() {
   }
 }
 
+/**
+ * Dev-only middleware: /api/artifacts — agent-created outputs backed by
+ * kanban task_attachments (Phase 6.3, spec §8.9). Agents already attach
+ * deliverables on task completion (kanban_complete), so kanban.db is the
+ * honest provenance source: attachment → task (assignee, title, status).
+ * node:sqlite READ-ONLY like /api/usage. /api/artifacts/<id>/raw streams
+ * the file with ROOT CONFINEMENT — the DB's stored_path is data, not
+ * authority; anything resolving outside the attachments root is rejected.
+ * ?download=1 adds content-disposition. Errors → 503 → mock fallback.
+ */
+function artifactsMiddleware() {
+  const home = process.env.HERMES_HOME ?? join(homedir(), '.hermes')
+  const dbPath = join(home, 'kanban.db')
+  const attachRoot = join(home, 'kanban', 'attachments')
+  let cache: { at: number; body: string } | undefined
+
+  const MIME: Record<string, string> = { '.md': 'text/markdown', '.txt': 'text/plain', '.json': 'application/json', '.csv': 'text/csv', '.html': 'text/html', '.pdf': 'application/pdf' }
+  const guessMime = (name: string) => MIME[name.slice(name.lastIndexOf('.')).toLowerCase()] ?? 'application/octet-stream'
+
+  const list = () => {
+    const db = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const rows = db
+        .prepare(
+          `SELECT a.id, a.task_id, a.filename, a.stored_path, a.content_type, a.size,
+                  a.uploaded_by, a.created_at,
+                  t.title AS task_title, t.assignee AS task_assignee, t.status AS task_status
+           FROM task_attachments a
+           LEFT JOIN tasks t ON t.id = a.task_id
+           ORDER BY a.created_at DESC`,
+        )
+        .all() as {
+        id: number; task_id: string; filename: string; stored_path: string
+        content_type: string | null; size: number; uploaded_by: string | null; created_at: number
+        task_title: string | null; task_assignee: string | null; task_status: string | null
+      }[]
+      return {
+        artifacts: rows.map((r) => ({
+          id: `att-${r.id}`,
+          taskId: r.task_id,
+          taskTitle: r.task_title,
+          name: r.filename,
+          mimeType: r.content_type ?? guessMime(r.filename),
+          sizeBytes: r.size,
+          uploadedBy: r.uploaded_by,
+          agentId: r.task_assignee ?? r.uploaded_by ?? 'default',
+          taskStatus: r.task_status,
+          createdAt: new Date(r.created_at * 1000).toISOString(),
+        })),
+      }
+    } finally {
+      db.close()
+    }
+  }
+
+  const rawFor = (idParam: string) => {
+    const rowId = Number(idParam.replace(/^att-/, ''))
+    if (!Number.isInteger(rowId)) throw new Error('bad id')
+    const db = new DatabaseSync(dbPath, { readOnly: true })
+    try {
+      const r = db.prepare('SELECT filename, stored_path, content_type FROM task_attachments WHERE id = ?').get(rowId) as
+        | { filename: string; stored_path: string; content_type: string | null }
+        | undefined
+      if (!r) return undefined
+      // Confinement: resolved path must stay inside the attachments root.
+      const resolved = resolve(r.stored_path)
+      if (!resolved.startsWith(resolve(attachRoot) + sep)) throw new Error('path escapes attachments root')
+      return { filename: r.filename, path: resolved, mime: r.content_type ?? guessMime(r.filename) }
+    } finally {
+      db.close()
+    }
+  }
+
+  return {
+    name: 'eaios-artifacts',
+    configureServer(server: { middlewares: { use: (path: string, fn: (req: { url?: string }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string | Buffer) => void }) => void) => void } }) {
+      server.middlewares.use('/api/artifacts', (req, res) => {
+        try {
+          const url = new URL(req.url ?? '', 'http://localhost')
+          const rawMatch = url.pathname.match(/^\/(?:att-)?(\d+)\/raw$/)
+          if (rawMatch) {
+            const rec = rawFor(rawMatch[1])
+            if (!rec) {
+              res.statusCode = 404
+              res.end(JSON.stringify({ error: 'not found' }))
+              return
+            }
+            res.statusCode = 200
+            res.setHeader('content-type', rec.mime)
+            res.setHeader('x-content-type-options', 'nosniff')
+            if (url.searchParams.get('download') === '1') {
+              res.setHeader('content-disposition', `attachment; filename="${rec.filename.replace(/"/g, '')}"`)
+            }
+            res.end(readFileSync(rec.path))
+            return
+          }
+          if (!cache || Date.now() - cache.at > 30_000) {
+            cache = { at: Date.now(), body: JSON.stringify(list()) }
+          }
+          res.statusCode = 200
+          res.setHeader('content-type', 'application/json')
+          res.end(cache.body)
+        } catch (e) {
+          res.statusCode = 503
+          res.end(JSON.stringify({ error: String(e) }))
+        }
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Node-side env (NOT inlined into the client bundle — safe for secrets).
@@ -323,7 +434,7 @@ export default defineConfig(({ mode }) => {
   const composioKey = env.COMPOSIO_API_KEY ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware(), eaiosSettingsMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

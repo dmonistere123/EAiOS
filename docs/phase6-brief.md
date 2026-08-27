@@ -133,12 +133,64 @@ and sketches the rest; later items get detailed here when they start.
 - [x] `npm test` + `npm run test:sidecar` + build green. **47 vitest +
       8 sidecar, build clean.**
 
-## 6.3 Artifacts → live (§8.9) — sketch
+## 6.3 Artifacts → live (§8.9) — DETAILED 2026-08-26
 
-Provenance (agent + work item), list, preview/download. Candidate backing:
-kanban attachments + artifact envelope in task body (like approvals).
-Governed share routes through the approval evaluator per §8.9 — no
-page-level shortcuts (working rule 6).
+**Probe results (live box):**
+- Kanban has a native attachment surface: `kanban attach/attachments --json/
+  attach-rm`, backed by `task_attachments` in `~/.hermes/kanban.db`
+  (`stored_path` under `~/.hermes/kanban/attachments/<task>/`).
+- **Agents already produce them:** `weekly-metrics-2026-08-25.md` attached by
+  `kanban_complete` on task `t_51cd3b69` — the design isn't speculative.
+- Per-task `attachments` via `cli.exec` = one subprocess spawn per task —
+  rejected for list refresh; a read-only SQL JOIN behind middleware is one
+  query (6.1 pattern).
+
+**Design:**
+- **`/api/artifacts` middleware** (node:sqlite read-only on kanban.db):
+  list = `task_attachments LEFT JOIN tasks` (provenance: task title,
+  assignee, status). 30s cache. `/api/artifacts/<id>/raw` streams the file
+  with **root confinement** (resolved path must stay under the attachments
+  root — DB paths are data, not authority); `?download=1` sets
+  content-disposition. DB missing/error → 503 → mock fallback.
+- **Mapping:** `att-<rowid>` · agent = task assignee ?? uploaded_by ·
+  workItemId = task_id · state from task status (done→ready,
+  archived→archived, else draft; approved/shared have no host concept —
+  never emitted) · previewAvailable = text-ish mime ≤ 1MB.
+- **Adapter:** `listArtifacts` live + fallback; `getArtifactPreview(id)`
+  (text fetch, capped); `shareArtifact(id)` — **governed share per §8.9 +
+  working rule 6:** creates an UNASSIGNED kanban task with an approval
+  envelope (`actionType 'send'`, `targetSystem 'external'`, evidence
+  `eaios://artifact/<id>`) → surfaces on the Approvals page for executive
+  decision. No page-level shortcut. Approving executes nothing by itself
+  (execution is the agent's post-approval work — registered as a deferral).
+- **Runtime/page:** artifacts slice + `refreshArtifacts()` (event-debounced
+  refresh covers §8.9's insert-on-`artifact.created` within ~1s); page reads
+  the store (it imported fixtures directly — same Phase 0 shortcut as
+  Usage), Preview drawer (text), Download (real href), Share → approval
+  request + toast, work-item link → /today.
+- **Deferred (registered in ROADMAP):** attach-from-UI upload (needs
+  multipart middleware + kanban attach), per-artifact archive (host has only
+  attach-rm = destructive delete), post-approval share execution, artifact
+  versioning (host keeps no history).
+
+**Acceptance — ALL MET 2026-08-26:**
+- [x] Live list shows the real `weekly-metrics` attachment with provenance
+      (agent from task assignee, work item link, size, created time).
+      **Verified in preview:** "weekly-metrics-2026-08-25.md · Ally ·
+      t_51cd3b69 · 3 KB · ready".
+- [x] Preview renders the markdown text; download serves the file; raw
+      endpoint rejects path escape. **Verified:** raw serves real content;
+      download headers correct (`text/markdown`, content-disposition,
+      nosniff); 404 on unknown id; confinement proven by inserting a
+      malicious row → 503 "path escapes attachments root" → row removed,
+      DB back to 1 row.
+- [x] Share creates a pending approval visible on the Approvals page
+      (live), unassigned so the dispatcher can't execute it. **Verified
+      end-to-end via CLI:** created `t_ab0c2f21` (status ready, assignee
+      NULL, envelope parses) → archived after verification.
+- [x] Middleware down → mock fallback list (unit).
+- [x] Mock parity + contract tests; `npm test` + sidecar + build green.
+      **57 vitest + 8 sidecar, build clean.**
 
 ## 6.4 Assistant → live (§8.2) — sketch
 

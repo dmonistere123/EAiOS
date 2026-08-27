@@ -182,6 +182,40 @@ class MockHermesAdapter implements HermesAdapter {
     return clone(rows);
   }
 
+  async getArtifactPreview(id: string): Promise<string | null> {
+    await delay(120);
+    const a = this.artifacts.find((x) => x.id === id);
+    if (!a || !a.previewAvailable) return null;
+    return `# ${a.name}\n\nMock preview content for ${a.name} — created by ${a.createdByAgentId} for ${a.workItemId ?? 'no work item'}.\n\n## Summary\nThis is where the rendered text of the artifact appears in the preview drawer.\n`;
+  }
+
+  /** Governed share (§8.9): mock appends a pending approval linked to the artifact. */
+  async shareArtifact(id: string): Promise<AuditResult> {
+    await delay(200);
+    const a = this.artifacts.find((x) => x.id === id);
+    if (!a) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Artifact not found.', retryable: false } };
+    const approvalId = `a-share-${id}`;
+    this.approvals = [
+      ...this.approvals,
+      {
+        id: approvalId,
+        workItemId: a.workItemId ?? approvalId,
+        requestedByAgentId: a.createdByAgentId,
+        actionType: 'send',
+        targetSystem: 'external',
+        targetObject: a.name,
+        risk: 'medium',
+        status: 'pending',
+        submittedAt: new Date().toISOString(),
+        evidence: [{ kind: 'artifact', label: a.name, uri: `eaios://artifact/${a.id}` }],
+        rollbackPlan: 'Share not yet executed — approving records the decision; the sharing agent executes under the approvals policy.',
+      },
+    ];
+    this.artifacts = this.artifacts.map((x) => (x.id === id ? { ...x, approvalId } : x));
+    this.emit('approval.decided', a.createdByAgentId, `Share approval requested: ${a.name}`, a.workItemId);
+    return audit();
+  }
+
   async getUsage(_range: DateRange): Promise<UsageSummary> { await delay(); return clone(fx.usageSummary); }
 
   /** F15: mock budget lives in the fixture — edits persist for the session. */
