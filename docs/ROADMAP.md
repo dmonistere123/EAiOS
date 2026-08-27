@@ -42,6 +42,7 @@ they're noticed — never leave them as tribal knowledge.
 | F11 | **Vectors/semantic retrieval** | FTS5-first decision locked 2026-08-26; vectors slot behind the same sidecar HTTP surface. | When FTS5 recall proves insufficient |
 | F12 | **Preview-pane click harness flaky** | Hermes desktop delta engine loses sync; verify via vitest interaction tests instead. | External (Hermes) |
 | F13 | **Retrieval enforcement for connector sources** | KnowledgeSource type 'connector' exists but no ingestion path (Composio-linked docs). | Phase 7+ |
+| F14 | **Agent factory (spin up agents w/ model choice, OpenRouter)** | New exec requirement 2026-08-26. Host RPCs verified: `model.options` (live catalog), `profiles.create` (model+provider pin, mirror_credentials). | Phase 6.5 |
 
 ## Open design decisions (need the executive)
 

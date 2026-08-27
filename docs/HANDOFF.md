@@ -77,4 +77,4 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 
 ## To resume in a new session
 
-"Continue EAiOS — read ~/eaios/docs/HANDOFF.md, project is EAiOS" → verify dev servers (`curl localhost:5173/today`, `hermes serve --status`), `git log --oneline` in ~/eaios/app, keep going per "Next" above.
+"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.1 Usage → live). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.
