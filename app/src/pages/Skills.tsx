@@ -105,7 +105,10 @@ function PlaybookCard({ playbook }: { playbook: Playbook }) {
           {runs.map((r) => (
             <li key={r.id} className="rounded-lg bg-canvas px-3 py-2 text-xs">
               <div className="flex items-center justify-between gap-2">
-                <StateBadge label={r.state} tone={runTone[r.state] ?? 'neutral'} />
+                <span className="flex items-center gap-2">
+                  <StateBadge label={r.state} tone={runTone[r.state] ?? 'neutral'} />
+                  <span className="font-mono text-ink-faint">v{r.playbookVersion}</span>
+                </span>
                 <span className="text-ink-faint"><RelativeTime iso={r.createdAt} />{r.assignee ? ` · ${agentName(s, r.assignee)}` : ''}</span>
               </div>
               {r.result && <div className="mt-1 text-ink-dim">{r.result}</div>}

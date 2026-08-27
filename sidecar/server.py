@@ -35,10 +35,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data"
+DATA = Path(os.environ.get("EAIOS_KNOWLEDGE_DATA_DIR", ROOT / "data"))
 FILES = DATA / "files"
 DB = DATA / "knowledge.db"
-HOST, PORT = "127.0.0.1", 9121
+HOST = os.environ.get("EAIOS_KNOWLEDGE_HOST", "127.0.0.1")
+PORT = int(os.environ.get("EAIOS_KNOWLEDGE_PORT", "9121"))
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
 MAX_UPLOAD = 50 * 1024 * 1024

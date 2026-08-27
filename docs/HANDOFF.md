@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** phases 1–5.4 committed, build clean, **27/27 vitest green** (`npm test`)
+**Updated:** 2026-08-26 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md) · **Git:** **Phase 5 COMPLETE (5.1–5.5)**, build clean, **30/30 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
 
 ## What this is
 
@@ -59,7 +59,15 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 2. ~~Knowledge/RAG~~ **DONE 2026-08-26 (milestone 1)** — sidecar + FTS5 + sources CRUD + Add-source UI. Retrieval enforcement + agent-facing query path still open.
 3. ~~Evidence/citation drill-down contract~~ **DONE 2026-08-26** — `/search` + `/chunks/<id>` live, scope enforcement verified (executive 3 / scout 2 / quill 1 on seeded test set), Try-retrieval UI + drill-down drawer, citation contract in `adapters/interfaces.ts`, `eaios-knowledge-retrieval` skill for agents. Remaining: answer→chunk link store once the Assistant page goes live (Phase 6).
 4. ~~Playbooks~~ **DONE 2026-08-26** — 3 playbooks on disk (weekly-investor-update, monthly-expense-audit, competitor-deep-dive swarm), run via kanban create/swarm, history from marker query, run-confirm drawer + history UI. Open: swarm run never executed end-to-end (needs a real goal + executive consent); playbook edit/new-version UI not built (edit md on disk for now).
-5. Tests + acceptance (spec §8.7/§8.8) — **remaining Phase 5 item**.
+5. ~~Tests + acceptance (spec §8.7/§8.8)~~ **DONE 2026-08-26** — sidecar suite (`sidecar/test_sidecar.py`, black-box subprocess: state machine pending→ready/failed + error kept + reindex recovery; scope enforcement executive/scout/quill; citation round-trip; non-citable flag) via `npm run test:sidecar`; app suite `src/tests/acceptance-phase5.test.tsx` (cite-as URI in drawer, failed-source error display, playbook version history). Sidecar env overrides for tests: `EAIOS_KNOWLEDGE_DATA_DIR/HOST/PORT`.
+
+## Phase 6 candidates (not started)
+
+- Usage → live via `insights.get` / state.db `session_model_usage` (D7: estimated+actual).
+- Artifacts → live (draft→approved lifecycle; kanban attachments?).
+- Env files → live (ALLY.md etc. via gateway file RPC?).
+- Assistant page → live chat + answer→chunk citation store (`getRetrievalEvidence`).
+- Executive calendar → Google OAuth (user action pending, see below).
 
 ## Open items awaiting the user
 

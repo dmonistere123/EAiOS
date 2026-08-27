@@ -165,7 +165,7 @@ export const knowledgeSources: KnowledgeSource[] = [
   { id: 'k-01', type: 'file', name: 'Q3 board deck (working).pptx', scope: 'private', indexingStatus: 'ready', freshnessAt: min(60 * 8), citationEnabled: true },
   { id: 'k-02', type: 'url', name: 'allygnment.com — brand guidelines', uri: 'https://allygnment.com', scope: 'workspace', indexingStatus: 'ready', freshnessAt: min(60 * 30), citationEnabled: true },
   { id: 'k-03', type: 'transcript', name: 'Investor call — Aug 12', scope: 'agent', allowedAgentIds: ['ally'], indexingStatus: 'processing', citationEnabled: true },
-  { id: 'k-04', type: 'file', name: 'Vendor contracts 2026.zip', scope: 'private', indexingStatus: 'failed', citationEnabled: false },
+  { id: 'k-04', type: 'file', name: 'Vendor contracts 2026.zip', scope: 'private', indexingStatus: 'failed', error: 'Unsupported archive format (.zip) — extract and upload the contents instead.', citationEnabled: false },
 ];
 
 export const connections: Connection[] = [
