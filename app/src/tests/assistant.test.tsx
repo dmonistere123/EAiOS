@@ -6,10 +6,10 @@
  * thread from the adapter and the orchestration panel from REAL work items.
  */
 import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
-import Assistant from '../pages/Assistant';
+import Assistant, { parseCitations } from '../pages/Assistant';
 import { startRuntime } from '../state/runtime';
 import { hermes, live } from '../adapters';
 import type { AssistantEvent } from '../domain/types';
@@ -162,6 +162,40 @@ describe('mock assistant contract', () => {
     expect(after.at(-1)?.text).toContain('draft the update');
     unsub();
   });
+});
+
+// ---------- 6.4b citations ----------
+
+describe('citations (6.4b, F8)', () => {
+  it('parseCitations extracts unique chunk ids in order', () => {
+    expect(parseCitations('see eaios://chunk/k-01-0 and eaios://chunk/k-02-3, plus eaios://chunk/k-01-0 again')).toEqual(['k-01-0', 'k-02-3']);
+    expect(parseCitations('no citations here')).toEqual([]);
+  });
+
+  it('citation chip on an Ally reply opens the chunk drill-down drawer', async () => {
+    const user = userEvent.setup();
+    // Seed a COMPLETED, cited reply at the adapter level first — no page
+    // involved, so no streaming race. (The UI send/stream path itself is
+    // covered by the page test below; this test is about the chip + drawer.)
+    const events: AssistantEvent[] = [];
+    const unsub = hermes.subscribeAssistant((e) => events.push(e));
+    await hermes.sendAssistantMessage('cite the board deck');
+    await vi.waitFor(() => expect(events.some((e) => e.kind === 'complete')).toBe(true), { timeout: 5000 });
+    unsub();
+
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    const chips = await screen.findAllByRole('button', { name: /⧉ source 1/ }, { timeout: 4000 });
+    await user.click(chips[chips.length - 1]); // the just-seeded reply's chip
+    // drawer resolves the mock chunk (source k-01 = Q3 board deck)
+    const dialog = await screen.findByRole('dialog', undefined, { timeout: 4000 });
+    expect(await within(dialog).findByText('Q3 board deck (working).pptx')).toBeInTheDocument();
+    expect(within(dialog).getByText(/eaios:\/\/chunk\/k-01-0/)).toBeInTheDocument(); // "Cite as" line
+    await user.keyboard('{Escape}');
+  }, 15000); // stream takes ~1.4s; suite-load can stretch the full flow past 5s
 });
 
 // ---------- page ----------

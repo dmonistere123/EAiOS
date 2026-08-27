@@ -328,7 +328,7 @@ class MockHermesAdapter implements HermesAdapter {
   async sendAssistantMessage(text: string): Promise<AuditResult> {
     await delay(120);
     this.assistantThread.push({ id: `m-${Date.now()}-u`, role: 'you', text, at: new Date().toISOString() });
-    const reply = `On it — "${text.slice(0, 60)}". (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.)`;
+    const reply = `On it — "${text.slice(0, 60)}". (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.) Grounded in your knowledge base: eaios://chunk/k-01-0`;
     const emit = (e: AssistantEvent) => this.assistantHandlers.forEach((h) => h(e));
     setTimeout(() => {
       emit({ kind: 'start' });

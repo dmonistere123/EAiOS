@@ -3,7 +3,34 @@ import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage } from '../domain/types';
 import { hermes } from '../adapters';
 import { Card, SectionTitle, StateBadge, AgentStatusBadge, IndeterminateBar } from '../components/ui';
+import { ChunkDrawer } from '../components/ChunkDrawer';
 import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
+
+/** 6.4b: citation refs Ally emits per the Phase 5 contract (`eaios://chunk/<id>`). */
+export function parseCitations(text: string): string[] {
+  const ids = new Set<string>();
+  for (const m of text.matchAll(/eaios:\/\/chunk\/([A-Za-z0-9_-]+)/g)) ids.add(m[1]);
+  return [...ids];
+}
+
+function CitationChips({ text, onOpen }: { text: string; onOpen: (chunkId: string) => void }) {
+  const ids = parseCitations(text);
+  if (!ids.length) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {ids.map((id, i) => (
+        <button
+          key={id}
+          onClick={() => onOpen(id)}
+          title={`Open source chunk ${id}`}
+          className="rounded-md border border-signal/30 bg-signal/10 px-2 py-0.5 text-[10px] font-medium text-signal hover:bg-signal/20"
+        >
+          ⧉ source {i + 1}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export default function Assistant() {
   const s = useRuntime();
@@ -13,6 +40,7 @@ export default function Assistant() {
   const [streaming, setStreaming] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [openChunk, setOpenChunk] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Hydrate the authoritative history once, then ride streaming events.
@@ -82,6 +110,7 @@ export default function Assistant() {
               <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
                 <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</div>
                 <div className="whitespace-pre-wrap">{m.text}</div>
+                {m.role === 'ally' && <CitationChips text={m.text} onOpen={setOpenChunk} />}
               </div>
             ))}
             {streaming !== null && (
@@ -160,6 +189,8 @@ export default function Assistant() {
           </Card>
         </div>
       </div>
+
+      {openChunk && <ChunkDrawer chunkId={openChunk} onClose={() => setOpenChunk(null)} />}
     </div>
   );
 }

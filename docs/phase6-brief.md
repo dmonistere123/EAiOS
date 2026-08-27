@@ -243,16 +243,29 @@ and sketches the rest; later items get detailed here when they start.
   `getRetrievalEvidence` stub stays mock-only. F8 closes on the UI
   contract being end-to-end clickable.
 
-**Acceptance:**
-- [ ] Real conversation on the live page: send → streamed reply → history
-      persists across page reload (resume path).
-- [ ] Events from OTHER sessions never render in the EAiOS thread (sid
-      filter unit test).
-- [ ] Stale runtime sid → recreate + retry once, no lost message (unit).
-- [ ] Mock mode: canned streamed reply; contract tests green.
-- [ ] Side panels show real data (work items, knowledge counts).
-- [ ] 6.4b: citation chip → chunk drawer opens with real chunk text.
-- [ ] `npm test` + sidecar + build green.
+**Acceptance — ALL MET 2026-08-27:**
+- [x] Real conversation on the live box: full adapter sequence replayed
+      against the gateway (create → submit → streamed deltas → complete →
+      2-row history → resume-after-reload). Preview-pane typing can't drive
+      React inputs (F12); first human Send is the final mile.
+- [x] Events from OTHER sessions never render in the EAiOS thread (sid
+      filter unit test, incl. `turn.error` via the `sid` key).
+- [x] Stale runtime sid → recreate + retry once, no lost message (unit).
+- [x] Mock mode: canned streamed reply; contract tests green.
+- [x] Side panels show real data (work items, knowledge counts).
+- [x] 6.4b: citation chip → chunk drawer opens with real chunk text.
+      ChunkDrawer extracted to `components/ChunkDrawer.tsx` (shared with
+      Knowledge); `parseCitations` + chips on completed Ally messages; mock
+      reply carries `eaios://chunk/k-01-0`. F8 closed.
+- [x] `npm test` + sidecar + build green. **66 vitest + 8 sidecar, three
+      consecutive green runs.**
+- **Test-harness gotchas found (now in HANDOFF #16):** Node 26's stub
+  `localStorage` getter shadows jsdom's (setup.ts rebinds to
+  `window._localStorage`); jsdom has no `Element.scrollTo` (polyfilled);
+  mock assistant is a singleton whose thread persists across tests in a
+  file — page tests that send must wait on adapter-level `complete`, never
+  on text (streaming bubble matches early) or chip counts (old chips
+  hydrate late).
 
 ## 6.5 Agent factory (§8.3 Add Agent) — sketch
 

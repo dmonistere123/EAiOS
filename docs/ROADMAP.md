@@ -19,7 +19,7 @@ success (spec §2) · tests green before commit.
 | 3 | Governed work loop: kanban WorkItems, approvals, policies (§9) | ✅ |
 | 4 | Schedule (live cron overlay + create), Connections (Composio) | ✅ |
 | 5 | Skills, Knowledge/RAG + citations, Playbooks, acceptance | ✅ 2026-08-26 |
-| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | 🔄 6.1–6.3 ✅ 2026-08-26 |
+| 6 | Usage, Assistant (live chat + citation store), Artifacts, Env files | 🔄 6.1–6.4 ✅ 2026-08-27 |
 | 7 | Packaging for other CEOs' boxes (prod server, systemd, installer) | ◻ future |
 
 ## Deferred-items register
@@ -36,7 +36,7 @@ they're noticed — never leave them as tribal knowledge.
 | F5 | **Executive calendar live** | Needs user's one-time Google OAuth consent. | User action |
 | F6 | **Composio app linking (Gmail etc.)** | Needs auth configs in Composio dashboard (account currently has 0 connected apps). | User action |
 | F7 | **Morning briefing cron → Ally's Portal (7am)** | Explicit user consent pending. | User action |
-| F8 | **Answer→chunk citation store** | Completes §8.7 end-to-end; needs the live Assistant page (answer persistence) first. | Phase 6 (with Assistant) |
+| F8 | ~~Answer→chunk citation store~~ **DONE 2026-08-27 (6.4b)** — decision: the persisted chat message IS the record (no separate link store); `parseCitations` renders chips on Ally's answers → shared ChunkDrawer with real chunk text; end-to-end clickable, tested | — |
 | F9 | **hermes serve + sidecar as systemd services** | Dev background procs today; fine while iterating. | Phase 7 packaging |
 | F10 | **Prod discovery for skills/playbooks index** | Both ride vite dev middleware; packaging needs them served by the production server (or sidecar). | Phase 7 packaging |
 | F11 | **Vectors/semantic retrieval** | FTS5-first decision locked 2026-08-26; vectors slot behind the same sidecar HTTP surface. | When FTS5 recall proves insufficient |
