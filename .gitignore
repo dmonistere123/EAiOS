@@ -1,3 +1,4 @@
 node_modules/
 sidecar/.venv/
 sidecar/data/
+sidecar/__pycache__/
