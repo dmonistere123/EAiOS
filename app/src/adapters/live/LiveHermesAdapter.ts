@@ -14,8 +14,8 @@ import type {
   UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
-  AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
-  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, Unsubscribe, WorkFilter,
+  AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
+  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
@@ -419,13 +419,58 @@ class LiveHermesAdapter implements HermesAdapter {
     return a;
   }
 
-  updateAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AuditResult> {
-    // Live model writes land in Phase 2 hardening via profiles.configure.
-    void agentId;
-    void patch;
-    return this.fallback.updateAgentConfig(agentId, patch);
+  // ----- LIVE: agent factory (Phase 6.5, spec §8.3) -----
+  /** Live provider/model catalog, grouped by provider. */
+  async listModelOptions(): Promise<ModelOptionGroup[]> {
+    try {
+      const res = await this.rpc.call<{ providers?: { slug?: string; name?: string; models?: string[]; authenticated?: boolean }[] }>('model.options', { explicit_only: true });
+      return (res.providers ?? [])
+        .filter((p) => p.slug && (p.models ?? []).length > 0)
+        .map((p) => ({ slug: p.slug!, name: p.name ?? p.slug!, models: p.models ?? [], authenticated: p.authenticated !== false }));
+    } catch {
+      return this.fallback.listModelOptions(); // graceful degradation (spec §2)
+    }
   }
 
+  /**
+   * Create a staff agent (Hermes profile). Config write per policy: audited,
+   * no approval gate (D3 gates external writes only). mirror_credentials is
+   * the host default (true) — the new agent can infer out of the box.
+   */
+  async createAgent(input: CreateAgent): Promise<AuditResult> {
+    if (!/^[a-z][a-z0-9-]*$/.test(input.name)) {
+      return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'invalid_name', safeMessage: 'Agent id must be a lowercase slug (letters, digits, dashes; start with a letter).', retryable: false } };
+    }
+    try {
+      await this.rpc.call('profiles.create', {
+        name: input.name,
+        description: input.role,
+        model: input.model.model,
+        provider: input.model.provider,
+        ...(input.soul ? { soul: input.soul } : {}),
+        ...(input.cloneFrom ? { clone_from: input.cloneFrom } : {}),
+      });
+      return { ok: true, auditEventId: `agent-create-${input.name}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'agent_create_failed', safeMessage: e instanceof Error ? e.message : 'Agent creation failed.', retryable: false } };
+    }
+  }
+
+  /** Live model write: catalog-validated, then profiles.configure (model+provider go together). */
+  async updateAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AuditResult> {
+    if (!patch.model) return this.fallback.updateAgentConfig(agentId, patch); // tools-only patches stay mock for now
+    try {
+      const catalog = await this.listModelOptions();
+      const allowed = catalog.some((g) => g.slug === patch.model!.provider && g.models.includes(patch.model!.model));
+      if (!allowed) {
+        return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'model_not_allowed', safeMessage: `${patch.model.provider}/${patch.model.model} is not in the live model catalog.`, retryable: false } };
+      }
+      await this.rpc.call('profiles.configure', { name: agentId, model: patch.model.model, provider: patch.model.provider });
+      return { ok: true, auditEventId: `agent-model-${agentId}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'agent_config_failed', safeMessage: e instanceof Error ? e.message : 'Model change failed.', retryable: true } };
+    }
+  }
   // ----- LIVE: cron -----
   async listCronJobs(): Promise<CronJob[]> {
     try {

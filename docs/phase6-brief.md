@@ -267,11 +267,53 @@ and sketches the rest; later items get detailed here when they start.
   on text (streaming bubble matches early) or chip counts (old chips
   hydrate late).
 
-## 6.5 Agent factory (§8.3 Add Agent) — sketch
+## 6.5 Agent factory (§8.3 Add Agent) — DETAILED 2026-08-27
 
-Verified surface (BUILD-PLAN-v2): `model.options` RPC → provider/model
-catalog; `profiles.create` RPC (`name`, `description`, `clone_from`, `soul`,
-`model`/`provider` pin, `mirror_credentials` default true). UI: Staff →
-Add Agent drawer → adapter `createAgent()` → card via existing
-`profiles.list`. Model write validated + `config.changed` audit. "Ask Ally"
-path goes through the governed work loop for free.
+**Probe results (live box):**
+- `model.options` → `{providers: [{slug, name, models: string[],
+  total_models, authenticated, pricing}], model, provider}` — grouped live
+  catalog (38 models on `nous` alone, incl. OpenRouter-routable rows).
+- `profiles.create` → `name` (lowercase slug, 4061/4062 on
+  missing/duplicate), `description`, `clone_from`, `soul`, `model` +
+  `provider` pin, `mirror_credentials` (default true — new agent infers out
+  of the box). **No `profiles.delete` RPC** — verification cleanup removes
+  the profile dir.
+- `profiles.configure` accepts `model` + `provider` together (verified
+  6.2) — closes the §8.3 "config writes fall back to mock" gap for model
+  changes.
+
+**Design:**
+- `listModelOptions()` → provider-grouped catalog (live: model.options;
+  mock: small fixture). `createAgent({name, role, model, soul?, cloneFrom?})`:
+  slug-validated (`^[a-z][a-z0-9-]*$`), live → profiles.create with
+  description=role + model/provider pin; mock → validates slug + duplicate,
+  appends an Agent, emits `config.changed`. Writes return honest errors,
+  never mock-fallback.
+- `updateAgentConfig` goes live for model writes: catalog-validated (the
+  provider+model pair must exist in model.options) → profiles.configure;
+  audit `agent-model-<id>-<ts>`. Mock keeps its allowed-list validation.
+- Staff page: **Add Agent drawer** (name, role, provider-grouped model
+  picker via optgroup, optional SOUL seed, note that credentials mirror
+  from the default profile) → createAgent → `refreshAgents()` — the card
+  appears via the existing profiles.list slice. Properties drawer model
+  select enriches lazily from listModelOptions in live mode.
+- **Policy:** profile creation = config write → `config.changed` audit;
+  NO approval gate (D3 gates external writes only). "Ask Ally" path rides
+  the governed work loop for free (kanban task → `hermes profiles` CLI).
+- **Deferred:** per-agent allowed-model lists (no host concept — catalog
+  is the validation source); agent delete from the UI (no RPC; doc the
+  `rm -rf ~/.hermes/profiles/<name>` path); avatar/pet assignment
+  (`profiles.set_asset` exists — Phase 7 polish).
+
+**Acceptance — ALL MET 2026-08-27:**
+- [x] Live: created `eaios-verify` via the exact adapter payload → appeared
+      in profiles.list (`moonshotai/kimi-k3`, provider `nous`) →
+      profiles.configure model change round-tripped
+      (`anthropic/claude-sonnet-5`) → dir removed, list confirms gone.
+- [x] Model catalog groups render in the drawer picker (optgroups; page
+      test asserts the ARIA group).
+- [x] Duplicate/slug-invalid → honest error, no create (unit).
+- [x] Model change on an existing agent round-trips through
+      profiles.configure (stubbed rpc unit + live spot-check above).
+- [x] Mock parity + page test; `npm test` + sidecar + build green.
+      **74 vitest + 8 sidecar, build clean.**

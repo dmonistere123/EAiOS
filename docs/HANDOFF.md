@@ -1,6 +1,6 @@
 # EAiOS — Session Handoff (read this first in a new session)
 
-**Updated:** 2026-08-27 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md, phase6-brief.md) · **Git:** **Phase 6.1–6.4 COMPLETE (Usage, Env files, Artifacts, Assistant live; F8/F15 closed)**, build clean, **66/66 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
+**Updated:** 2026-08-27 · **Repo:** `~/eaios/app` (Vite + React 19 + TS + Tailwind v4 + react-router) · **Docs:** `~/eaios/docs/` (phase0-integration-matrix.md, phase1-brief.md, phase6-brief.md) · **Git:** **PHASE 6 COMPLETE (6.1–6.5: Usage, Env files, Artifacts, Assistant, Agent factory live; F8/F14/F15 closed)**, build clean, **74/74 vitest + 8/8 sidecar unittest green** (`npm test`, `npm run test:sidecar`)
 
 ## What this is
 
@@ -20,7 +20,7 @@ Pages → `src/state/runtime.ts` (useSyncExternalStore store; seq-guarded per-sl
 
 | Slice | State | Mechanism |
 |---|---|---|
-| Staff (agents) | ✅ live | `profiles.list` RPC → Ally; status from `session.active_list`; no progress % (indeterminate by design) |
+|| Staff (agents) | ✅ live + factory | `profiles.list` RPC → Ally; status from `session.active_list`; **Add Agent drawer** → `createAgent` (slug-validated `profiles.create`, mirror_credentials default) with model.options grouped catalog; model changes live via catalog-validated `profiles.configure`; no progress % (indeterminate by design) |
 | Activity ledger | ✅ live | `session.list` RPC synthesized |
 | Cron list/create/pause | ✅ live | `cron.manage` RPC (create action is **`add`**, not `create`) |
 | WorkItems + delegation | ✅ live | **kanban** via `cli.exec` RPC (`kanban list/create/assign --json`); statuses map triage/ready/todo/running/review/blocked/done/archived → EAiOS states |
@@ -73,7 +73,7 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 2. ~~Settings/env files → live~~ **DONE 2026-08-26 (6.2)** — SOUL.md per profile via `profiles.describe`/`profiles.configure` (no generic file RPC; mock's ALLY.md never existed); FNV-hash read-compare-write (non-atomic CAS documented); mock Model/Approval cards badged honest (fake save toasts removed); **F15 closed**: budget via `/api/eaios-settings` middleware → gitignored `~/eaios/settings.local.json` (server-side key allowlist), inline editor on Usage page; 47 vitest + 8 sidecar green.
 3. ~~Artifacts → live~~ **DONE 2026-08-26 (6.3)** — `/api/artifacts` middleware over kanban.db `task_attachments` (agents already attach deliverables on completion), preview drawer + real download with root confinement (escape attempt → 503, verified), governed Share → unassigned approval task (end-to-end verified, cleaned up), page rewired off direct-fixture import; F17–F19 registered; 57 vitest + 8 sidecar green.
 4. ~~Assistant → live~~ **DONE 2026-08-27 (6.4a+6.4b)** — 6.4a salvaged sibling session 20260826_051038's uncommitted work + completed it (Node 26 stub localStorage shadowing jsdom, scrollTo polyfill, TS6133s); live chat via session.create/prompt.submit, streamed deltas, strict sid filter, resume-by-stored-id; full adapter sequence verified against the live gateway. 6.4b: citation chips → shared ChunkDrawer, F8 closed. Mock-singleton test race diagnosed + fixed (adapter-level seeding). 66 vitest + 8 sidecar green ×3 runs.
-5. Agent factory (6.5) — **next; last Phase 6 item**.
+5. ~~Agent factory~~ **DONE 2026-08-27 (6.5)** — `model.options` grouped catalog + `profiles.create` behind `createAgent`; Staff → Add Agent drawer (slug validation, optgroup picker, SOUL seed); `updateAgentConfig` live for model writes (catalog-validated → `profiles.configure`, closes the §8.3 config-write gap); verified live (create `eaios-verify` → list → configure → delete round-trip); **PHASE 6 COMPLETE — 74 vitest + 8 sidecar green, build clean.** Next: Phase 7 hardening (a11y, perf, E2E, S1–S10, release checklist) per BUILD-PLAN-v2 §3.
 
 ## Open items awaiting the user
 
@@ -83,4 +83,4 @@ D1: Today absorbs Work (kanban-backed). D2: standalone app (not desktop plugin) 
 
 ## To resume in a new session
 
-"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 6.5 agent factory — last Phase 6 item; brief in docs/phase6-brief.md). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.
+"Continue EAiOS — read ~/eaios/docs/HANDOFF.md and ~/eaios/docs/BUILD-PLAN-v2.md" → verify dev servers (`curl localhost:5173/today`, `ss -tlnp | grep -E '9119|9121'`), `git log --oneline` in ~/eaios, then pick the first unchecked item in BUILD-PLAN-v2.md (next: Phase 7 hardening — a11y §14.4, perf §15, E2E §14.3, S1–S10 §13, release checklist §21; write a phase brief in docs/ first per working rule 1). Original spec: `docs/reference/Executive_AI_Operating_System_Coding_Agent_Build_Planner.docx`. Deferred items: `docs/ROADMAP.md`.

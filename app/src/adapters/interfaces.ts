@@ -53,6 +53,26 @@ export interface AgentConfigPatch {
   tools?: Agent['tools'];
 }
 
+/** Provider-grouped model catalog entry (agent factory, 6.5). */
+export interface ModelOptionGroup {
+  slug: string;
+  name: string;
+  models: string[];
+  authenticated: boolean;
+}
+
+export interface CreateAgent {
+  /** lowercase slug, ^[a-z][a-z0-9-]*$ */
+  name: string;
+  /** one-line role — becomes the profile description */
+  role: string;
+  model: { provider: string; model: string };
+  /** optional SOUL.md seed */
+  soul?: string;
+  /** optional source profile to clone */
+  cloneFrom?: string;
+}
+
 export interface DelegationRequest {
   agentId?: string;
   playbookId?: string;
@@ -77,6 +97,10 @@ export interface HermesAdapter {
   listAgents(): Promise<Agent[]>;
   getAgent(agentId: string): Promise<Agent>;
   updateAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AuditResult>;
+  /** Live provider/model catalog, grouped by provider (agent factory). */
+  listModelOptions(): Promise<ModelOptionGroup[]>;
+  /** Spin up a new staff agent (profile). Config write — audited, no approval gate (D3). */
+  createAgent(input: CreateAgent): Promise<AuditResult>;
 
   listWorkItems(filter?: WorkFilter): Promise<WorkItem[]>;
   delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult>;

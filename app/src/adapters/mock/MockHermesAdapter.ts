@@ -9,8 +9,8 @@ import type {
   UsageSummary, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
-  AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateCronJob,
-  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, Unsubscribe, WorkFilter,
+  AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
+  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 
@@ -102,6 +102,43 @@ class MockHermesAdapter implements HermesAdapter {
     }
     this.agents = this.agents.map((a) => (a.id === agentId ? { ...a, ...patch } : a));
     this.emit('config.changed', agentId, `Model updated to ${patch.model?.model ?? 'unchanged'}`);
+    return audit();
+  }
+
+  /** Mock model catalog — small but shaped like the live model.options payload. */
+  async listModelOptions(): Promise<ModelOptionGroup[]> {
+    await delay(100);
+    return [
+      { slug: 'nous', name: 'Nous Portal', models: ['moonshotai/kimi-k3', 'anthropic/claude-sonnet-5', 'openai/gpt-5.5'], authenticated: true },
+      { slug: 'openrouter', name: 'OpenRouter', models: ['anthropic/claude-haiku-4.5', 'deepseek/deepseek-v4-flash'], authenticated: true },
+    ];
+  }
+
+  /** Mock agent factory: validates slug + duplicates, then staffs the new agent. */
+  async createAgent(input: CreateAgent): Promise<AuditResult> {
+    await delay(250);
+    if (!/^[a-z][a-z0-9-]*$/.test(input.name)) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_name', safeMessage: 'Agent id must be a lowercase slug (letters, digits, dashes; start with a letter).', retryable: false } };
+    }
+    if (this.agents.some((a) => a.id === input.name)) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'duplicate', safeMessage: `An agent named "${input.name}" already exists.`, retryable: false } };
+    }
+    this.agents = [
+      ...this.agents,
+      {
+        id: input.name,
+        name: input.name.charAt(0).toUpperCase() + input.name.slice(1),
+        role: input.role || 'Specialist agent',
+        reportsToAgentId: 'default',
+        model: { provider: input.model.provider, model: input.model.model },
+        availableModels: [{ provider: input.model.provider, model: input.model.model }],
+        tools: [{ id: 'hermes', name: 'Hermes toolset' }],
+        status: 'idle',
+        lastActivityAt: new Date().toISOString(),
+        health: 'healthy',
+      },
+    ];
+    this.emit('config.changed', input.name, `Agent created: ${input.name} (${input.model.provider}/${input.model.model})`);
     return audit();
   }
 
