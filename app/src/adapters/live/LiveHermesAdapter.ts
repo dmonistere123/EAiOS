@@ -9,7 +9,7 @@
  * must never make the UI look broken.
  */
 import type {
-  Agent, Approval, ApprovalDecision, Artifact, AssistantEvent, AuditResult, ChatMessage, CronJob,
+  Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
   UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
@@ -955,6 +955,18 @@ class LiveHermesAdapter implements HermesAdapter {
     });
   }
 
+  /** Shared session.history → ChatMessage mapping (user/assistant rows only). */
+  private static mapHistoryMessages(h: { messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }): ChatMessage[] {
+    return (h.messages ?? [])
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({
+        id: String(m.row_id ?? `${m.role}-${m.timestamp ?? 0}`),
+        role: m.role === 'user' ? ('you' as const) : ('ally' as const),
+        text: m.text ?? '',
+        at: m.timestamp ? new Date(m.timestamp * 1000).toISOString() : new Date().toISOString(),
+      }));
+  }
+
   async getAssistantHistory(agentId = 'default'): Promise<ChatMessage[]> {
     try {
       const sid = await this.ensureAssistantSession(agentId);
@@ -962,14 +974,7 @@ class LiveHermesAdapter implements HermesAdapter {
         'session.history',
         { session_id: sid },
       );
-      return (h.messages ?? [])
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
-        .map((m) => ({
-          id: String(m.row_id ?? `${m.role}-${m.timestamp ?? 0}`),
-          role: m.role === 'user' ? ('you' as const) : ('ally' as const),
-          text: m.text ?? '',
-          at: m.timestamp ? new Date(m.timestamp * 1000).toISOString() : new Date().toISOString(),
-        }));
+      return LiveHermesAdapter.mapHistoryMessages(h);
     } catch {
       return this.fallback.getAssistantHistory(); // graceful degradation (spec §2)
     }
@@ -999,6 +1004,106 @@ class LiveHermesAdapter implements HermesAdapter {
     const lane = this.assistantLane(agentId);
     lane.handlers.add(handler);
     return () => lane.handlers.delete(handler);
+  }
+
+  // ----- LIVE: assistant sessions + channel views (W1, D-B1/D-B2) -----
+  /**
+   * Probed 2026-08-28 (HANDOFF gotcha #17): session.list rows carry
+   * {id, title, preview, started_at, message_count, source} — no
+   * profile_name/last_activity_at. params.profile scopes the read to that
+   * profile's own state.db; the gateway deny-lists kanban/tool sources and
+   * returns rows last-active-first.
+   */
+  async listSessionsFor(profile?: string): Promise<AssistantSessionRef[]> {
+    try {
+      const r = await this.rpc.call<{ sessions?: { id: string; title?: string; preview?: string; started_at?: number; message_count?: number; source?: string }[] }>(
+        'session.list',
+        { limit: 50, ...(profile ? { profile } : {}) },
+      );
+      return (r.sessions ?? []).map((s) => ({
+        id: s.id,
+        title: s.title || '(untitled)',
+        preview: s.preview ?? '',
+        startedAt: s.started_at ? new Date(s.started_at * 1000).toISOString() : new Date(0).toISOString(),
+        messageCount: s.message_count ?? 0,
+        source: s.source ?? '',
+      }));
+    } catch {
+      return this.fallback.listSessionsFor(profile); // graceful degradation (spec §2)
+    }
+  }
+
+  /**
+   * Read-only channel: delegations (kanban ownerId filter) + the agent's
+   * canonical "Bot Chat" (exact-title lookup, include_hidden — canonical
+   * chats are born hidden; resolved_id = compression tip). No Bot Chat →
+   * agentChat null (honest absence, not an error).
+   */
+  async getChannelFor(agentId: string): Promise<AgentChannel> {
+    try {
+      const [work, bot] = await Promise.all([
+        this.listWorkItems(),
+        this.rpc.call<{ sessions?: { id: string; resolved_id?: string }[] }>(
+          'session.list',
+          { profile: agentId, title: 'Bot Chat', include_hidden: true },
+        ),
+      ]);
+      const row = bot.sessions?.[0];
+      const agentChat = row ? await this.getSessionTranscript(agentId, row.resolved_id ?? row.id) : null;
+      return { delegations: work.filter((w) => w.ownerId === agentId), agentChat };
+    } catch {
+      return this.fallback.getChannelFor(agentId); // graceful degradation (spec §2)
+    }
+  }
+
+  /** Read-only transcript of any session of any profile (channel drawer). */
+  async getSessionTranscript(profile: string | undefined, sessionId: string): Promise<ChatMessage[]> {
+    try {
+      const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+        'session.history',
+        { session_id: sessionId, ...(profile ? { profile } : {}) },
+      );
+      return LiveHermesAdapter.mapHistoryMessages(h);
+    } catch {
+      return this.fallback.getSessionTranscript(profile, sessionId); // graceful degradation (spec §2)
+    }
+  }
+
+  /** Rebind the default (Ally) lane to a runtime sid + persist the stored id. */
+  private bindAllyLane(runtimeSid: string, storedId?: string) {
+    const lane = this.assistantLane('default');
+    if (lane.sid && lane.sid !== runtimeSid) this.assistantSidToAgent.delete(lane.sid);
+    lane.sid = runtimeSid;
+    this.assistantSidToAgent.set(runtimeSid, 'default');
+    if (storedId) localStorage.setItem(LiveHermesAdapter.assistantStoredKey('default'), storedId);
+  }
+
+  /**
+   * Resume one of Ally's stored sessions into the chat. The localStorage
+   * stored id is overwritten ONLY after the gateway confirms the resume —
+   * a failed resume leaves the previous conversation untouched.
+   */
+  async resumeAssistantSession(storedId: string): Promise<AuditResult> {
+    try {
+      const r = await this.rpc.call<{ session_id?: string }>('session.resume', { session_id: storedId });
+      if (!r.session_id) throw new Error('resume returned no session id');
+      this.bindAllyLane(r.session_id, storedId);
+      return { ok: true, auditEventId: `chat-resume-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `chat-resume-err-${Date.now()}`, error: { code: 'chat_resume_failed', safeMessage: e instanceof Error ? e.message : 'Could not resume that conversation.', retryable: true } };
+    }
+  }
+
+  /** Fresh Ally chat: create a new session (bypassing the stored id) and rebind. */
+  async startNewAssistantChat(): Promise<AuditResult> {
+    try {
+      const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', { title: 'EAiOS — My Assistant' });
+      if (!c.session_id) throw new Error('create returned no session id');
+      this.bindAllyLane(c.session_id, c.stored_session_id);
+      return { ok: true, auditEventId: `chat-new-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `chat-new-err-${Date.now()}`, error: { code: 'chat_new_failed', safeMessage: e instanceof Error ? e.message : 'Could not start a new chat.', retryable: true } };
+    }
   }
 
   // ----- LIVE: environment files (Phase 6.2) -----

@@ -238,16 +238,20 @@ describe('Assistant page (mock mode)', () => {
     expect(await screen.findByText(/On it — "status on the investor update"/, undefined, { timeout: 6000 })).toBeInTheDocument();
   });
 
-  it('lets you choose a staff agent to message directly', async () => {
+  it('selector switches context only — the chat target stays Ally (D-B1)', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
         <Assistant />
       </MemoryRouter>,
     );
-    const picker = await screen.findByLabelText('Agent');
+    const picker = await screen.findByLabelText('Channel context');
     await screen.findByRole('option', { name: 'Scout' });
     await user.selectOptions(picker, 'scout');
-    expect(await screen.findByLabelText('Message Scout')).toBeInTheDocument();
+    // the chat target never changes…
+    expect(screen.getByLabelText('Message Ally')).toBeInTheDocument();
+    // …the context does: scout's delegated work + honest no-chat-yet state
+    expect(await screen.findByText('Market scan: AI ops tooling')).toBeInTheDocument();
+    expect(await screen.findByText(/No Ally↔Scout chat yet/)).toBeInTheDocument();
   });
 });

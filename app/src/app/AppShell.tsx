@@ -9,6 +9,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   selectActivityNewest, selectCronByNextRun, selectPendingApprovals, useRuntime, agentName,
 } from '../state/runtime';
+import { useRailDeclaration } from '../state/rail';
 import { RelativeTime, RiskBadge, TimeUntil, ToastHost } from '../components/ui';
 
 const LIMITS = { left: { min: 208, max: 360, def: 264 }, right: { min: 280, max: 440, def: 340 } };
@@ -95,7 +96,7 @@ function DragHandle(props: { onMouseDown: (e: React.MouseEvent) => void; onDoubl
 
 // ---------- right rail ----------
 
-function RailSection({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+export function RailSection({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
   return (
     <section className="border-b border-edge px-4 py-3">
       <div className="mb-2 flex items-center justify-between">
@@ -110,9 +111,24 @@ function RailSection({ title, count, children }: { title: string; count?: number
 function RightRail() {
   const s = useRuntime();
   const nav = useNavigate();
+  const declared = useRailDeclaration();
   const cron = selectCronByNextRun(s).slice(0, 5);
   const approvals = selectPendingApprovals(s).slice(0, 5);
   const activity = selectActivityNewest(s).slice(0, 9);
+
+  // D-B4 (W2): a page that declared rail sections gets a contextual rail;
+  // every other route keeps the default operational watchtower below.
+  if (declared) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto">
+        {declared.map((sec) => (
+          <RailSection key={sec.key} title={sec.title} count={sec.count}>
+            {sec.node}
+          </RailSection>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">

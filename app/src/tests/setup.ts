@@ -1,4 +1,10 @@
 import '@testing-library/jest-dom/vitest';
+import { afterEach } from 'vitest';
+import { resetRailForTests } from '../state/rail';
+
+// Pages declare rail sections into a module-level store (W2); clear any
+// leaked declaration between tests so suites stay independent.
+afterEach(() => resetRailForTests());
 
 /**
  * Node 26 ships its own `localStorage` getter (internal/webstorage) that

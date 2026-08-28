@@ -320,6 +320,29 @@ export type AssistantEvent =
   | { kind: 'complete'; text: string }
   | { kind: 'error'; message: string };
 
+// ---------- Assistant: sessions + channel views (W1, D-B1/D-B2) ----------
+
+/** A durable session of a profile, from session.list (all sources; the
+ * gateway deny-lists kanban/tool). No last_activity_at on the RPC row —
+ * the list arrives last-active-first, startedAt is the only timestamp. */
+export interface AssistantSessionRef {
+  id: string; // stored (durable) session id — the resume handle
+  title: string;
+  preview: string;
+  startedAt: string; // ISO
+  messageCount: number;
+  source: string; // desktop | telegram | cli | cron | …
+}
+
+/** Read-only channel view for a staff agent (D-B1: the user never chats
+ * with the agent directly — they see what Ally delegated and the
+ * Ally↔agent chat). */
+export interface AgentChannel {
+  delegations: WorkItem[];
+  /** Ally↔agent chat (canonical per-profile "Bot Chat" session); null = none exists yet. */
+  agentChat: ChatMessage[] | null;
+}
+
 // ---------- Environment files (spec §8.11) ----------
 
 export interface EnvironmentFileRef {

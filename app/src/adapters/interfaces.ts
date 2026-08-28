@@ -6,10 +6,12 @@
  */
 import type {
   Agent,
+  AgentChannel,
   Approval,
   ApprovalDecision,
   Artifact,
   AssistantEvent,
+  AssistantSessionRef,
   AuditResult,
   ChatMessage,
   CronJob,
@@ -147,6 +149,18 @@ export interface HermesAdapter {
   sendAssistantMessage(text: string, agentId?: string): Promise<AuditResult>;
   /** Streaming chat events for the selected agent session ONLY — other sessions' events never surface here. */
   subscribeAssistant(handler: (event: AssistantEvent) => void, agentId?: string): Unsubscribe;
+
+  // ---------- Assistant: sessions + channel views (W1, D-B1/D-B2) ----------
+  /** Durable sessions of a profile, all sources (D-B2). profile omitted = Ally (default profile). */
+  listSessionsFor(profile?: string): Promise<AssistantSessionRef[]>;
+  /** Read-only channel for a staff agent: delegated work + the Ally↔agent chat (null when none exists). */
+  getChannelFor(agentId: string): Promise<AgentChannel>;
+  /** Read-only transcript of any one session of any profile (drawer view — never a chat target). */
+  getSessionTranscript(profile: string | undefined, sessionId: string): Promise<ChatMessage[]>;
+  /** Resume one of Ally's stored sessions into the Assistant chat (Ally-only, D-B1). Fails honestly — never pretends a resume worked. */
+  resumeAssistantSession(storedId: string): Promise<AuditResult>;
+  /** Start a fresh Ally chat, replacing the stored session id. */
+  startNewAssistantChat(): Promise<AuditResult>;
 }
 
 // ---------- Composio (mock until Phase 4) ----------

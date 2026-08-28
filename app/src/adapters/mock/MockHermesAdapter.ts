@@ -4,7 +4,7 @@
  * live in mock mode (spec §13: mocks are acceptance fixtures, not filler).
  */
 import type {
-  Agent, Approval, ApprovalDecision, Artifact, AssistantEvent, AuditResult, ChatMessage, CronJob,
+  Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
   UsageSummary, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
@@ -382,6 +382,82 @@ class MockHermesAdapter implements HermesAdapter {
   subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe {
     this.assistantHandlers.add(handler);
     return () => this.assistantHandlers.delete(handler);
+  }
+
+  // ----- mock assistant sessions + channels (W1, D-B1/D-B2) -----
+  private freshGreeting(): ChatMessage {
+    return { id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() };
+  }
+
+  private sessionIndex: Record<string, AssistantSessionRef[]> = {
+    ally: [
+      { id: 'sess-ally-2', title: 'EAiOS — My Assistant', preview: "Morning. I'm Ally — chief of staff…", startedAt: new Date(Date.now() - 3600_000).toISOString(), messageCount: 3, source: 'desktop' },
+      { id: 'sess-ally-1', title: 'Morning review', preview: 'What needs my attention before the board call?', startedAt: new Date(Date.now() - 20 * 3600_000).toISOString(), messageCount: 12, source: 'telegram' },
+    ],
+    scout: [
+      { id: 'sess-scout-1', title: 'AI ops tooling — vendor notes', preview: 'Shortlist is down to four vendors…', startedAt: new Date(Date.now() - 5 * 3600_000).toISOString(), messageCount: 8, source: 'desktop' },
+    ],
+    quill: [
+      { id: 'sess-quill-1', title: 'Newsletter second draft', preview: 'Tightened the opener per your note…', startedAt: new Date(Date.now() - 8 * 3600_000).toISOString(), messageCount: 5, source: 'desktop' },
+    ],
+  };
+
+  private transcripts: Record<string, ChatMessage[]> = {
+    'sess-ally-1': [
+      { id: 'ta-1', role: 'you', text: 'What needs my attention before the board call?', at: new Date(Date.now() - 20 * 3600_000).toISOString() },
+      { id: 'ta-2', role: 'ally', text: 'Three things: the partnership approval, the Q3 deck narrative, and rain on your Dallas drive Thursday.', at: new Date(Date.now() - 20 * 3600_000 + 60_000).toISOString() },
+    ],
+    'sess-scout-1': [
+      { id: 'ts-1', role: 'you', text: 'Where did the tooling shortlist land?', at: new Date(Date.now() - 5 * 3600_000).toISOString() },
+      { id: 'ts-2', role: 'ally', text: 'Shortlist is down to four vendors; pricing notes are in the scan artifact.', at: new Date(Date.now() - 5 * 3600_000 + 60_000).toISOString() },
+    ],
+    'sess-quill-1': [
+      { id: 'tq-1', role: 'you', text: 'Can you tighten the newsletter opener?', at: new Date(Date.now() - 8 * 3600_000).toISOString() },
+      { id: 'tq-2', role: 'ally', text: 'Tightened the opener per your note — second draft reads much cleaner.', at: new Date(Date.now() - 8 * 3600_000 + 60_000).toISOString() },
+    ],
+  };
+
+  /** Bot Chat contract: user rows are Ally's deliveries, assistant rows are the agent. */
+  private channelChats: Record<string, ChatMessage[]> = {
+    quill: [
+      { id: 'cq-1', role: 'you', text: 'Quill — please draft the September customer newsletter. Angle: the EAiOS beta. Nothing sends without executive approval.', at: new Date(Date.now() - 9 * 3600_000).toISOString() },
+      { id: 'cq-2', role: 'ally', text: 'Draft is up (work item w-05) — 400 words, and the Mailchimp send is parked in Approvals.', at: new Date(Date.now() - 9 * 3600_000 + 120_000).toISOString() },
+    ],
+  };
+
+  async listSessionsFor(profile?: string): Promise<AssistantSessionRef[]> {
+    await delay();
+    const key = !profile || profile === 'default' ? 'ally' : profile;
+    return clone(this.sessionIndex[key] ?? []);
+  }
+
+  async getChannelFor(agentId: string): Promise<AgentChannel> {
+    await delay();
+    return {
+      delegations: clone(this.work.filter((w) => w.ownerId === agentId)),
+      agentChat: this.channelChats[agentId] ? clone(this.channelChats[agentId]) : null,
+    };
+  }
+
+  async getSessionTranscript(_profile: string | undefined, sessionId: string): Promise<ChatMessage[]> {
+    await delay();
+    return clone(this.transcripts[sessionId] ?? []);
+  }
+
+  async resumeAssistantSession(storedId: string): Promise<AuditResult> {
+    await delay(200);
+    const t = this.transcripts[storedId];
+    if (!t) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'That conversation could not be resumed.', retryable: false } };
+    }
+    this.assistantThread = clone(t);
+    return audit();
+  }
+
+  async startNewAssistantChat(): Promise<AuditResult> {
+    await delay(200);
+    this.assistantThread = [this.freshGreeting()];
+    return audit();
   }
 
   async listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]> {
