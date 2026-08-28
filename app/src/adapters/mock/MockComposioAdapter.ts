@@ -5,7 +5,7 @@
  */
 import type { AuditResult } from '../../domain/types';
 import type {
-  ComposioAdapter, Connection, ConnectionFlow, ConnectionTestResult,
+  AvailableApp, ComposioAdapter, Connection, ConnectionFlow, ConnectionTestResult,
   ConnectorAction, ConnectorScope,
 } from '../interfaces';
 import { connections } from '../../mocks/fixtures';
@@ -33,6 +33,23 @@ const ACTIONS: Record<string, ConnectorAction[]> = {
 class MockComposioAdapter implements ComposioAdapter {
   private rows = clone(connections);
 
+  /** W4 catalog fixture — mixed auth kinds so every connect path renders. */
+  private catalog: AvailableApp[] = [
+    { slug: 'gmail', name: 'Gmail', description: 'Google email — search, read, send.', toolsCount: 61, categories: ['email'], authKind: 'composio_managed' },
+    { slug: 'googlecalendar', name: 'Google Calendar', description: 'Calendar events and scheduling.', toolsCount: 24, categories: ['calendar'], authKind: 'composio_managed' },
+    { slug: 'slack', name: 'Slack', description: 'Channels, messages, and search.', toolsCount: 48, categories: ['messaging'], authKind: 'composio_managed' },
+    { slug: 'notion', name: 'Notion', description: 'Pages, databases, and search.', toolsCount: 33, categories: ['docs'], authKind: 'composio_managed' },
+    { slug: 'github', name: 'GitHub', description: 'Repos, issues, PRs, code search.', toolsCount: 45, categories: ['dev'], authKind: 'composio_managed' },
+    { slug: 'mailchimp', name: 'Mailchimp', description: 'Audiences and campaigns.', toolsCount: 19, categories: ['marketing'], authKind: 'bring_own_auth' },
+    { slug: 'wordpress', name: 'WordPress', description: 'Posts and pages.', toolsCount: 12, categories: ['publishing'], authKind: 'bring_own_auth' },
+    { slug: 'hackernews', name: 'Hacker News', description: 'Top stories and search — no account needed.', toolsCount: 4, categories: ['news'], authKind: 'no_auth' },
+  ];
+
+  async listAvailableApps(): Promise<AvailableApp[]> {
+    await delay(200);
+    return clone(this.catalog);
+  }
+
   async listConnections(): Promise<Connection[]> {
     await delay(200);
     return clone(this.rows);
@@ -40,7 +57,11 @@ class MockComposioAdapter implements ComposioAdapter {
 
   async connectApp(appKey: string): Promise<ConnectionFlow> {
     await delay();
-    return { flowId: `flow-${appKey}-mock`, authUrl: undefined };
+    const app = this.catalog.find((a) => a.slug === appKey);
+    if (app?.authKind === 'bring_own_auth') {
+      return { flowId: `flow-${appKey}-mock`, authUrl: undefined, note: `${app.name} needs a custom auth config on the Composio account first (one-time setup).` };
+    }
+    return { flowId: `flow-${appKey}-mock`, authUrl: `https://connect.composio.dev/link/mock-${appKey}` };
   }
 
   async disconnect(connectionId: string): Promise<AuditResult> {

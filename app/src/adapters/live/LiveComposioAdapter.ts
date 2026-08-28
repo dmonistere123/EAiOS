@@ -6,7 +6,7 @@
  */
 import type { AuditResult } from '../../domain/types';
 import type {
-  ComposioAdapter, Connection, ConnectionFlow, ConnectionTestResult,
+  AvailableApp, ComposioAdapter, Connection, ConnectionFlow, ConnectionTestResult,
   ConnectorAction, ConnectorScope,
 } from '../interfaces';
 import { composio as mock } from '../mock/MockComposioAdapter';
@@ -38,6 +38,39 @@ const toolkitName = (a: CompAccount): string =>
   typeof a.toolkit === 'string' ? a.toolkit : a.toolkit?.name ?? a.toolkit?.slug ?? 'Unknown';
 
 const accountId = (a: CompAccount): string => a.nanoid ?? a.id ?? 'unknown';
+
+// ----- toolkits catalog + connect link (W4; probed + verified 2026-08-28) -----
+
+interface CompToolkit {
+  name?: string;
+  slug?: string;
+  auth_schemes?: string[];
+  composio_managed_auth_schemes?: string[];
+  no_auth?: boolean;
+  meta?: { description?: string; logo?: string; tools_count?: number; categories?: { name?: string }[] };
+}
+
+interface CompAuthConfig {
+  id?: string;
+  nanoid?: string;
+  is_composio_managed?: boolean;
+}
+
+/** Stable Composio user id for this single-executive install. */
+const EAIOS_USER_ID = 'eaios-executive';
+
+function mapToolkit(t: CompToolkit): AvailableApp {
+  const managed = (t.composio_managed_auth_schemes ?? []).length > 0;
+  return {
+    slug: t.slug ?? 'unknown',
+    name: t.name ?? t.slug ?? 'Unknown',
+    description: t.meta?.description ?? '',
+    logoUrl: t.meta?.logo,
+    toolsCount: t.meta?.tools_count ?? 0,
+    categories: (t.meta?.categories ?? []).map((c) => c?.name ?? '').filter(Boolean),
+    authKind: t.no_auth ? 'no_auth' : managed ? 'composio_managed' : 'bring_own_auth',
+  };
+}
 
 function mapStatus(status?: string): Connection['state'] {
   const s = (status ?? '').toUpperCase();
@@ -105,11 +138,57 @@ class LiveComposioAdapter implements ComposioAdapter {
     }
   }
 
+  async listAvailableApps(): Promise<AvailableApp[]> {
+    if (!(await this.liveOk())) return mock.listAvailableApps();
+    try {
+      const raw = await this.api<unknown>('/api/v3/toolkits?limit=100');
+      return asArray<CompToolkit>(raw).map(mapToolkit);
+    } catch {
+      return mock.listAvailableApps();
+    }
+  }
+
+  /**
+   * Real connect flow (verified live 2026-08-28, scripts/verify-w4-connect.mjs):
+   * reuse an existing managed auth config or CREATE one (managed auth
+   * configs are API-creatable — the dashboard is not required), then mint a
+   * Connect Link (`redirect_url`, ~30 min expiry). First connect therefore
+   * writes an account-setup object (an auth config) — not an external send.
+   * Note: /link also creates an INITIALIZING connected account; an abandoned
+   * flow shows up here as degraded/incomplete and is removable via
+   * disconnect — honest, not hidden.
+   */
   async connectApp(appKey: string): Promise<ConnectionFlow> {
     if (!(await this.liveOk())) return mock.connectApp(appKey);
-    // OAuth link flow needs an auth_config id from the Composio dashboard —
-    // wired in hardening; for now return an honest no-op flow.
-    return { flowId: `link-${appKey}`, authUrl: undefined };
+    try {
+      const apps = await this.listAvailableApps();
+      const app = apps.find((a) => a.slug === appKey);
+      if (app?.authKind === 'bring_own_auth') {
+        return { flowId: `link-${appKey}`, authUrl: undefined, note: `${app.name} needs a custom auth config on the Composio account first (one-time setup).` };
+      }
+      // Reuse or create the managed auth config.
+      const existing = asArray<CompAuthConfig>(await this.api<unknown>(`/api/v3/auth_configs?toolkit=${encodeURIComponent(appKey)}`));
+      let configId = existing.find((c) => c.is_composio_managed)?.id ?? existing.find((c) => c.is_composio_managed)?.nanoid;
+      if (!configId) {
+        const created = await this.api<{ auth_config?: CompAuthConfig }>('/api/v3/auth_configs', {
+          method: 'POST',
+          body: JSON.stringify({
+            toolkit: { slug: appKey },
+            auth_config: { type: 'use_composio_managed_auth', name: `EAiOS — ${app?.name ?? appKey}` },
+          }),
+        });
+        configId = created.auth_config?.id ?? created.auth_config?.nanoid;
+      }
+      if (!configId) throw new Error('could not obtain an auth config');
+      const link = await this.api<{ link_token?: string; redirect_url?: string; expires_at?: string }>('/api/v3/connected_accounts/link', {
+        method: 'POST',
+        body: JSON.stringify({ auth_config_id: configId, user_id: EAIOS_USER_ID }),
+      });
+      if (!link.redirect_url) throw new Error('no redirect_url in link response');
+      return { flowId: link.link_token ?? `link-${appKey}`, authUrl: link.redirect_url };
+    } catch (e) {
+      return { flowId: `link-err-${appKey}`, authUrl: undefined, note: e instanceof Error ? e.message : 'Connect link failed.' };
+    }
   }
 
   async disconnect(connectionId: string): Promise<AuditResult> {

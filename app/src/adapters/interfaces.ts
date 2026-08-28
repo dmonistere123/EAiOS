@@ -180,6 +180,20 @@ export interface Connection {
 export interface ConnectionFlow {
   flowId: string;
   authUrl?: string;
+  /** Honest reason when no authUrl could be minted (e.g. toolkit needs a custom auth config — F6). */
+  note?: string;
+}
+
+/** A toolkit from the Composio catalog (W4) — an app available to connect. */
+export interface AvailableApp {
+  slug: string;
+  name: string;
+  description: string;
+  logoUrl?: string;
+  toolsCount: number;
+  categories: string[];
+  /** 'composio_managed' = one-click hosted connect; 'bring_own_auth' = needs a custom auth config (F6); 'no_auth' = no credentials needed. */
+  authKind: 'composio_managed' | 'bring_own_auth' | 'no_auth';
 }
 
 export interface ConnectionTestResult {
@@ -206,6 +220,8 @@ export interface ComposioAdapter {
   testConnection(connectionId: string): Promise<ConnectionTestResult>;
   listActions(connectionId: string): Promise<ConnectorAction[]>;
   listScopes(connectionId: string): Promise<ConnectorScope[]>;
+  /** Catalog of apps available to connect (Composio /toolkits, W4). */
+  listAvailableApps(): Promise<AvailableApp[]>;
 }
 
 // ---------- Knowledge (mock until Phase 5) ----------
