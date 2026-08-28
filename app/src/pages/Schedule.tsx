@@ -1,9 +1,14 @@
-/** Schedule — one time view: calendar events + live cron overlay + cron creation. */
-import { useMemo, useState } from 'react';
+/** Schedule — one time view: calendar events + live cron overlay + cron creation.
+ * W5: the rail groups live cron jobs by OWNING agent (per-profile jobs.json
+ * stores, HANDOFF #17). The host records no creator field — the rail says so. */
+import { useEffect, useMemo, useState } from 'react';
 import { calendarEvents } from '../mocks/fixtures';
 import { hermes } from '../adapters';
 import { TELEGRAM_HOME_DELIVERY } from '../config';
 import { useRuntime, refreshCron, toast } from '../state/runtime';
+import { usePageRail } from '../state/rail';
+import type { RailSectionDef } from '../state/rail';
+import type { CronJob } from '../domain/types';
 import { Card, SectionTitle, StateBadge, TimeUntil } from '../components/ui';
 
 type Source = 'executive' | 'agent' | 'cron' | 'team';
@@ -104,6 +109,60 @@ function NewCronForm({ onCreated }: { onCreated: () => void }) {
 export default function Schedule() {
   const s = useRuntime();
   const [enabled, setEnabled] = useState<Record<Source, boolean>>({ executive: true, agent: true, cron: true, team: false });
+  const [byAgent, setByAgent] = useState<Record<string, CronJob[]>>({});
+
+  // W5: per-agent cron ownership. Keyed on the agent id SET, not the slice
+  // identity — event-driven refreshes must not refetch N profiles each time.
+  const agentIds = s.agents.map((a) => a.id).join(',');
+  useEffect(() => {
+    if (!agentIds) return;
+    let stale = false;
+    void Promise.all(agentIds.split(',').map(async (id) => [id, await hermes.listCronJobs(id)] as const)).then((entries) => {
+      if (!stale) setByAgent(Object.fromEntries(entries));
+    });
+    return () => {
+      stale = true;
+    };
+  }, [agentIds]);
+
+  const agentsWithJobs = s.agents.filter((a) => (byAgent[a.id] ?? []).length > 0);
+  const totalJobs = agentsWithJobs.reduce((n, a) => n + (byAgent[a.id] ?? []).length, 0);
+  const railSections = useMemo<RailSectionDef[]>(
+    () => [
+      {
+        key: 'schedules-by-agent',
+        title: 'Schedules by agent',
+        count: totalJobs,
+        node: (
+          <div className="space-y-3">
+            {agentsWithJobs.map((a) => (
+              <div key={a.id}>
+                <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{a.name}</div>
+                <ul className="mt-1 space-y-1">
+                  {(byAgent[a.id] ?? []).map((j) => (
+                    <li key={j.id} className="rounded-lg px-2 py-1.5">
+                      <div className="truncate text-xs font-medium text-ink">{j.name}</div>
+                      <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
+                        <TimeUntil iso={j.nextRunAt} />
+                        {!j.enabled && <span>paused</span>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {Object.keys(byAgent).length > 0 && totalJobs === 0 && <p className="px-2 text-xs text-ink-faint">No scheduled jobs.</p>}
+            <p className="px-2 pt-1 text-[10px] leading-snug text-ink-faint">
+              Ownership = the profile whose scheduler runs the job. The host doesn't record who created each job — that gap is on the roadmap.
+            </p>
+          </div>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [byAgent, totalJobs, s.agents],
+  );
+  usePageRail(railSections);
 
   // Calendar events = fixture events (executive/agent — mock until Google
   // Calendar is connected) + REAL cron jobs as their own overlay.

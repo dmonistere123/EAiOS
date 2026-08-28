@@ -136,7 +136,7 @@ export interface HermesAdapter {
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
 
-  listCronJobs(): Promise<CronJob[]>;
+  listCronJobs(profile?: string): Promise<CronJob[]>;
   createCronJob(input: CreateCronJob): Promise<AuditResult>;
   updateCronJob(id: string, patch: CronJobPatch): Promise<AuditResult>;
 

@@ -1,8 +1,9 @@
 /** Knowledge — governed RAG sources. Live via the Python sidecar
  * (/knowledge-api proxy) with mock fallback; FTS5 retrieval + chunk
- * drill-down wired in Phase 5.3 (citation contract in adapters/interfaces). */
-import { useRef, useState } from 'react';
-import { useRuntime, refreshKnowledge, toast } from '../state/runtime';
+ * drill-down wired in Phase 5.3 (citation contract in adapters/interfaces).
+ * W6: sources grouped by WHO can see them (scope + allowedAgentIds). */
+import { useMemo, useRef, useState } from 'react';
+import { useRuntime, agentName, refreshKnowledge, toast } from '../state/runtime';
 import { knowledge } from '../adapters';
 import type { KnowledgeSource } from '../domain/types';
 import type { KnowledgeSearchResult } from '../adapters/interfaces';
@@ -184,6 +185,16 @@ export default function Knowledge() {
   const s = useRuntime();
   const [adding, setAdding] = useState(false);
 
+  // W6: visibility grouping — who can see what, at a glance.
+  const groups = useMemo(
+    () => [
+      { key: 'private', title: 'Executive only', hint: 'Never served to agents.', rows: s.knowledge.filter((k) => k.scope === 'private') },
+      { key: 'workspace', title: 'All staff agents', hint: 'Every agent may retrieve from these.', rows: s.knowledge.filter((k) => k.scope === 'workspace') },
+      { key: 'agent', title: 'Specific agents', hint: 'Only the named agents may retrieve.', rows: s.knowledge.filter((k) => k.scope === 'agent') },
+    ],
+    [s.knowledge],
+  );
+
   const reindex = async (id: string) => {
     const res = await knowledge.reindex(id);
     toast(res.ok ? 'ok' : 'error', res.ok ? 'Reindexed.' : (res.error?.safeMessage ?? 'Reindex failed.'));
@@ -211,40 +222,49 @@ export default function Knowledge() {
       {s.knowledge.length === 0 ? (
         <EmptyState title="No knowledge sources" hint="Upload files or add URLs to ground Ally's answers." />
       ) : (
-        <Card className="overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wider text-ink-faint">
-                <th className="px-4 py-3 font-medium">Source</th>
-                <th className="px-4 py-3 font-medium">Scope</th>
-                <th className="px-4 py-3 font-medium">Indexing</th>
-                <th className="px-4 py-3 font-medium">Freshness</th>
-                <th className="px-4 py-3 font-medium">Citable</th>
-                <th className="px-4 py-3 font-medium"><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-edge/60">
-              {s.knowledge.map((k) => (
-                <tr key={k.id} className="hover:bg-canvas-overlay/50">
-                  <td className="px-4 py-3">
-                    <span className="mr-2" aria-hidden>{typeIcon[k.type]}</span>
-                    <span className="font-medium text-ink">{k.name}</span>
-                    {k.allowedAgentIds && <div className="mt-0.5 text-xs text-ink-faint">Only: {k.allowedAgentIds.join(', ')}</div>}
-                    {k.indexingStatus === 'failed' && k.error && <div className="mt-0.5 max-w-md truncate text-xs text-risk" title={k.error}>{k.error}</div>}
-                  </td>
-                  <td className="px-4 py-3"><StateBadge label={k.scope} tone="neutral" /></td>
-                  <td className="px-4 py-3"><StateBadge label={k.indexingStatus} tone={statusTone[k.indexingStatus]} /></td>
-                  <td className="px-4 py-3 text-xs text-ink-dim">{k.freshnessAt ? <RelativeTime iso={k.freshnessAt} /> : '—'}</td>
-                  <td className="px-4 py-3 text-xs">{k.citationEnabled ? <span className="text-ok">Yes</span> : <span className="text-risk">No</span>}</td>
-                  <td className="px-4 py-3 text-right text-xs">
-                    <button onClick={() => void reindex(k.id)} className="mr-2 rounded px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink">Reindex</button>
-                    <button onClick={() => void remove(k.id, k.name)} className="rounded px-2 py-1 text-risk/80 hover:bg-canvas-overlay hover:text-risk">Remove</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <div className="space-y-4">
+          {groups.map(
+            (g) =>
+              g.rows.length > 0 && (
+                <Card key={g.key} className="overflow-hidden">
+                  <div className="flex items-baseline justify-between border-b border-edge px-4 py-3">
+                    <h2 className="text-sm font-semibold text-ink">{g.title} <span className="ml-1 text-xs font-normal text-ink-faint">({g.rows.length})</span></h2>
+                    <p className="text-[11px] text-ink-faint">{g.hint}</p>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-edge text-left text-[11px] uppercase tracking-wider text-ink-faint">
+                        <th className="px-4 py-3 font-medium">Source</th>
+                        <th className="px-4 py-3 font-medium">Indexing</th>
+                        <th className="px-4 py-3 font-medium">Freshness</th>
+                        <th className="px-4 py-3 font-medium">Citable</th>
+                        <th className="px-4 py-3 font-medium"><span className="sr-only">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-edge/60">
+                      {g.rows.map((k) => (
+                        <tr key={k.id} className="hover:bg-canvas-overlay/50">
+                          <td className="px-4 py-3">
+                            <span className="mr-2" aria-hidden>{typeIcon[k.type]}</span>
+                            <span className="font-medium text-ink">{k.name}</span>
+                            {k.allowedAgentIds && <div className="mt-0.5 text-xs text-ink-faint">Only: {k.allowedAgentIds.map((id) => agentName(s, id)).join(', ')}</div>}
+                            {k.indexingStatus === 'failed' && k.error && <div className="mt-0.5 max-w-md truncate text-xs text-risk" title={k.error}>{k.error}</div>}
+                          </td>
+                          <td className="px-4 py-3"><StateBadge label={k.indexingStatus} tone={statusTone[k.indexingStatus]} /></td>
+                          <td className="px-4 py-3 text-xs text-ink-dim">{k.freshnessAt ? <RelativeTime iso={k.freshnessAt} /> : '—'}</td>
+                          <td className="px-4 py-3 text-xs">{k.citationEnabled ? <span className="text-ok">Yes</span> : <span className="text-risk">No</span>}</td>
+                          <td className="px-4 py-3 text-right text-xs">
+                            <button onClick={() => void reindex(k.id)} className="mr-2 rounded px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink">Reindex</button>
+                            <button onClick={() => void remove(k.id, k.name)} className="rounded px-2 py-1 text-risk/80 hover:bg-canvas-overlay hover:text-risk">Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Card>
+              ),
+          )}
+        </div>
       )}
 
       <p className="text-xs text-ink-faint">A source is never served to agents until indexing confirms <span className="text-ok">ready</span>. Failed sources keep their error details for retry.</p>

@@ -197,7 +197,11 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
-  async listCronJobs(): Promise<CronJob[]> { await delay(); return clone(this.cron); }
+  async listCronJobs(profile?: string): Promise<CronJob[]> {
+    await delay();
+    // W5 mock parity: profile scopes to that agent's jobs; undefined = all.
+    return clone(profile ? this.cron.filter((c) => c.ownerAgentId === profile) : this.cron);
+  }
 
   async createCronJob(input: CreateCronJob): Promise<AuditResult<CronJob>> {
     await delay(250);

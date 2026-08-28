@@ -1,9 +1,12 @@
-/** Artifacts — large agent-created outputs with provenance (spec §8.9). */
+/** Artifacts — large agent-created outputs with provenance (spec §8.9).
+ * W8: agent filter chips ride the right rail (D-B4 framework). */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Artifact } from '../domain/types';
 import { hermes, adapterMode } from '../adapters';
 import { useRuntime, agentName, refreshApprovals, toast } from '../state/runtime';
+import { usePageRail } from '../state/rail';
+import type { RailSectionDef } from '../state/rail';
 import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
 
 const stateTone = { draft: 'warn', ready: 'ok', approved: 'signal', shared: 'signal', archived: 'neutral' } as const;
@@ -53,11 +56,52 @@ export default function Artifacts() {
   const [q, setQ] = useState('');
   const [preview, setPreview] = useState<Artifact | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [agentFilter, setAgentFilter] = useState<string | null>(null);
+
+  // W8: agent filter chips in the rail — composes with the search box.
+  const agentCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    s.artifacts.forEach((a) => m.set(a.createdByAgentId, (m.get(a.createdByAgentId) ?? 0) + 1));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [s.artifacts]);
 
   const rows = useMemo(
-    () => s.artifacts.filter((a) => a.name.toLowerCase().includes(q.toLowerCase())),
-    [s.artifacts, q],
+    () =>
+      s.artifacts
+        .filter((a) => !agentFilter || a.createdByAgentId === agentFilter)
+        .filter((a) => a.name.toLowerCase().includes(q.toLowerCase())),
+    [s.artifacts, q, agentFilter],
   );
+
+  const railSections = useMemo<RailSectionDef[]>(
+    () => [
+      {
+        key: 'agent-filter',
+        title: 'Filter by agent',
+        node: (
+          <ul className="space-y-1">
+            {[{ id: null as string | null, count: s.artifacts.length }, ...agentCounts.map(([id, count]) => ({ id: id as string | null, count }))].map(({ id, count }) => {
+              const active = agentFilter === id;
+              return (
+                <li key={id ?? 'all'}>
+                  <button
+                    onClick={() => setAgentFilter(id)}
+                    aria-pressed={active}
+                    className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs ${active ? 'bg-signal/15 font-medium text-signal' : 'text-ink-dim hover:bg-canvas-overlay'}`}
+                  >
+                    <span>{id ? agentName(s, id) : 'All agents'}</span>
+                    <span className="rounded-full bg-canvas-overlay px-2 py-0.5 text-[11px]">{count}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ),
+      },
+    ],
+    [agentCounts, agentFilter, s],
+  );
+  usePageRail(railSections);
 
   const share = async (a: Artifact) => {
     setSharingId(a.id);
@@ -89,7 +133,7 @@ export default function Artifacts() {
       </header>
 
       {rows.length === 0 ? (
-        <EmptyState title={q ? 'No matches' : 'No artifacts yet'} hint="Agent-created deliverables appear here with their full history." />
+        <EmptyState title={q || agentFilter ? 'No matches' : 'No artifacts yet'} hint="Agent-created deliverables appear here with their full history." />
       ) : (
         <div className="grid gap-3">
           {rows.map((a) => (

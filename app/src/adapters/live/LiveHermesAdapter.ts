@@ -500,12 +500,25 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
   // ----- LIVE: cron -----
-  async listCronJobs(): Promise<CronJob[]> {
+  /**
+   * W5: profile scoping (probed 2026-08-28, HANDOFF #17) — cron jobs live
+   * in per-profile jobs.json stores; params.profile scopes the read and the
+   * response carries a `scoped: '<profile>'` marker proving the gateway
+   * honored it. Owner = profile scope; the host records NO creator field
+   * (jobs.json `origin` is delivery routing, not attribution) — the
+   * Schedule rail shows owner-only and says so.
+   */
+  async listCronJobs(profile?: string): Promise<CronJob[]> {
     try {
-      const res = await this.rpc.call<{ jobs?: HermesCronJob[] }>('cron.manage', { action: 'list', include_disabled: true });
-      return (res.jobs ?? []).map(mapCron);
+      const res = await this.rpc.call<{ jobs?: HermesCronJob[]; scoped?: string }>('cron.manage', {
+        action: 'list',
+        include_disabled: true,
+        ...(profile ? { profile } : {}),
+      });
+      const owner = res.scoped ?? profile;
+      return (res.jobs ?? []).map((j) => ({ ...mapCron(j), ...(owner ? { ownerAgentId: owner } : {}) }));
     } catch {
-      return this.fallback.listCronJobs();
+      return this.fallback.listCronJobs(profile); // graceful degradation (spec §2)
     }
   }
 
