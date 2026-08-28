@@ -9,10 +9,16 @@ import type { AgentChannel as AgentChannelData } from '../domain/types';
 import { hermes } from '../adapters';
 import { Card, SectionTitle, StateBadge } from './ui';
 
-export function AgentChannel({ agentId, agentName }: { agentId: string; agentName: string }) {
+/** Shared data path for an agent's channel (W1) — used by the AgentChannel
+ * card view (Assistant) and the Staff per-agent rail (W3). */
+export function useAgentChannel(agentId: string | null): AgentChannelData | null {
   const [channel, setChannel] = useState<AgentChannelData | null>(null);
 
   useEffect(() => {
+    if (!agentId) {
+      setChannel(null);
+      return;
+    }
     let stale = false;
     setChannel(null);
     void hermes.getChannelFor(agentId).then((c) => {
@@ -22,6 +28,12 @@ export function AgentChannel({ agentId, agentName }: { agentId: string; agentNam
       stale = true;
     };
   }, [agentId]);
+
+  return channel;
+}
+
+export function AgentChannel({ agentId, agentName }: { agentId: string; agentName: string }) {
+  const channel = useAgentChannel(agentId);
 
   if (!channel) return <p className="text-xs text-ink-faint">Loading {agentName}'s channel…</p>;
 

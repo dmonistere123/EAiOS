@@ -40,11 +40,12 @@ export function useRailDeclaration(): RailSectionDef[] | null {
 }
 
 /**
- * Declare this page's rail sections. Sets on mount / when the array identity
+ * Declare this page's rail sections — or `null` for no declaration (the
+ * default watchtower stays). Sets on mount / when the array identity
  * changes, clears on unmount. Pass a memoized array (useMemo) so unrelated
  * renders don't re-run the effect.
  */
-export function usePageRail(sections: RailSectionDef[]) {
+export function usePageRail(sections: RailSectionDef[] | null) {
   useEffect(() => {
     setCurrent(sections);
     return () => setCurrent(null);

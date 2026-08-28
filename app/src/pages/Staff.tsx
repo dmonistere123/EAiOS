@@ -1,10 +1,17 @@
-/** Staff — the AI agent workforce. Status is runtime-driven, never decorative. */
+/** Staff — the AI agent workforce. Status is runtime-driven, never decorative.
+ * W3: org visualization (Ally hub, radial staff, working = pulse) with the
+ * pre-W3 grid kept as the List toggle; selecting an agent opens its
+ * properties drawer AND declares its channel into the right rail (D-B4). */
 import { useEffect, useMemo, useState } from 'react';
 import type { Agent } from '../domain/types';
 import type { ModelOptionGroup } from '../adapters/interfaces';
 import { hermes } from '../adapters';
 import { useRuntime, refreshAgents, toast } from '../state/runtime';
-import { AgentStatusBadge, Card, Drawer, IndeterminateBar, RelativeTime } from '../components/ui';
+import { usePageRail } from '../state/rail';
+import type { RailSectionDef } from '../state/rail';
+import { AgentStatusBadge, Card, Drawer, IndeterminateBar, RelativeTime, StateBadge } from '../components/ui';
+import { OrgChart } from '../components/OrgChart';
+import { useAgentChannel } from '../components/AgentChannel';
 
 /** Add Agent drawer (Phase 6.5) — profile creation via the live model catalog. */
 
@@ -243,20 +250,90 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
 export default function Staff() {
   const s = useRuntime();
   const [filter, setFilter] = useState<Filter>('all');
+  const [view, setView] = useState<'org' | 'list'>('org');
   const [selected, setSelected] = useState<Agent | null>(null);
   const [adding, setAdding] = useState(false);
 
   const agents = useMemo(() => s.agents.filter(FILTERS.find((f) => f.id === filter)!.match), [s.agents, filter]);
   const workTitle = (id?: string) => s.work.find((w) => w.id === id)?.title;
 
+  // Ally (the hub) always renders in the org chart — filters apply to staff only.
+  const hubAgent = s.agents.find((a) => !a.reportsToAgentId) ?? s.agents[0];
+  const orgAgents = hubAgent ? [hubAgent, ...agents.filter((a) => a.id !== hubAgent.id)] : agents;
+
+  // W3: the selected agent's channel rides the right rail (W1 data path).
+  const channel = useAgentChannel(selected?.id ?? null);
+  const selectedName = selected?.name ?? '';
+  const railSections = useMemo<RailSectionDef[] | null>(() => {
+    if (!selected) return null;
+    return [
+      {
+        key: 'delegations',
+        title: `Delegated to ${selectedName}`,
+        count: channel?.delegations.length,
+        node: !channel ? (
+          <p className="px-2 text-xs text-ink-faint">Loading…</p>
+        ) : channel.delegations.length === 0 ? (
+          <p className="px-2 text-xs text-ink-faint">Nothing delegated to {selectedName} right now.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {channel.delegations.map((w) => (
+              <li key={w.id} className="rounded-lg px-2 py-1.5">
+                <div className="truncate text-xs font-medium text-ink">{w.title}</div>
+                <div className="mt-1">
+                  <StateBadge label={w.state.replace('_', ' ')} tone={w.state === 'in_progress' ? 'signal' : w.state === 'waiting_approval' ? 'warn' : 'neutral'} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ),
+      },
+      {
+        key: 'agent-chat',
+        title: `Ally ↔ ${selectedName}`,
+        count: channel?.agentChat?.length,
+        node: !channel ? (
+          <p className="px-2 text-xs text-ink-faint">Loading…</p>
+        ) : channel.agentChat === null ? (
+          <p className="px-2 text-xs text-ink-faint">No Ally↔{selectedName} chat yet — one appears here the first time Ally messages {selectedName}.</p>
+        ) : (
+          <ul className="space-y-2">
+            {channel.agentChat.map((m) => (
+              <li key={m.id} className="rounded-lg bg-canvas px-2 py-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'Ally' : selectedName}</div>
+                <div className="whitespace-pre-wrap text-xs text-ink-dim">{m.text}</div>
+              </li>
+            ))}
+          </ul>
+        ),
+      },
+    ];
+  }, [selected, selectedName, channel]);
+  usePageRail(railSections);
+
+  const selectAgent = (a: Agent) => setSelected((cur) => (cur?.id === a.id ? null : a));
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Staff</h1>
-          <p className="mt-1 text-sm text-ink-dim">Your AI workforce. Status lights reflect live runtime state.</p>
+          <p className="mt-1 text-sm text-ink-dim">Your AI workforce. Status lights reflect live runtime state. Select an agent for its channel.</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex gap-1.5" role="tablist" aria-label="Staff view">
+            {(['org', 'list'] as const).map((v) => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize ${view === v ? 'bg-signal/15 text-signal' : 'text-ink-dim hover:bg-canvas-overlay'}`}
+              >
+                {v === 'org' ? 'Org' : 'List'}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-1.5" role="tablist" aria-label="Filter agents">
             {FILTERS.map((f) => (
               <button
@@ -279,35 +356,39 @@ export default function Staff() {
         </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {agents.map((a) => (
-          <button key={a.id} onClick={() => setSelected(a)} className="text-left">
-            <Card className="h-full p-5 transition-colors hover:border-signal/40">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-base font-semibold text-ink">{a.name}</div>
-                  <div className="mt-0.5 text-xs text-ink-dim">{a.role}</div>
+      {view === 'org' ? (
+        <OrgChart agents={orgAgents} selectedId={selected?.id} onSelect={selectAgent} />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {agents.map((a) => (
+            <button key={a.id} onClick={() => selectAgent(a)} className="text-left">
+              <Card className={`h-full p-5 transition-colors hover:border-signal/40 ${selected?.id === a.id ? 'border-signal/60' : ''}`}>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="text-base font-semibold text-ink">{a.name}</div>
+                    <div className="mt-0.5 text-xs text-ink-dim">{a.role}</div>
+                  </div>
+                  <AgentStatusBadge status={a.status} />
                 </div>
-                <AgentStatusBadge status={a.status} />
-              </div>
-              <div className="mt-4 space-y-2">
-                {a.status === 'working' || a.status === 'queued' ? (
-                  <>
-                    <div className="truncate text-xs text-ink-dim">{workTitle(a.currentWorkItemId) ?? 'Assigned work'}</div>
-                    <IndeterminateBar />
-                  </>
-                ) : (
-                  <div className="text-xs text-ink-faint">{a.status === 'idle' ? 'Idle — ready for work' : a.status.replace(/_/g, ' ')}</div>
-                )}
-              </div>
-              <div className="mt-4 flex items-center justify-between border-t border-edge pt-3 text-[11px] text-ink-faint">
-                <span>{a.model.provider}/{a.model.model}</span>
-                <span><RelativeTime iso={a.lastActivityAt} /></span>
-              </div>
-            </Card>
-          </button>
-        ))}
-      </div>
+                <div className="mt-4 space-y-2">
+                  {a.status === 'working' || a.status === 'queued' ? (
+                    <>
+                      <div className="truncate text-xs text-ink-dim">{workTitle(a.currentWorkItemId) ?? 'Assigned work'}</div>
+                      <IndeterminateBar />
+                    </>
+                  ) : (
+                    <div className="text-xs text-ink-faint">{a.status === 'idle' ? 'Idle — ready for work' : a.status.replace(/_/g, ' ')}</div>
+                  )}
+                </div>
+                <div className="mt-4 flex items-center justify-between border-t border-edge pt-3 text-[11px] text-ink-faint">
+                  <span>{a.model.provider}/{a.model.model}</span>
+                  <span><RelativeTime iso={a.lastActivityAt} /></span>
+                </div>
+              </Card>
+            </button>
+          ))}
+        </div>
+      )}
 
       {selected && <AgentPropertiesDrawer agent={s.agents.find((x) => x.id === selected.id) ?? selected} onClose={() => setSelected(null)} />}
       {adding && <AddAgentDrawer onClose={() => setAdding(false)} />}
