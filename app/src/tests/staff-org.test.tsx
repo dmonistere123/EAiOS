@@ -47,6 +47,8 @@ describe('org visualization', () => {
     expect(container.querySelectorAll('line').length).toBe(4);
     // pulse markers on exactly the working agents (ally + scout)
     expect(container.querySelectorAll('.animate-ping').length).toBe(2);
+    // the hub is visibly the orchestrator
+    expect(screen.getByText('Orchestrator Agent')).toBeInTheDocument();
   });
 
   it('List toggle restores the pre-W3 grid; Org toggles back', async () => {

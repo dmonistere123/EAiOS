@@ -29,24 +29,27 @@ function Node({ agent, x, y, hub, selected, onSelect }: { agent: Agent; x: numbe
       onClick={() => onSelect(agent)}
       aria-label={`${agent.name}, ${agent.status.replace(/_/g, ' ')}`}
       aria-pressed={selected}
-      className="group absolute z-10 flex w-24 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5"
+      className={`group absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5 ${hub ? 'w-32' : 'w-24'}`}
       style={{ left: `${x}%`, top: `${y}%` }}
     >
       <span className="relative flex items-center justify-center">
         {working && <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal/30" />}
         <span
-          className={`relative flex ${hub ? 'h-14 w-14 text-base' : 'h-11 w-11 text-xs'} items-center justify-center rounded-full border font-semibold transition-shadow ${
+          className={`relative flex ${hub ? 'h-20 w-20 text-xl ring-2 ring-signal/40' : 'h-11 w-11 text-xs'} items-center justify-center rounded-full border font-semibold transition-shadow ${
             selected
               ? 'border-signal bg-signal/25 text-signal shadow-[0_0_18px_2px_rgba(50,197,255,0.45)]'
               : working
                 ? 'border-signal/60 bg-signal/15 text-signal shadow-[0_0_14px_1px_rgba(50,197,255,0.35)]'
-                : 'border-edge bg-canvas-raised text-ink-dim group-hover:border-signal/40'
+                : hub
+                  ? 'border-signal/50 bg-signal/10 text-signal shadow-[0_0_16px_1px_rgba(50,197,255,0.25)]'
+                  : 'border-edge bg-canvas-raised text-ink-dim group-hover:border-signal/40'
           }`}
         >
           {initials(agent.name)}
         </span>
       </span>
-      <span className={`text-center text-[11px] leading-tight ${selected ? 'font-medium text-signal' : 'text-ink'}`}>{agent.name}</span>
+      <span className={`text-center leading-tight ${hub ? 'text-sm' : 'text-[11px]'} ${selected ? 'font-medium text-signal' : 'text-ink'}`}>{agent.name}</span>
+      {hub && <span className="-mt-1 text-center text-[10px] font-semibold uppercase tracking-wider text-signal/80">Orchestrator Agent</span>}
       <AgentStatusBadge status={agent.status} />
     </button>
   );
