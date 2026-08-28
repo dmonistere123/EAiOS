@@ -89,12 +89,12 @@ export default function Settings() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5">
-          <SectionTitle right={<StateBadge label="mock — live write lands with agent factory (6.5)" tone="warn" />}>Model defaults</SectionTitle>
+          <SectionTitle right={<StateBadge label="informational" tone="neutral" />}>Model defaults</SectionTitle>
           <label className="block text-xs text-ink-dim" htmlFor="def-model">Default model for new agents</label>
           <select id="def-model" disabled className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink opacity-50">
             <option>kimi-coding / kimi-k3</option>
           </select>
-          <p className="mt-2 text-xs text-ink-faint">Model writes go through <code className="text-signal">profiles.configure</code> with the live <code className="text-signal">model.options</code> catalog — arriving with the agent factory, not as a hardcoded list.</p>
+          <p className="mt-2 text-xs text-ink-faint">Model writes are live since the agent factory (6.5): change a model in <code className="text-signal">Staff → agent properties</code>, pick the starting model in the Add Agent drawer — both validated against the live catalog. A persisted default-for-new-agents setting is roadmap polish.</p>
         </Card>
 
         <Card className="p-5">

@@ -111,7 +111,7 @@ describe('Settings page honesty (mock mode)', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText('ALLY.md', undefined, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.getByText(/live write lands with agent factory/)).toBeInTheDocument();
+    expect(screen.getByText('informational')).toBeInTheDocument(); // model writes went live in 6.5 — badge updated in hardening
     expect(screen.getByText(/policy editor not live yet/)).toBeInTheDocument();
     // the lying toasts are gone — no enabled "Save" buttons on the mock cards
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();

@@ -1,6 +1,6 @@
 /** Shared presentational components — executive-grade, summary first. */
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AgentStatus, RiskLevel, WorkItem } from '../domain/types';
 import { useRuntime } from '../state/runtime';
 
@@ -135,18 +135,23 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
 // ---------- drawer ----------
 
 export function Drawer({ title, onClose, children, width = 420 }: { title: string; onClose: () => void; children: ReactNode; width?: number }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  // §14.4: move focus into the dialog on open.
+  useEffect(() => {
+    closeRef.current?.focus();
+  }, []);
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full flex-col border-l border-edge bg-canvas-raised shadow-2xl" style={{ width }}>
         <div className="flex items-center justify-between border-b border-edge px-5 py-4">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <button onClick={onClose} className="rounded-md px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink" aria-label="Close">✕</button>
+          <button ref={closeRef} onClick={onClose} className="rounded-md px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink" aria-label="Close">✕</button>
         </div>
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
       </div>

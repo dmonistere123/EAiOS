@@ -76,19 +76,37 @@ function useDrag(side: 'left' | 'right', width: number, setWidth: (n: number) =>
     [side, width, setWidth],
   );
   const onDoubleClick = useCallback(() => setWidth(LIMITS[side].def), [side, setWidth]);
-  return { onMouseDown, onDoubleClick };
+  // §14.4: keyboard alternative to pointer dragging — arrows resize, Home resets.
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      const lim = LIMITS[side];
+      const step = e.shiftKey ? 32 : 8;
+      if (e.key === 'Home') {
+        e.preventDefault();
+        setWidth(lim.def);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
+        const sign = side === 'left' ? dir : -dir; // right pane: ← widens
+        setWidth(Math.min(lim.max, Math.max(lim.min, width + sign * step)));
+      }
+    },
+    [side, width, setWidth],
+  );
+  return { onMouseDown, onDoubleClick, onKeyDown };
 }
 
-function DragHandle(props: { onMouseDown: (e: React.MouseEvent) => void; onDoubleClick: () => void; label: string }) {
+function DragHandle(props: { onMouseDown: (e: React.MouseEvent) => void; onDoubleClick: () => void; onKeyDown: (e: React.KeyboardEvent) => void; label: string }) {
   return (
     <div
       role="separator"
       aria-label={props.label}
       aria-orientation="vertical"
       tabIndex={0}
-      title="Drag to resize · double-click to reset"
+      title="Drag to resize · arrow keys resize · double-click or Home resets"
       onMouseDown={props.onMouseDown}
       onDoubleClick={props.onDoubleClick}
+      onKeyDown={props.onKeyDown}
       className="group w-1.5 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-signal/40 focus:bg-signal/60"
     />
   );

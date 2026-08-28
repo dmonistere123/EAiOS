@@ -111,8 +111,8 @@ export default function Schedule() {
   const [enabled, setEnabled] = useState<Record<Source, boolean>>({ executive: true, agent: true, cron: true, team: false });
   const [byAgent, setByAgent] = useState<Record<string, CronJob[]>>({});
 
-  // W5: per-agent cron ownership. Keyed on the agent id SET, not the slice
-  // identity — event-driven refreshes must not refetch N profiles each time.
+  // W5: per-agent cron ownership. Keyed on the agent id SET + job COUNT —
+  // identity-stable refreshes don't refetch, but a created/deleted job does.
   const agentIds = s.agents.map((a) => a.id).join(',');
   useEffect(() => {
     if (!agentIds) return;
@@ -123,7 +123,7 @@ export default function Schedule() {
     return () => {
       stale = true;
     };
-  }, [agentIds]);
+  }, [agentIds, s.cron.length]);
 
   const agentsWithJobs = s.agents.filter((a) => (byAgent[a.id] ?? []).length > 0);
   const totalJobs = agentsWithJobs.reduce((n, a) => n + (byAgent[a.id] ?? []).length, 0);

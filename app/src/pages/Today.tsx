@@ -15,6 +15,7 @@ const stateTone: Record<WorkItem['state'], 'neutral' | 'ok' | 'warn' | 'risk' | 
   complete: 'ok',
   cancelled: 'neutral',
 };
+const QUEUE_PAGE = 50; // §15: paginate large lists (no virtualization dep)
 
 function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void }) {
   const s = useRuntime();
@@ -70,6 +71,7 @@ export default function Today() {
   const [summary, setSummary] = useState<TodaySummary | null>(null);
   const [delegating, setDelegating] = useState<WorkItem | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [queueShown, setQueueShown] = useState(QUEUE_PAGE);
 
   useEffect(() => {
     void hermes.getTodaySummary().then(setSummary);
@@ -154,7 +156,7 @@ export default function Today() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-edge/60">
-                {executiveQueue.map((w) => (
+                {executiveQueue.slice(0, queueShown).map((w) => (
                   <tr key={w.id} className="hover:bg-canvas-overlay/50">
                     <td className="px-4 py-3">
                       <div className="font-medium text-ink">{w.title}</div>
@@ -176,6 +178,11 @@ export default function Today() {
                 ))}
               </tbody>
             </table>
+            {executiveQueue.length > queueShown && (
+              <button onClick={() => setQueueShown((n) => n + QUEUE_PAGE)} className="m-3 rounded-lg border border-edge px-4 py-2 text-sm text-ink-dim hover:bg-canvas-overlay">
+                Show more ({executiveQueue.length - queueShown} remaining)
+              </button>
+            )}
           </Card>
         )}
       </section>

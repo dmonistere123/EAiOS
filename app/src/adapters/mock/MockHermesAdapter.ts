@@ -76,6 +76,21 @@ class MockHermesAdapter implements HermesAdapter {
     };
   }
 
+  /** §13 acceptance-fixture API: replace mock state wholesale (scenario tests only — never called by pages). */
+  __loadFixture(patch: { agents?: Agent[]; work?: WorkItem[]; approvals?: Approval[]; cron?: CronJob[]; activity?: ActivityEvent[]; artifacts?: Artifact[] }) {
+    if (patch.agents) this.agents = clone(patch.agents);
+    if (patch.work) this.work = clone(patch.work);
+    if (patch.approvals) this.approvals = clone(patch.approvals);
+    if (patch.cron) this.cron = clone(patch.cron);
+    if (patch.activity) this.activity = clone(patch.activity);
+    if (patch.artifacts) this.artifacts = clone(patch.artifacts);
+  }
+
+  /** §13: drive a runtime event through the mock's event bus (scenario tests). */
+  __emit(type: RuntimeEvent['type'], agentId: string | undefined, action: string, workItemId?: string) {
+    this.emit(type, agentId, action, workItemId);
+  }
+
   // ----- reads --------------------------------------------------------------
   async getTodaySummary(): Promise<TodaySummary> {
     await delay();

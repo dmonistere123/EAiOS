@@ -128,6 +128,12 @@ export default function Approvals() {
                   <td className="px-4 py-3 text-xs text-ink-dim">{agentName(s, a.requestedByAgentId)}</td>
                   <td className="px-4 py-3 text-xs text-ink-dim">{a.targetSystem}</td>
                   <td className="px-4 py-3 text-xs text-ink-dim"><RelativeTime iso={a.submittedAt} /></td>
+                  <td className="px-4 py-3 text-right">
+                    {/* §14.4: keyboard-reachable path to the inspector (the row click is pointer-only). */}
+                    <button onClick={(e) => { e.stopPropagation(); setSelectedId(a.id); }} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">
+                      Inspect
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

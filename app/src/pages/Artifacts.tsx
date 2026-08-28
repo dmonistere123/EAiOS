@@ -10,6 +10,7 @@ import type { RailSectionDef } from '../state/rail';
 import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
 
 const stateTone = { draft: 'warn', ready: 'ok', approved: 'signal', shared: 'signal', archived: 'neutral' } as const;
+const PAGE = 50; // §15: paginate large lists (no virtualization dep)
 
 function iconFor(mime: string) {
   if (mime.includes('markdown') || mime.includes('text')) return '¶';
@@ -57,6 +58,9 @@ export default function Artifacts() {
   const [preview, setPreview] = useState<Artifact | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [shown, setShown] = useState(PAGE);
+
+  useEffect(() => setShown(PAGE), [q, agentFilter]); // filter change resets the window
 
   // W8: agent filter chips in the rail — composes with the search box.
   const agentCounts = useMemo(() => {
@@ -136,7 +140,7 @@ export default function Artifacts() {
         <EmptyState title={q || agentFilter ? 'No matches' : 'No artifacts yet'} hint="Agent-created deliverables appear here with their full history." />
       ) : (
         <div className="grid gap-3">
-          {rows.map((a) => (
+          {rows.slice(0, shown).map((a) => (
             <Card key={a.id} className="flex items-center gap-4 p-4">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-canvas-overlay text-lg" aria-hidden>{iconFor(a.mimeType)}</span>
               <div className="min-w-0 flex-1">
@@ -187,6 +191,11 @@ export default function Artifacts() {
               </div>
             </Card>
           ))}
+          {rows.length > shown && (
+            <button onClick={() => setShown((n) => n + PAGE)} className="rounded-lg border border-edge px-4 py-2.5 text-sm text-ink-dim hover:bg-canvas-overlay">
+              Show more ({rows.length - shown} remaining)
+            </button>
+          )}
         </div>
       )}
 
