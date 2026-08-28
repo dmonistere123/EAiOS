@@ -81,6 +81,32 @@ export interface DelegationRequest {
   note?: string;
 }
 
+/** Playbook create/edit payload (W7). Version is SERVER-side — never client-picked. */
+export interface PlaybookInput {
+  /** existing file slug for edits; omitted = create (slug derived from name) */
+  id?: string;
+  name: string;
+  description: string;
+  status: Playbook['status'];
+  mode: Playbook['mode'];
+  assignee?: string;
+  ownerAgentId?: string;
+  skills: string[];
+  workers?: string[];
+  verifier?: string;
+  synthesizer?: string;
+  body: string;
+}
+
+/** New user-local skill (W7). Create-only — overwrite refused. */
+export interface CreateSkill {
+  /** lowercase slug, ^[a-z][a-z0-9-]*$ */
+  name: string;
+  category: string;
+  description: string;
+  body: string;
+}
+
 export interface CreateCronJob {
   name: string;
   scheduleExpression: string;
@@ -137,6 +163,10 @@ export interface HermesAdapter {
    */
   runPlaybook(playbookId: string, opts?: { assignee?: string }): Promise<AuditResult<PlaybookRun>>;
   listPlaybookRuns(playbookId?: string): Promise<PlaybookRun[]>;
+  /** Create or edit a playbook (W7, D-B3). Edit bumps the patch version server-side; editing a published playbook lands as a new draft. */
+  savePlaybook(input: PlaybookInput): Promise<AuditResult<Playbook>>;
+  /** Create a user-local skill (W7, D-B3). Create-only — overwrite refused. */
+  createSkill(input: CreateSkill): Promise<AuditResult>;
 
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]>;
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;

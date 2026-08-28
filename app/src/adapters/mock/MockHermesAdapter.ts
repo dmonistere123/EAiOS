@@ -10,7 +10,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, Unsubscribe, WorkFilter,
+  CreateSkill, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 
@@ -19,6 +19,14 @@ const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 8)}`;
 let auditSeq = 1000;
 const audit = <T,>(data?: T): AuditResult<T> => ({ ok: true, data, auditEventId: `aud-${auditSeq++}` });
+
+// W7 mock helpers — mirror server/authoring.ts (client bundle can't import node:fs).
+const mockSlugify = (raw: string) =>
+  raw.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/^(\d)/, 'a$1');
+const mockBumpPatch = (version?: string) => {
+  const m = version?.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  return m ? `${m[1]}.${m[2]}.${Number(m[3]) + 1}` : '0.1.0';
+};
 
 type Handler = (e: RuntimeEvent) => void;
 
@@ -263,18 +271,40 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  /** W7: writable in-memory skills list (create lands here; mock parity). */
+  private skillsList: Skill[] = fx.skillsAndPlaybooks
+    .filter((r) => r.kind === 'skill')
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      category: 'productivity',
+      description: r.purpose,
+      version: r.version,
+      status: 'enabled' as const,
+    }));
+
   async listSkills(): Promise<Skill[]> {
     await delay();
-    return fx.skillsAndPlaybooks
-      .filter((r) => r.kind === 'skill')
-      .map((r) => ({
-        id: r.id,
-        name: r.name,
-        category: 'productivity',
-        description: r.purpose,
-        version: r.version,
-        status: 'enabled' as const,
-      }));
+    return clone(this.skillsList);
+  }
+
+  /** Mock skill authoring (W7): slug/category validated, duplicates refused. */
+  async createSkill(input: CreateSkill): Promise<AuditResult> {
+    await delay(200);
+    const slug = input.name.trim();
+    const category = input.category.trim();
+    if (!/^[a-z][a-z0-9-]*$/.test(slug) || !/^[a-z][a-z0-9-]*$/.test(category)) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_name', safeMessage: 'Skill name and category must be lowercase slugs.', retryable: false } };
+    }
+    if (!input.description.trim() || !input.body.trim()) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_input', safeMessage: 'Description and body are required.', retryable: false } };
+    }
+    if (this.skillsList.some((sk) => sk.id === slug)) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'already_exists', safeMessage: `Skill "${slug}" already exists — editing arrives in a later workstream.`, retryable: false } };
+    }
+    this.skillsList = [...this.skillsList, { id: slug, name: slug, category, description: input.description, version: '0.1.0', status: 'enabled' }];
+    this.emit('config.changed', undefined, `Skill created: ${slug}`);
+    return audit();
   }
 
   // ----- playbooks (Phase 5.4) -----
@@ -348,6 +378,41 @@ class MockHermesAdapter implements HermesAdapter {
     await delay();
     const rows = playbookId ? this.playbookRuns.filter((r) => r.playbookId === playbookId) : this.playbookRuns;
     return clone(rows);
+  }
+
+  /**
+   * Mock playbook authoring (W7): same version discipline as the server —
+   * create → 0.1.0; edit → patch bump of the CURRENT version; editing a
+   * published playbook lands as a new draft.
+   */
+  async savePlaybook(input: PlaybookInput): Promise<AuditResult<Playbook>> {
+    await delay(200);
+    if (!input.name.trim() || !input.body.trim()) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_input', safeMessage: 'Name and body are required.', retryable: false } };
+    }
+    const slug = input.id ?? mockSlugify(input.name);
+    if (!/^[a-z][a-z0-9-]*$/.test(slug)) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_name', safeMessage: 'Playbook id must be a lowercase slug.', retryable: false } };
+    }
+    const existing = this.playbooks.find((p) => p.id === slug);
+    const saved: Playbook = {
+      id: slug,
+      name: input.name,
+      description: input.description,
+      version: existing ? mockBumpPatch(existing.version) : '0.1.0',
+      status: existing ? (existing.status === 'published' ? 'draft' : input.status) : input.status,
+      ownerAgentId: input.ownerAgentId,
+      mode: input.mode,
+      assignee: input.assignee,
+      body: input.body,
+      skills: input.skills,
+      workers: input.workers,
+      verifier: input.verifier,
+      synthesizer: input.synthesizer,
+    };
+    this.playbooks = existing ? this.playbooks.map((p) => (p.id === slug ? saved : p)) : [...this.playbooks, saved];
+    this.emit('config.changed', input.ownerAgentId, `Playbook ${existing ? 'updated' : 'created'}: ${input.name} v${saved.version}`);
+    return audit(clone(saved));
   }
 
   // ----- mock assistant chat (Phase 6.4a) -----

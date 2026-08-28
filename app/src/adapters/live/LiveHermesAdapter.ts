@@ -15,7 +15,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, Unsubscribe, WorkFilter,
+  CreateSkill, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
@@ -657,27 +657,40 @@ class LiveHermesAdapter implements HermesAdapter {
    * Descriptions/versions come from the dev-server /api/skills-index
    * middleware (walks ~/.hermes/skills frontmatter); enrichment is optional
    * and skipped silently where no dev server serves it (tests, packaging).
+   *
+   * W7: the RPC's get_available_skills() is cached PER-PROCESS (it feeds
+   * the startup banner), so a skill created at runtime NEVER appears via
+   * RPC until the gateway restarts. The index walk (30s cache) does see
+   * it — so the listing is the UNION: RPC names first (platform-gated,
+   * disabled-filtered), then index-only names (newly created). Caveat:
+   * index-only entries skip the RPC's platform/disabled filtering —
+   * acceptable here (no disable feature in EAiOS, F2; box is linux).
    */
   async listSkills(): Promise<Skill[]> {
     try {
       const res = await this.rpc.call<{ skills: Record<string, string[]> }>('skills.manage', { action: 'list' });
       const byCategory = res.skills ?? {};
-      let details = new Map<string, { description?: string; version?: string }>();
+      let details = new Map<string, { category: string; description?: string; version?: string }>();
       try {
         const idxRes = await fetch('/api/skills-index');
         if (idxRes.ok) {
-          const idx = (await idxRes.json()) as { skills?: { name: string; description?: string; version?: string }[] };
+          const idx = (await idxRes.json()) as { skills?: { name: string; category: string; description?: string; version?: string }[] };
           details = new Map((idx.skills ?? []).map((s) => [s.name, s]));
         }
       } catch {
         // enrichment unavailable — names + categories still render
       }
       const out: Skill[] = [];
+      const seen = new Set<string>();
       for (const [category, names] of Object.entries(byCategory)) {
         for (const name of names) {
+          seen.add(name);
           const d = details.get(name);
           out.push({ id: name, name, category, description: d?.description, version: d?.version, status: 'enabled' });
         }
+      }
+      for (const [name, d] of details) {
+        if (!seen.has(name)) out.push({ id: name, name, category: d.category, description: d.description, version: d.version, status: 'enabled' });
       }
       return out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     } catch {
@@ -752,6 +765,43 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, data: run, auditEventId: `pb-run-${taskId}` };
     } catch (e) {
       return fail('run_failed', e instanceof Error ? e.message : 'Playbook run failed.', true);
+    }
+  }
+
+  /**
+   * Playbook authoring (W7): PUT to the playbooks-index middleware, which
+   * owns version discipline + confinement. A WRITE — never falls back to
+   * the mock: failure returns an honest error instead of pretending.
+   */
+  async savePlaybook(input: PlaybookInput): Promise<AuditResult<Playbook>> {
+    try {
+      const res = await fetch('/api/playbooks-index', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as { playbook?: Playbook; error?: string };
+      if (!res.ok || !data.playbook) throw new Error(data.error ?? `playbooks-index HTTP ${res.status}`);
+      this.playbooksCache = undefined; // bust the 30s defs cache
+      return { ok: true, data: data.playbook, auditEventId: `pb-save-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `pb-save-err-${Date.now()}`, error: { code: 'playbook_save_failed', safeMessage: e instanceof Error ? e.message : 'Playbook save failed.', retryable: true } };
+    }
+  }
+
+  /** Skill authoring (W7): POST to the skill-create middleware (confined, create-only). WRITE — never mock-faked. */
+  async createSkill(input: CreateSkill): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/skill-create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `skill-create HTTP ${res.status}`);
+      return { ok: true, auditEventId: `skill-create-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `skill-create-err-${Date.now()}`, error: { code: 'skill_create_failed', safeMessage: e instanceof Error ? e.message : 'Skill creation failed.', retryable: true } };
     }
   }
 

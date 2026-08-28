@@ -76,7 +76,8 @@ describe('catalog rail (D-B4)', () => {
     renderAt('/connections');
     await screen.findByText('Available to connect');
     await user.click(within(await catalogRow('Slack')).getByRole('button', { name: 'Connect' }));
-    await vi.waitFor(() => expect(open).toHaveBeenCalledWith('https://connect.composio.dev/link/mock-slack', '_blank', 'noopener'));
+    // generous timeout: mock delay (≤1.1s) + liveOk failure latency under suite load
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith('https://connect.composio.dev/link/mock-slack', '_blank', 'noopener'), { timeout: 5000 });
   });
 
   it('bring-own-auth apps show Needs setup with no Connect button; no-auth apps show No account', async () => {

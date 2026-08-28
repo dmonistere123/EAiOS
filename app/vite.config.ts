@@ -5,6 +5,29 @@ import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from '
 import { join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
+import { writePlaybook, writeSkill } from './server/authoring.ts'
+import type { PlaybookInput, SkillInput } from './server/authoring.ts'
+
+/** Shared index caches (30s) — write middlewares bust them on mutation. */
+const indexCache: { skills?: { at: number; body: string }; playbooks?: { at: number; body: string } } = {}
+
+type MwReq = { method?: string; on: (ev: string, cb: (chunk?: Buffer) => void) => void }
+type MwRes = { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }
+type MwServer = { middlewares: { use: (path: string, fn: (req: MwReq, res: MwRes) => void) => void } }
+
+function readJsonBody(req: MwReq): Promise<Record<string, unknown>> {
+  return new Promise((resolvePromise, reject) => {
+    let body = ''
+    req.on('data', (chunk) => { body += chunk })
+    req.on('end', () => {
+      try {
+        resolvePromise(JSON.parse(body || '{}'))
+      } catch (e) {
+        reject(e)
+      }
+    })
+  })
+}
 
 /**
  * Dev-only middleware: GET /api/skills-index → frontmatter metadata for every
@@ -15,7 +38,6 @@ import { DatabaseSync } from 'node:sqlite'
  */
 function skillsIndexMiddleware() {
   const root = join(process.env.HERMES_HOME ?? join(homedir(), '.hermes'), 'skills')
-  let cache: { at: number; body: string } | undefined
 
   const parseFrontmatter = (text: string) => {
     const m = text.match(/^---\n([\s\S]*?)\n---/)
@@ -59,15 +81,15 @@ function skillsIndexMiddleware() {
 
   return {
     name: 'eaios-skills-index',
-    configureServer(server: { middlewares: { use: (path: string, fn: (req: unknown, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }) => void) => void } }) {
+    configureServer(server: MwServer) {
       server.middlewares.use('/api/skills-index', (_req, res) => {
         try {
-          if (!cache || Date.now() - cache.at > 30_000) {
-            cache = { at: Date.now(), body: JSON.stringify({ skills: statSync(root, { throwIfNoEntry: false }) ? scan() : [] }) }
+          if (!indexCache.skills || Date.now() - indexCache.skills.at > 30_000) {
+            indexCache.skills = { at: Date.now(), body: JSON.stringify({ skills: statSync(root, { throwIfNoEntry: false }) ? scan() : [] }) }
           }
           res.statusCode = 200
           res.setHeader('content-type', 'application/json')
-          res.end(cache.body)
+          res.end(indexCache.skills.body)
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e) }))
@@ -85,7 +107,6 @@ function skillsIndexMiddleware() {
  */
 function playbooksIndexMiddleware() {
   const root = join(__dirname, '..', 'playbooks')
-  let cache: { at: number; body: string } | undefined
 
   const pick = (fm: string, key: string) => {
     const km = fm.match(new RegExp(`^${key}:\\s*(.+?)\\s*$`, 'm'))
@@ -140,19 +161,83 @@ function playbooksIndexMiddleware() {
 
   return {
     name: 'eaios-playbooks-index',
-    configureServer(server: { middlewares: { use: (path: string, fn: (req: unknown, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }) => void) => void } }) {
-      server.middlewares.use('/api/playbooks-index', (_req, res) => {
+    configureServer(server: MwServer) {
+      server.middlewares.use('/api/playbooks-index', (req, res) => {
+        res.setHeader('content-type', 'application/json')
+        // W7: PUT = create/edit a playbook (confined write; server-side
+        // version bump; editing a published playbook lands as a new draft).
+        if (req.method === 'PUT') {
+          void readJsonBody(req)
+            .then((body) => {
+              try {
+                const saved = writePlaybook(root, body as unknown as PlaybookInput)
+                indexCache.playbooks = undefined // bust — the next GET re-scans
+                const playbook = scan().find((p) => p.id === saved.id)
+                res.statusCode = saved.created ? 201 : 200
+                res.end(JSON.stringify({ playbook: { ...(playbook ?? {}), id: saved.id, version: saved.version, status: saved.status } }))
+              } catch (e) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+              }
+            })
+            .catch((e) => {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
+            })
+          return
+        }
         try {
-          if (!cache || Date.now() - cache.at > 30_000) {
-            cache = { at: Date.now(), body: JSON.stringify({ playbooks: statSync(root, { throwIfNoEntry: false }) ? scan() : [] }) }
+          if (!indexCache.playbooks || Date.now() - indexCache.playbooks.at > 30_000) {
+            indexCache.playbooks = { at: Date.now(), body: JSON.stringify({ playbooks: statSync(root, { throwIfNoEntry: false }) ? scan() : [] }) }
           }
           res.statusCode = 200
-          res.setHeader('content-type', 'application/json')
-          res.end(cache.body)
+          res.end(indexCache.playbooks.body)
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: String(e) }))
         }
+      })
+    },
+  }
+}
+
+/**
+ * Dev-only middleware: POST /api/skill-create (W7) — writes a user-local
+ * SKILL.md under ~/.hermes/skills/<category>/<slug>/. Slug + category
+ * validated, path confined by the authoring store, overwrite refused
+ * (create-only; editing is a later workstream). The new skill surfaces via
+ * the existing skills.manage RPC list; frontmatter enrichment rides the
+ * (busted) skills-index cache.
+ */
+function skillCreateMiddleware() {
+  const root = join(process.env.HERMES_HOME ?? join(homedir(), '.hermes'), 'skills')
+  return {
+    name: 'eaios-skill-create',
+    configureServer(server: MwServer) {
+      server.middlewares.use('/api/skill-create', (req, res) => {
+        res.setHeader('content-type', 'application/json')
+        if (req.method !== 'POST') {
+          res.statusCode = 405
+          res.end(JSON.stringify({ error: 'POST only' }))
+          return
+        }
+        void readJsonBody(req)
+          .then((body) => {
+            try {
+              const saved = writeSkill(root, body as unknown as SkillInput)
+              indexCache.skills = undefined // bust — the next GET re-walks
+              res.statusCode = 201
+              res.end(JSON.stringify({ name: saved.name, category: saved.category }))
+            } catch (e) {
+              const code = (e as { code?: string }).code === 'already_exists' ? 409 : 400
+              res.statusCode = code
+              res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+            }
+          })
+          .catch((e) => {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
+          })
       })
     },
   }
@@ -435,7 +520,7 @@ export default defineConfig(({ mode }) => {
   const hermesToken = env.VITE_HERMES_TOKEN ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

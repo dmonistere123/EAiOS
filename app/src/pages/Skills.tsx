@@ -1,10 +1,14 @@
 /** Skills & Playbooks — skills live via skills.manage RPC (Phase 5.1);
- * playbooks live from ~/eaios/playbooks with kanban-backed runs (Phase 5.4). */
-import { useState } from 'react';
-import { useRuntime, agentName, refreshPlaybookRuns, refreshWork, toast } from '../state/runtime';
+ * playbooks live from ~/eaios/playbooks with kanban-backed runs (Phase 5.4).
+ * W7 (D-B3): authoring — create/edit playbooks (server-side version bump,
+ * published edits land as drafts) and create user-local skills. */
+import { useMemo, useState } from 'react';
+import { useRuntime, agentName, refreshPlaybooks, refreshPlaybookRuns, refreshSkills, refreshWork, toast } from '../state/runtime';
 import { hermes } from '../adapters';
 import type { Playbook } from '../domain/types';
+import type { PlaybookInput } from '../adapters/interfaces';
 import { Card, Drawer, RelativeTime, StateBadge } from '../components/ui';
+import { slugify } from './Staff';
 
 const runTone: Record<string, 'ok' | 'warn' | 'risk' | 'signal' | 'neutral'> = {
   complete: 'ok',
@@ -15,6 +19,221 @@ const runTone: Record<string, 'ok' | 'warn' | 'risk' | 'signal' | 'neutral'> = {
   blocked: 'risk',
   cancelled: 'neutral',
 };
+
+const inputCls = 'mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint';
+const labelCls = 'text-xs font-medium uppercase tracking-wider text-ink-faint';
+
+// ---------- playbook editor (W7) ----------
+
+function PlaybookEditorDrawer({ existing, onClose }: { existing?: Playbook; onClose: () => void }) {
+  const s = useRuntime();
+  const [name, setName] = useState(existing?.name ?? '');
+  const [description, setDescription] = useState(existing?.description ?? '');
+  const [mode, setMode] = useState<Playbook['mode']>(existing?.mode ?? 'task');
+  const [ownerAgentId, setOwnerAgentId] = useState(existing?.ownerAgentId ?? '');
+  const [assignee, setAssignee] = useState(existing?.assignee ?? '');
+  const [skills, setSkills] = useState((existing?.skills ?? []).join(', '));
+  const [workers, setWorkers] = useState((existing?.workers ?? []).join(', '));
+  const [verifier, setVerifier] = useState(existing?.verifier ?? '');
+  const [synthesizer, setSynthesizer] = useState(existing?.synthesizer ?? '');
+  const [body, setBody] = useState(existing?.body ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const slug = existing?.id ?? slugify(name);
+  const list = (v: string) => v.split(',').map((x) => x.trim()).filter(Boolean);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    const input: PlaybookInput = {
+      ...(existing ? { id: existing.id } : {}),
+      name: name.trim(),
+      description: description.trim(),
+      status: existing?.status ?? 'draft',
+      mode,
+      ...(assignee ? { assignee } : {}),
+      ...(ownerAgentId ? { ownerAgentId } : {}),
+      skills: list(skills),
+      ...(mode === 'swarm' ? { workers: list(workers), ...(verifier ? { verifier } : {}), ...(synthesizer ? { synthesizer } : {}) } : {}),
+      body,
+    };
+    const res = await hermes.savePlaybook(input);
+    setBusy(false);
+    if (res.ok && res.data) {
+      toast('ok', `${existing ? 'Updated' : 'Created'} ${res.data.name} — v${res.data.version} (${res.data.status}).`);
+      await refreshPlaybooks();
+      onClose();
+    } else {
+      setError(res.error?.safeMessage ?? 'Save failed.');
+    }
+  };
+
+  const canSave = name.trim() && description.trim() && body.trim() && (existing || slug);
+
+  return (
+    <Drawer title={existing ? `Edit: ${existing.name}` : 'New playbook'} onClose={onClose} width={520}>
+      <div className="space-y-4">
+        {existing?.status === 'published' && (
+          <p className="rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs text-warn">
+            Published versions are immutable — saving creates the next version as a new <span className="font-semibold">draft</span>.
+          </p>
+        )}
+        <div>
+          <label htmlFor="pb-name" className={labelCls}>Name</label>
+          <input id="pb-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Weekly Investor Update" className={inputCls} />
+          {name.trim() && (
+            <p className="mt-1 text-[11px] text-ink-faint">
+              Playbook id: <code className="font-mono text-signal">{slug || '—'}</code>
+              {existing && <span> (fixed — the file keeps its slug)</span>}
+            </p>
+          )}
+        </div>
+        <div>
+          <label htmlFor="pb-desc" className={labelCls}>Description</label>
+          <input id="pb-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line — what this workflow produces" className={inputCls} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label htmlFor="pb-mode" className={labelCls}>Mode</label>
+            <select id="pb-mode" value={mode} onChange={(e) => setMode(e.target.value as Playbook['mode'])} className={inputCls}>
+              <option value="task">task — one agent runs it</option>
+              <option value="swarm">swarm — workers → verifier → synthesizer</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="pb-owner" className={labelCls}>Owner</label>
+            <select id="pb-owner" value={ownerAgentId} onChange={(e) => setOwnerAgentId(e.target.value)} className={inputCls}>
+              <option value="">—</option>
+              {s.agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {mode === 'task' ? (
+          <div>
+            <label htmlFor="pb-assignee" className={labelCls}>Default assignee (optional)</label>
+            <select id="pb-assignee" value={assignee} onChange={(e) => setAssignee(e.target.value)} className={inputCls}>
+              <option value="">Choose at run time</option>
+              {s.agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="pb-workers" className={labelCls}>Workers (comma-separated profile:task)</label>
+              <input id="pb-workers" value={workers} onChange={(e) => setWorkers(e.target.value)} placeholder="default:Research, default:Analysis" className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="pb-verifier" className={labelCls}>Verifier</label>
+                <input id="pb-verifier" value={verifier} onChange={(e) => setVerifier(e.target.value)} placeholder="default" className={inputCls} />
+              </div>
+              <div>
+                <label htmlFor="pb-synth" className={labelCls}>Synthesizer</label>
+                <input id="pb-synth" value={synthesizer} onChange={(e) => setSynthesizer(e.target.value)} placeholder="default" className={inputCls} />
+              </div>
+            </div>
+          </>
+        )}
+        <div>
+          <label htmlFor="pb-skills" className={labelCls}>Skills used (comma-separated, optional)</label>
+          <input id="pb-skills" value={skills} onChange={(e) => setSkills(e.target.value)} placeholder="eaios-knowledge-retrieval, xurl" className={inputCls} />
+        </div>
+        <div>
+          <label htmlFor="pb-body" className={labelCls}>Workflow instructions (markdown)</label>
+          <textarea id="pb-body" value={body} onChange={(e) => setBody(e.target.value)} rows={10} placeholder={'## Steps\n1. Pull the inputs…\n2. Draft…\n3. Park external sends in Approvals.'} className={`${inputCls} font-mono text-xs`} />
+        </div>
+        {error && (
+          <div role="alert" className="rounded-lg border border-risk/30 bg-risk/10 p-3 text-xs text-risk">{error}</div>
+        )}
+        <button onClick={() => void save()} disabled={busy || !canSave} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+          {busy ? 'Saving…' : existing ? 'Save new version' : 'Create playbook'}
+        </button>
+        <p className="text-[11px] text-ink-faint">Versioning is automatic — edits bump the patch version; you never pick one.</p>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------- skill creator (W7) ----------
+
+function NewSkillDrawer({ onClose }: { onClose: () => void }) {
+  const s = useRuntime();
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('general');
+  const [description, setDescription] = useState('');
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const slug = slugify(name);
+  const slugOk = /^[a-z][a-z0-9-]*$/.test(slug);
+  const categories = useMemo(() => [...new Set(s.skills.map((sk) => sk.category))].sort(), [s.skills]);
+
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    const res = await hermes.createSkill({ name: slug, category: category.trim(), description: description.trim(), body });
+    setBusy(false);
+    if (res.ok) {
+      toast('ok', `Skill "${slug}" created in ${category.trim()} — it appears in the list within ~30s.`);
+      await refreshSkills();
+      onClose();
+    } else {
+      setError(res.error?.safeMessage ?? 'Skill creation failed.');
+    }
+  };
+
+  return (
+    <Drawer title="New skill" onClose={onClose} width={520}>
+      <div className="space-y-4">
+        <p className="text-xs text-ink-dim">
+          Creates a user-local <code className="font-mono">SKILL.md</code> your agents can load. Create-only for now — edit on disk or in a later update.
+        </p>
+        <div>
+          <label htmlFor="sk-name" className={labelCls}>Name</label>
+          <input id="sk-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Board Memo Drafts" className={inputCls} />
+          {name.trim() && (
+            <p className="mt-1 text-[11px] text-ink-faint">
+              Skill id: <code className="font-mono text-signal">{slug || '—'}</code>
+              {!slug && <span className="text-warn"> — needs at least one letter or digit</span>}
+            </p>
+          )}
+        </div>
+        <div>
+          <label htmlFor="sk-category" className={labelCls}>Category</label>
+          <input id="sk-category" value={category} onChange={(e) => setCategory(e.target.value)} list="skill-categories" className={inputCls} />
+          <datalist id="skill-categories">
+            {categories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <label htmlFor="sk-desc" className={labelCls}>Description <span className="normal-case text-ink-faint">(≤60 chars — agents match on this)</span></label>
+          <input id="sk-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Draft board memos from notes and metrics." className={inputCls} />
+          <p className={`mt-1 text-[11px] ${description.length > 60 ? 'text-warn' : 'text-ink-faint'}`}>{description.length}/60</p>
+        </div>
+        <div>
+          <label htmlFor="sk-body" className={labelCls}>Instructions (markdown)</label>
+          <textarea id="sk-body" value={body} onChange={(e) => setBody(e.target.value)} rows={10} placeholder={'# Board Memo Drafts\n\n## When to Use\n- The executive asks for a board memo…\n\n## Procedure\n1. Gather…\n2. Draft…\n\n## Pitfalls\n- Never send externally without approval.'} className={`${inputCls} font-mono text-xs`} />
+        </div>
+        {error && (
+          <div role="alert" className="rounded-lg border border-risk/30 bg-risk/10 p-3 text-xs text-risk">{error}</div>
+        )}
+        <button onClick={() => void create()} disabled={busy || !slugOk || !description.trim() || !body.trim() || !category.trim()} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+          {busy ? 'Creating…' : 'Create skill'}
+        </button>
+      </div>
+    </Drawer>
+  );
+}
+
+// ---------- run + cards (pre-W7, unchanged behavior) ----------
 
 function RunPlaybookDrawer({ playbook, onClose }: { playbook: Playbook; onClose: () => void }) {
   const s = useRuntime();
@@ -70,7 +289,7 @@ function RunPlaybookDrawer({ playbook, onClose }: { playbook: Playbook; onClose:
   );
 }
 
-function PlaybookCard({ playbook }: { playbook: Playbook }) {
+function PlaybookCard({ playbook, onEdit }: { playbook: Playbook; onEdit: () => void }) {
   const s = useRuntime();
   const [running, setRunning] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -95,6 +314,7 @@ function PlaybookCard({ playbook }: { playbook: Playbook }) {
       </div>
       <div className="mt-3 flex gap-2">
         <button onClick={() => setRunning(true)} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">Run</button>
+        <button onClick={onEdit} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay">Edit</button>
         <button onClick={() => setShowHistory((v) => !v)} className="rounded-lg px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay" aria-expanded={showHistory}>
           History ({runs.length})
         </button>
@@ -124,12 +344,23 @@ function PlaybookCard({ playbook }: { playbook: Playbook }) {
 export default function Skills() {
   const s = useRuntime();
   const [tab, setTab] = useState<'skill' | 'playbook'>('skill');
+  const [creatingSkill, setCreatingSkill] = useState(false);
+  const [creatingPlaybook, setCreatingPlaybook] = useState(false);
+  const [editingPlaybook, setEditingPlaybook] = useState<Playbook | null>(null);
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Skills & Playbooks</h1>
-        <p className="mt-1 text-sm text-ink-dim">Reusable capabilities (skills) and versioned multi-step workflows (playbooks).</p>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Skills & Playbooks</h1>
+          <p className="mt-1 text-sm text-ink-dim">Reusable capabilities (skills) and versioned multi-step workflows (playbooks).</p>
+        </div>
+        <button
+          onClick={() => (tab === 'skill' ? setCreatingSkill(true) : setCreatingPlaybook(true))}
+          className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90"
+        >
+          {tab === 'skill' ? '+ New skill' : '+ New playbook'}
+        </button>
       </header>
 
       <div className="flex gap-1.5" role="tablist" aria-label="Skills or playbooks">
@@ -169,7 +400,7 @@ export default function Skills() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {s.playbooks.map((p) => <PlaybookCard key={p.id} playbook={p} />)}
+          {s.playbooks.map((p) => <PlaybookCard key={p.id} playbook={p} onEdit={() => setEditingPlaybook(p)} />)}
           {s.playbooks.length === 0 && (
             <p className="text-sm text-ink-faint">No playbooks found — add markdown workflows to ~/eaios/playbooks/.</p>
           )}
@@ -177,6 +408,10 @@ export default function Skills() {
       )}
 
       <p className="text-xs text-ink-faint">Published versions are immutable — edits create a new draft. Approval checkpoints are shown before any run starts.</p>
+
+      {creatingSkill && <NewSkillDrawer onClose={() => setCreatingSkill(false)} />}
+      {creatingPlaybook && <PlaybookEditorDrawer onClose={() => setCreatingPlaybook(false)} />}
+      {editingPlaybook && <PlaybookEditorDrawer existing={editingPlaybook} onClose={() => setEditingPlaybook(null)} />}
     </div>
   );
 }
