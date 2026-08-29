@@ -156,6 +156,7 @@ export function startRuntime() {
       if (connected) void refreshAll();
     });
     live.connect();
+    startLivePolling();
   }
   void refreshAll().then(() => set({ ready: true }));
   // Event-driven refresh, debounced (spec §15: meaningful event rendered
@@ -167,6 +168,31 @@ export function startRuntime() {
     evtTimer = setTimeout(() => void refreshAll(), 800);
   };
   hermes.subscribeEvents?.(() => scheduleEventRefresh());
+}
+
+/**
+ * Live kanban polling (dogfood 2026-08-29): the kanban dispatcher moves
+ * tasks (delegated → running → done) OUTSIDE the gateway event stream, so
+ * without this the UI froze at 'delegated' forever. Poll the kanban-backed
+ * slices while live; the adapter's 4s task-cache dedupes the back-to-back
+ * fetches into one subprocess per tick.
+ */
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+export function startLivePolling(intervalMs = 12_000) {
+  if (pollTimer) return;
+  pollTimer = setInterval(() => {
+    if (getState().gateway !== 'live') return;
+    void refreshWork();
+    void refreshApprovals();
+    void refreshAgents();
+  }, intervalMs);
+}
+
+/** Test hook: stop the live poll. */
+export function stopLivePolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = undefined;
 }
 
 // ---------- selectors (contractual sorts — spec §7.1) ----------

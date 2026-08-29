@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Today from '../pages/Today';
 import Artifacts from '../pages/Artifacts';
-import { startRuntime, refreshAll } from '../state/runtime';
+import { startRuntime, refreshAll, startLivePolling, stopLivePolling } from '../state/runtime';
 import { hermes } from '../adapters';
 import * as fx from '../mocks/fixtures';
 import type { Agent, Approval, Artifact, CronJob, ActivityEvent, RuntimeEvent, WorkItem } from '../domain/types';
@@ -47,6 +47,19 @@ describe('§15 event-rate: bursts debounce to one refresh cycle', () => {
 
     expect(listAgents.mock.calls.length).toBe(1);
     expect(listWork.mock.calls.length).toBe(1);
+  });
+});
+
+describe('§15 live kanban polling (dogfood 2026-08-29)', () => {
+  it('the poll guards on live mode — mock/offline sessions never tick', async () => {
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(2000);
+    const listWork = vi.spyOn(hermes, 'listWorkItems');
+    listWork.mockClear();
+    startLivePolling(100); // mock mode: gateway is 'mock', guard must block every tick
+    await vi.advanceTimersByTimeAsync(1000);
+    stopLivePolling();
+    expect(listWork.mock.calls.length).toBe(0);
   });
 });
 
