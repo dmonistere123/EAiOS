@@ -60,6 +60,13 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
           </div>
         )}
 
+        {approval.payload && (
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Prepared content — exactly what gets executed</div>
+            <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim">{approval.payload}</pre>
+          </div>
+        )}
+
         {approval.rollbackPlan && (
           <div>
             <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Rollback path</div>
@@ -68,11 +75,11 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
         )}
 
         <div className="grid grid-cols-3 gap-2 pt-2">
-          <button onClick={() => decide('approved')} disabled={busy} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve</button>
+          <button onClick={() => decide('approved')} disabled={busy} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
           <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
           <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
-        <p className="text-[11px] text-ink-faint">Every decision writes an immutable audit event and notifies the requesting agent.</p>
+        <p className="text-[11px] text-ink-faint">Approve hands the task back to the requesting agent, which executes it and reports the result here and in the activity ledger. Every decision is audited.</p>
       </div>
     </Drawer>
   );

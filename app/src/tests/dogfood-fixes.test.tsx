@@ -119,10 +119,20 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('decideApproval approve: `complete` prints text and exits 0 → ok:true', async () => {
-    stubRpc(() => ({ code: 0, output: '✔ completed t_810c8eff\n' }));
+  it('decideApproval approve: ASSIGNS to the envelope requester so the dispatcher executes (not complete)', async () => {
+    const calls = stubRpc((argv) =>
+      argv.includes('--json')
+        ? { code: 0, output: JSON.stringify([{ id: 't_810c8eff', title: 'Send email', status: 'ready', body: '{"eaios":"approval","actionType":"send","targetSystem":"outlook","risk":"medium","requestedBy":"quill"}', created_at: 1787900000 }]) }
+        : { code: 0, output: '✔ t_810c8eff assigned to quill\n' },
+    );
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
     const res = await live.decideApproval('t_810c8eff', { decision: 'approved' });
     expect(res.ok).toBe(true);
+    const assign = calls.find((a) => a[1] === 'assign'); // argv = ['kanban', ...]
+    expect(assign).toBeTruthy();
+    expect(assign![2]).toBe('t_810c8eff');
+    expect(assign![3]).toBe('quill'); // requester from the envelope, not 'default'
+    expect(calls.some((a) => a[1] === 'complete')).toBe(false); // never close without execution
   });
 
   it('reads still parse --json output', async () => {

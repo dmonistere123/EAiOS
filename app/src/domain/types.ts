@@ -98,6 +98,8 @@ export interface Approval {
   evidence: EvidenceRef[];
   proposedDiff?: string;
   rollbackPlan?: string;
+  /** The fully-prepared action content (e.g. To/Subject/Body) — what the executor sends and what the executive reviews (dogfood 2026-08-29). */
+  payload?: string;
   expiresAt?: string;
 }
 

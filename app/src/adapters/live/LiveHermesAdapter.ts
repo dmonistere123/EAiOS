@@ -194,6 +194,8 @@ interface ApprovalEnvelope {
   evidence?: Approval['evidence'];
   proposedDiff?: string;
   rollbackPlan?: string;
+  /** The fully-prepared action content (e.g. To/Subject/Body) — what the executor sends and what the executive reviews (2026-08-29). */
+  payload?: string;
 }
 
 const kanbanState: Record<KanbanTask['status'], WorkItem['state']> = {
@@ -249,6 +251,7 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     evidence: env.evidence ?? [],
     proposedDiff: env.proposedDiff,
     rollbackPlan: env.rollbackPlan,
+    payload: env.payload,
   };
 }
 
@@ -692,7 +695,20 @@ class LiveHermesAdapter implements HermesAdapter {
   async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
     try {
       if (decision.decision === 'approved') {
-        await this.kanban<unknown>(['complete', approvalId, '--result', 'Approved by executive']);
+        // DOGFOOD FIX (2026-08-29): approve must EXECUTE, not just close.
+        // Assign the envelope task to its requesting agent — the kanban
+        // dispatcher runs it, the agent executes via its tools (Composio
+        // MCP) and completes with the result. The old `complete` left the
+        // send/publish unexecuted (the "approved but never sent" bug).
+        let assignee = 'default';
+        try {
+          const task = (await this.kanbanTasks()).find((t) => t.id === approvalId);
+          const env = parseEnvelope(task?.body);
+          assignee = env?.requestedBy ?? task?.assignee ?? 'default';
+        } catch {
+          /* fall through with default */
+        }
+        await this.kanban<unknown>(['assign', approvalId, assignee]);
       } else if (decision.decision === 'changes_requested') {
         await this.kanban<unknown>(['request-changes', approvalId, decision.note ?? 'Changes requested by executive — see EAiOS approval thread.']);
       } else {

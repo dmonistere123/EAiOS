@@ -258,6 +258,10 @@ class MockHermesAdapter implements HermesAdapter {
     if (!ap) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Approval not found.', retryable: false } };
     this.approvals = this.approvals.map((a) => (a.id === approvalId ? { ...a, status: decision.decision } : a));
     this.emit('approval.decided', ap.requestedByAgentId, `Approval ${decision.decision}: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
+    // Parity with live assign-on-approve (2026-08-29): the requester executes.
+    if (decision.decision === 'approved') {
+      this.emit('agent.started', ap.requestedByAgentId, `Executing approved action: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
+    }
     return audit();
   }
 
