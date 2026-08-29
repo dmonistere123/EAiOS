@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantSessionRef, ChatMessage } from '../domain/types';
 import { hermes } from '../adapters';
-import { Card, Drawer, SectionTitle, StateBadge, AgentStatusBadge, IndeterminateBar } from '../components/ui';
+import { Card, Drawer, SectionTitle, StateBadge, AgentStatusBadge } from '../components/ui';
 import { ChunkDrawer } from '../components/ChunkDrawer';
 import { AgentChannel } from '../components/AgentChannel';
 import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
@@ -255,10 +255,19 @@ export default function Assistant() {
                 {m.role === 'ally' && <CitationChips text={m.text} onOpen={setOpenChunk} />}
               </div>
             ))}
-            {streaming !== null && (
+            {(streaming !== null || sending) && (
               <div className="max-w-[85%] rounded-xl bg-canvas-overlay px-4 py-2.5 text-sm text-ink">
                 <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Ally</div>
-                {streaming ? <div className="whitespace-pre-wrap">{streaming}</div> : <IndeterminateBar />}
+                {streaming ? (
+                  <div className="whitespace-pre-wrap">{streaming}</div>
+                ) : (
+                  /* visible proof of life between send and first streamed token (dogfood ask 2026-08-29) */
+                  <div className="flex items-center gap-1.5 py-1" role="status" aria-label="Ally is working">
+                    <span className="eaios-typing-dot" />
+                    <span className="eaios-typing-dot" />
+                    <span className="eaios-typing-dot" />
+                  </div>
+                )}
               </div>
             )}
           </div>

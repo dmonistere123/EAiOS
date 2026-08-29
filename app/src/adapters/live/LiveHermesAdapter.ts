@@ -606,11 +606,17 @@ class LiveHermesAdapter implements HermesAdapter {
 
   // ----- LIVE: kanban-backed work loop (Phase 3) -----
 
-  /** Run a kanban CLI command through the gateway and parse its --json output. */
+  /** Run a kanban CLI command through the gateway. --json output is parsed;
+   * write subcommands (assign/complete/block/…) print human text on success
+   * (exit 0) — DOGFOOD FIX 2026-08-29: blind JSON.parse turned SUCCESSFUL
+   * assigns/decisions into error toasts. Text output on code 0 is a fine
+   * result for write commands (callers ignore it). */
   private async kanban<T>(argv: string[]): Promise<T> {
     const res = await this.rpc.call<{ code: number; output: string }>('cli.exec', { argv: ['kanban', ...argv] });
     if (res.code !== 0) throw new Error(res.output.slice(0, 200) || 'kanban command failed');
-    return JSON.parse(res.output || 'null') as T;
+    const out = (res.output ?? '').trim();
+    if (out.startsWith('[') || out.startsWith('{')) return JSON.parse(out) as T;
+    return out as T;
   }
 
   /** Shared task fetch with a short TTL — one subprocess serves several callers. */

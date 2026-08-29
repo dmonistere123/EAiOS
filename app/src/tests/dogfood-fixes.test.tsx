@@ -14,7 +14,7 @@ import { MemoryRouter } from 'react-router-dom';
 import Connections from '../pages/Connections';
 import Staff from '../pages/Staff';
 import { startRuntime, refreshAgents } from '../state/runtime';
-import { composio, hermes } from '../adapters';
+import { composio, hermes, live } from '../adapters';
 
 /** adapters/index composio IS the LiveComposioAdapter singleton (self-falls-back to mock). */
 const liveComposio = composio as unknown as { useMock?: boolean; connectApp: (slug: string) => Promise<{ flowId: string; authUrl?: string; note?: string }> };
@@ -98,7 +98,51 @@ describe('connectApp never reuses another toolkit’s auth config', () => {
   });
 });
 
-// ---------- 2. Disconnect ----------
+// ---------- 5. kanban write commands: text output on success (the JSON.parse bug) ----------
+
+describe('kanban<T> tolerates human-text success output', () => {
+  /** Swap the live adapter's private rpc with a stub that mimics cli.exec. */
+  function stubRpc(behavior: (argv: string[]) => { code: number; output: string }) {
+    const calls: string[][] = [];
+    (live as unknown as { rpc: { call: (m: string, p: { argv: string[] }) => Promise<unknown> } }).rpc = {
+      call: vi.fn(async (_method: string, params: { argv: string[] }) => {
+        calls.push(params.argv);
+        return behavior(params.argv);
+      }),
+    };
+    return calls;
+  }
+
+  it('delegateWork: `assign` prints text and exits 0 → ok:true, not a JSON.parse error', async () => {
+    stubRpc(() => ({ code: 0, output: '✔ t_810c8eff assigned to quill\n' }));
+    const res = await live.delegateWork('t_810c8eff', { agentId: 'quill' });
+    expect(res.ok).toBe(true);
+  });
+
+  it('decideApproval approve: `complete` prints text and exits 0 → ok:true', async () => {
+    stubRpc(() => ({ code: 0, output: '✔ completed t_810c8eff\n' }));
+    const res = await live.decideApproval('t_810c8eff', { decision: 'approved' });
+    expect(res.ok).toBe(true);
+  });
+
+  it('reads still parse --json output', async () => {
+    stubRpc((argv) =>
+      argv.includes('--json')
+        ? { code: 0, output: JSON.stringify([{ id: 't_1', title: 'Real task', status: 'ready', created_at: 1787900000 }]) }
+        : { code: 0, output: 'ok' },
+    );
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
+    const rows = await live.listWorkItems();
+    expect(rows.some((w) => w.id === 't_1' && w.title === 'Real task')).toBe(true);
+  });
+
+  it('CLI failures surface the CLI message, not a parse error', async () => {
+    stubRpc(() => ({ code: 1, output: 'no such task: w-04\n' }));
+    const res = await live.delegateWork('w-04', { agentId: 'quill' });
+    expect(res.ok).toBe(false);
+    expect(res.error?.safeMessage).toContain('no such task');
+  });
+});
 
 describe('Disconnect (two-step confirm)', () => {
   it('Disconnect → Confirm disconnect flips the card to disconnected', async () => {
