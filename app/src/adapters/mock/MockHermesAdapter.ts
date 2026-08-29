@@ -123,8 +123,10 @@ class MockHermesAdapter implements HermesAdapter {
     if (patch.model && !before.availableModels.some((m) => m.model === patch.model!.model && m.provider === patch.model!.provider)) {
       return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'model_not_allowed', safeMessage: 'That model is not in this agent’s allowed list.', retryable: false } };
     }
-    this.agents = this.agents.map((a) => (a.id === agentId ? { ...a, ...patch } : a));
-    this.emit('config.changed', agentId, `Model updated to ${patch.model?.model ?? 'unchanged'}`);
+    // description maps to the role line (profiles.configure semantics)
+    const { description, ...rest } = patch;
+    this.agents = this.agents.map((a) => (a.id === agentId ? { ...a, ...rest, ...(description !== undefined ? { role: description } : {}) } : a));
+    this.emit('config.changed', agentId, `Agent config updated: ${agentId}`);
     return audit();
   }
 
@@ -162,6 +164,27 @@ class MockHermesAdapter implements HermesAdapter {
       },
     ];
     this.emit('config.changed', input.name, `Agent created: ${input.name} (${input.model.provider}/${input.model.model})`);
+    return audit();
+  }
+
+  /** Mock Telegram binding (dogfood 2026-08-29): a Set of bound profile ids. */
+  private botBindings = new Set<string>();
+
+  async getTelegramBotStatus(profile: string): Promise<{ bound: boolean }> {
+    await delay(80);
+    return { bound: this.botBindings.has(profile) };
+  }
+
+  async setTelegramBotToken(profile: string, token: string): Promise<AuditResult> {
+    await delay(150);
+    if (!/^[a-z][a-z0-9-]*$/.test(profile) || profile === 'default') {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_profile', safeMessage: 'Invalid profile (default profile .env is user-edits-only).', retryable: false } };
+    }
+    if (!token.trim()) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_input', safeMessage: 'Bot token is required.', retryable: false } };
+    }
+    this.botBindings.add(profile);
+    this.emit('config.changed', profile, `Telegram bot bound for ${profile}`);
     return audit();
   }
 
@@ -554,6 +577,16 @@ class MockHermesAdapter implements HermesAdapter {
 
   async readEnvironmentFile(id: string): Promise<EnvironmentFile> {
     await delay();
+    // Per-profile SOUL.md (properties drawer editor, dogfood 2026-08-29).
+    if (id.startsWith('soul-')) {
+      const name = id.replace(/^soul-/, '');
+      const content = this.soulContents.get(id) ?? `# ${name} — Operating Identity\n\nMock SOUL.md for ${name} — persona, rules, priorities. Edits persist (version-checked).\n`;
+      return {
+        ref: { id, name: name === 'ally' || name === 'default' ? 'SOUL.md (Ally — default profile)' : `SOUL.md (${name})`, path: name === 'ally' || name === 'default' ? '~/.hermes/SOUL.md' : `~/.hermes/profiles/${name}/SOUL.md` },
+        content,
+        version: String(content.length),
+      };
+    }
     const refs = await this.listEditableEnvironmentFiles();
     const ref = refs.find((r) => r.id === id)!;
     const content = id === 'env-01'
@@ -562,12 +595,15 @@ class MockHermesAdapter implements HermesAdapter {
     return { ref, content, version: String(content.length) };
   }
 
+  private soulContents = new Map<string, string>();
+
   async writeEnvironmentFile(id: string, expectedVersion: string, _content: string): Promise<AuditResult> {
     await delay(250);
     const current = await this.readEnvironmentFile(id);
     if (current.version !== expectedVersion) {
       return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'version_conflict', safeMessage: 'File changed since you opened it. Reload before saving.', retryable: true } };
     }
+    if (id.startsWith('soul-')) this.soulContents.set(id, _content);
     this.emit('config.changed', undefined, `Environment file saved: ${id}`);
     return audit();
   }

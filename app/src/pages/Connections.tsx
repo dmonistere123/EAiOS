@@ -26,6 +26,8 @@ export default function Connections() {
   const [catalog, setCatalog] = useState<AvailableApp[]>([]);
   const [query, setQuery] = useState('');
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
 
   const reloadConnections = () => {
     void composio.listConnections().then((r) => {
@@ -57,6 +59,19 @@ export default function Connections() {
       toast('info', `Finish connecting ${app.name} in the Composio tab, then refresh.`);
     } else {
       toast('info', flow.note ?? `${app.name} can't be connected from here yet.`);
+    }
+  };
+
+  const disconnect = async (c: Connection) => {
+    setDisconnecting(c.id);
+    const res = await composio.disconnect(c.id);
+    setDisconnecting(null);
+    setConfirmDisconnect(null);
+    if (res.ok) {
+      toast('ok', `${c.appName} disconnected.`);
+      reloadConnections();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Disconnect failed.');
     }
   };
 
@@ -195,6 +210,22 @@ export default function Connections() {
                   className="rounded-lg bg-warn px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-warn/90"
                 >
                   {c.state === 'degraded' ? 'Resume connect' : 'Reconnect'}
+                </button>
+              )}
+              {confirmDisconnect === c.id ? (
+                <button
+                  onClick={() => void disconnect(c)}
+                  disabled={disconnecting === c.id}
+                  className="rounded-lg bg-risk px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50"
+                >
+                  {disconnecting === c.id ? 'Disconnecting…' : 'Confirm disconnect'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => setConfirmDisconnect(c.id)}
+                  className="rounded-lg border border-risk/40 px-3 py-1.5 text-xs font-medium text-risk hover:bg-risk/10"
+                >
+                  Disconnect
                 </button>
               )}
             </div>

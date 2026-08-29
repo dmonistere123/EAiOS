@@ -484,17 +484,54 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  /** Live model write: catalog-validated, then profiles.configure (model+provider go together). */
-  async updateAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AuditResult> {
-    if (!patch.model) return this.fallback.updateAgentConfig(agentId, patch); // tools-only patches stay mock for now
+  /**
+   * Telegram bot binding (dogfood 2026-08-29) via /api/profile-env. GET is
+   * existence-only; the POST writes the allowlisted key server-side. The
+   * token is NEVER read back — a WRITE, so failure returns an honest error
+   * instead of falling back to the mock (which would pretend to persist).
+   */
+  async getTelegramBotStatus(profile: string): Promise<{ bound: boolean }> {
     try {
-      const catalog = await this.listModelOptions();
-      const allowed = catalog.some((g) => g.slug === patch.model!.provider && g.models.includes(patch.model!.model));
-      if (!allowed) {
-        return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'model_not_allowed', safeMessage: `${patch.model.provider}/${patch.model.model} is not in the live model catalog.`, retryable: false } };
+      const res = await fetch(`/api/profile-env?profile=${encodeURIComponent(profile)}&key=TELEGRAM_BOT_TOKEN`);
+      const data = (await res.json().catch(() => ({}))) as { present?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? `profile-env HTTP ${res.status}`);
+      return { bound: data.present === true };
+    } catch {
+      return this.fallback.getTelegramBotStatus(profile); // graceful degradation (spec §2)
+    }
+  }
+
+  async setTelegramBotToken(profile: string, token: string): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/profile-env', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ profile, key: 'TELEGRAM_BOT_TOKEN', value: token }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `profile-env HTTP ${res.status}`);
+      return { ok: true, auditEventId: `bot-bind-${profile}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `bot-bind-err-${Date.now()}`, error: { code: 'bot_bind_failed', safeMessage: e instanceof Error ? e.message : 'Bot binding failed.', retryable: true } };
+    }
+  }
+
+  /** Live config writes: model is catalog-validated (model+provider go together); description writes through profiles.configure. */
+  async updateAgentConfig(agentId: string, patch: AgentConfigPatch): Promise<AuditResult> {
+    if (!patch.model && patch.description === undefined) return this.fallback.updateAgentConfig(agentId, patch); // tools-only patches stay mock for now
+    try {
+      if (patch.model) {
+        const catalog = await this.listModelOptions();
+        const allowed = catalog.some((g) => g.slug === patch.model!.provider && g.models.includes(patch.model!.model));
+        if (!allowed) {
+          return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'model_not_allowed', safeMessage: `${patch.model.provider}/${patch.model.model} is not in the live model catalog.`, retryable: false } };
+        }
+        await this.rpc.call('profiles.configure', { name: agentId, model: patch.model.model, provider: patch.model.provider });
       }
-      await this.rpc.call('profiles.configure', { name: agentId, model: patch.model.model, provider: patch.model.provider });
-      return { ok: true, auditEventId: `agent-model-${agentId}-${Date.now()}` };
+      if (patch.description !== undefined) {
+        await this.rpc.call('profiles.configure', { name: agentId, description: patch.description });
+      }
+      return { ok: true, auditEventId: `agent-config-${agentId}-${Date.now()}` };
     } catch (e) {
       return { ok: false, auditEventId: `agent-err-${Date.now()}`, error: { code: 'agent_config_failed', safeMessage: e instanceof Error ? e.message : 'Model change failed.', retryable: true } };
     }

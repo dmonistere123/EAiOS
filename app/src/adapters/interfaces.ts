@@ -53,6 +53,8 @@ export interface DateRange {
 export interface AgentConfigPatch {
   model?: Agent['model'];
   tools?: Agent['tools'];
+  /** Role line — profiles.configure description. */
+  description?: string;
 }
 
 /** Provider-grouped model catalog entry (agent factory, 6.5). */
@@ -129,6 +131,10 @@ export interface HermesAdapter {
   listModelOptions(): Promise<ModelOptionGroup[]>;
   /** Spin up a new staff agent (profile). Config write — audited, no approval gate (D3). */
   createAgent(input: CreateAgent): Promise<AuditResult>;
+  /** Telegram bot binding: EXISTENCE only — token values are never returned (dogfood 2026-08-29). */
+  getTelegramBotStatus(profile: string): Promise<{ bound: boolean }>;
+  /** Bind a bot token to a profile: allowlisted .env write server-side (chmod 600, never read back). */
+  setTelegramBotToken(profile: string, token: string): Promise<AuditResult>;
 
   listWorkItems(filter?: WorkFilter): Promise<WorkItem[]>;
   delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult>;

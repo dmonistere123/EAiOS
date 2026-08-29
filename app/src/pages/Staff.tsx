@@ -31,6 +31,7 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
   const [catalog, setCatalog] = useState<ModelOptionGroup[] | null>(null);
   const [picked, setPicked] = useState(''); // "provider/model"
   const [soul, setSoul] = useState('');
+  const [botToken, setBotToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null); // persistent — a 4s toast is too easy to miss
 
@@ -59,12 +60,25 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
       model: { provider, model },
       ...(soul.trim() ? { soul: soul.trim() } : {}),
     });
-    setBusy(false);
     if (res.ok) {
-      toast('ok', `Agent "${slug}" created. Audit ${res.auditEventId}.`);
+      // Bind the agent's own Telegram bot if a token was supplied (dogfood ask).
+      let bound = false;
+      if (botToken.trim()) {
+        const b = await hermes.setTelegramBotToken(slug, botToken.trim());
+        if (!b.ok) {
+          setBusy(false);
+          setError(`Agent "${slug}" was created, but the bot token write failed: ${b.error?.safeMessage ?? 'unknown error'} — bind it from the agent's properties drawer.`);
+          await refreshAgents();
+          return;
+        }
+        bound = true;
+      }
+      setBusy(false);
+      toast('ok', `Agent "${slug}" created${bound ? ' with its Telegram bot bound' : ''}. Audit ${res.auditEventId}.`);
       await refreshAgents();
       onClose();
     } else {
+      setBusy(false);
       setError(res.error?.safeMessage ?? 'Agent creation failed.');
     }
   };
@@ -134,6 +148,21 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
             className="mt-1 w-full rounded-lg border border-edge bg-canvas p-3 font-mono text-xs text-ink placeholder:text-ink-faint"
           />
         </div>
+        <div>
+          <label htmlFor="agent-bot-token" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Telegram bot token (optional)</label>
+          <input
+            id="agent-bot-token"
+            type="password"
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder="123456:ABC-DEF… — binds this agent's own bot"
+            autoComplete="off"
+            className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+          />
+          <p className="mt-1 text-[11px] text-ink-faint">
+            Written to the profile's .env (chmod 600) and never displayed again. Bring the bot online with <code className="font-mono text-signal">hermes -p {slug || 'slug'} gateway install && start</code> — automating that is Phase 8.
+          </p>
+        </div>
         {error && (
           <div role="alert" className="rounded-lg border border-risk/30 bg-risk/10 p-3 text-xs text-risk">
             {error}
@@ -163,8 +192,17 @@ const FILTERS: { id: Filter; label: string; match: (a: Agent) => boolean }[] = [
 
 function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () => void }) {
   const [model, setModel] = useState(`${agent.model.provider}/${agent.model.model}`);
+  const [role, setRole] = useState(agent.role);
   const [busy, setBusy] = useState(false);
   const [catalog, setCatalog] = useState<ModelOptionGroup[] | null>(null);
+  // Dogfood fix (2026-08-29): SOUL.md editing rides the 6.2 env-file surface.
+  const [soul, setSoul] = useState<string | null>(null);
+  const [soulVersion, setSoulVersion] = useState('');
+  const [soulBusy, setSoulBusy] = useState(false);
+  // Telegram bot binding — existence only, tokens never displayed.
+  const [botBound, setBotBound] = useState<boolean | null>(null);
+  const [botToken, setBotToken] = useState('');
+  const [botBusy, setBotBusy] = useState(false);
 
   // Live mode: the agent's own allowed list has only its current model —
   // enrich from the catalog so the picker is real (6.5).
@@ -178,17 +216,71 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
     };
   }, []);
 
+  useEffect(() => {
+    let live = true;
+    void hermes.readEnvironmentFile(`soul-${agent.id}`).then((f) => {
+      if (live) {
+        setSoul(f.content);
+        setSoulVersion(f.version);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [agent.id]);
+
+  useEffect(() => {
+    let live = true;
+    void hermes.getTelegramBotStatus(agent.id).then((s) => {
+      if (live) setBotBound(s.bound);
+    });
+    return () => {
+      live = false;
+    };
+  }, [agent.id]);
+
+  const saveBotToken = async () => {
+    if (!botToken.trim()) return;
+    setBotBusy(true);
+    const res = await hermes.setTelegramBotToken(agent.id, botToken.trim());
+    setBotBusy(false);
+    if (res.ok) {
+      toast('ok', `Telegram bot token bound to ${agent.name}.`);
+      setBotToken('');
+      setBotBound(true);
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Bot binding failed.');
+    }
+  };
+
   const save = async () => {
     setBusy(true);
     const [provider, ...rest] = model.split('/');
-    const res = await hermes.updateAgentConfig(agent.id, { model: { provider, model: rest.join('/') } });
+    const res = await hermes.updateAgentConfig(agent.id, {
+      model: { provider, model: rest.join('/') },
+      ...(role.trim() !== agent.role ? { description: role.trim() } : {}),
+    });
     setBusy(false);
     if (res.ok) {
-      toast('ok', `${agent.name} model updated to ${rest.join('/')}.`);
+      toast('ok', `${agent.name} settings saved.`);
       await refreshAgents();
       onClose();
     } else {
-      toast('error', res.error?.safeMessage ?? 'Model change rejected.');
+      toast('error', res.error?.safeMessage ?? 'Save rejected.');
+    }
+  };
+
+  const saveSoul = async () => {
+    if (soul === null) return;
+    setSoulBusy(true);
+    const res = await hermes.writeEnvironmentFile(`soul-${agent.id}`, soulVersion, soul);
+    setSoulBusy(false);
+    if (res.ok) {
+      toast('ok', `${agent.name}'s SOUL.md saved (version-checked).`);
+      const fresh = await hermes.readEnvironmentFile(`soul-${agent.id}`);
+      setSoulVersion(fresh.version);
+    } else {
+      toast('error', res.error?.safeMessage ?? 'SOUL save failed.');
     }
   };
 
@@ -196,8 +288,13 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
     <Drawer title={`${agent.name} — properties`} onClose={onClose}>
       <div className="space-y-5">
         <div>
-          <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Role</div>
-          <div className="mt-1 text-sm text-ink">{agent.role}</div>
+          <label htmlFor="agent-role-edit" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Role</label>
+          <input
+            id="agent-role-edit"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink"
+          />
         </div>
         <div>
           <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Status</div>
@@ -238,6 +335,48 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
           <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Health</div>
           <div className="mt-1 text-sm text-ink">{agent.health ?? 'unknown'}</div>
         </div>
+        <div>
+          <label htmlFor="soul-edit" className="text-xs font-medium uppercase tracking-wider text-ink-faint">SOUL.md — operating identity</label>
+          {soul === null ? (
+            <p className="mt-1 text-xs text-ink-faint">Loading…</p>
+          ) : (
+            <>
+              <textarea
+                id="soul-edit"
+                value={soul}
+                onChange={(e) => setSoul(e.target.value)}
+                rows={8}
+                className="mt-1 w-full rounded-lg border border-edge bg-canvas p-3 font-mono text-xs text-ink"
+              />
+              <button onClick={() => void saveSoul()} disabled={soulBusy} className="mt-2 w-full rounded-lg border border-signal/40 px-3 py-2 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
+                {soulBusy ? 'Saving…' : 'Save SOUL.md (version-checked)'}
+              </button>
+            </>
+          )}
+        </div>
+        {agent.id !== 'default' && agent.id !== 'ally' && (
+          <div>
+            <label htmlFor="bot-token-edit" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Telegram bot</label>
+            <p className="mt-1 text-xs text-ink-dim">
+              {botBound === null ? 'Checking…' : botBound ? 'A bot token is present (possibly mirrored from the default profile).' : 'No bot token bound.'}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <input
+                id="bot-token-edit"
+                type="password"
+                value={botToken}
+                onChange={(e) => setBotToken(e.target.value)}
+                placeholder="Paste a new bot token to bind"
+                autoComplete="off"
+                className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+              />
+              <button onClick={() => void saveBotToken()} disabled={botBusy || !botToken.trim()} className="rounded-lg border border-signal/40 px-3 py-2 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
+                {botBusy ? 'Binding…' : 'Bind token'}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-ink-faint">Written to the profile's .env (chmod 600), never shown again. Bring the bot online with <code className="font-mono text-signal">hermes -p {agent.id} gateway install && start</code>.</p>
+          </div>
+        )}
         <button onClick={save} disabled={busy} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
           {busy ? 'Saving…' : 'Save changes'}
         </button>

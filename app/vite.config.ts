@@ -7,6 +7,7 @@ import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { writePlaybook, writeSkill } from './server/authoring.ts'
 import type { PlaybookInput, SkillInput } from './server/authoring.ts'
+import { hasProfileEnvKey, setProfileEnvKey } from './server/profileEnv.ts'
 
 /** Shared index caches (30s) — write middlewares bust them on mutation. */
 const indexCache: { skills?: { at: number; body: string }; playbooks?: { at: number; body: string } } = {}
@@ -238,6 +239,59 @@ function skillCreateMiddleware() {
             res.statusCode = 400
             res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
           })
+      })
+    },
+  }
+}
+
+/**
+ * Dev-only middleware: GET/POST /api/profile-env (dogfood 2026-08-29) —
+ * per-profile Telegram bot binding. GET returns key EXISTENCE only (never
+ * values); POST writes one allowlisted key into profiles/<slug>/.env via
+ * server/profileEnv.ts (confinement + chmod 600 + no readback). The token
+ * transits a loopback POST body only — never DOM persistence, URLs, logs,
+ * or git (spec §2/§15 secrets rules preserved).
+ */
+function profileEnvMiddleware() {
+  const profilesRoot = join(process.env.HERMES_HOME ?? join(homedir(), '.hermes'), 'profiles')
+  return {
+    name: 'eaios-profile-env',
+    configureServer(server: MwServer) {
+      server.middlewares.use('/api/profile-env', (req, res) => {
+        res.setHeader('content-type', 'application/json')
+        if (req.method === 'GET') {
+          try {
+            const url = new URL((req as unknown as { url?: string }).url ?? '', 'http://localhost')
+            const profile = url.searchParams.get('profile') ?? ''
+            const key = url.searchParams.get('key') ?? ''
+            res.statusCode = 200
+            res.end(JSON.stringify({ present: hasProfileEnvKey(profilesRoot, profile, key) }))
+          } catch (e) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+          }
+          return
+        }
+        if (req.method === 'POST') {
+          void readJsonBody(req)
+            .then((body) => {
+              try {
+                setProfileEnvKey(profilesRoot, String(body.profile ?? ''), String(body.key ?? ''), String(body.value ?? ''))
+                res.statusCode = 200
+                res.end(JSON.stringify({ ok: true })) // never echoes the value
+              } catch (e) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+              }
+            })
+            .catch((e) => {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
+            })
+          return
+        }
+        res.statusCode = 405
+        res.end(JSON.stringify({ error: 'GET or POST only' }))
       })
     },
   }
@@ -520,7 +574,7 @@ export default defineConfig(({ mode }) => {
   const hermesToken = env.VITE_HERMES_TOKEN ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), profileEnvMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

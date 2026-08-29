@@ -54,7 +54,11 @@ interface CompAuthConfig {
   id?: string;
   nanoid?: string;
   is_composio_managed?: boolean;
+  toolkit?: { slug?: string } | string;
 }
+
+const configToolkitSlug = (c: CompAuthConfig): string =>
+  typeof c.toolkit === 'string' ? c.toolkit : c.toolkit?.slug ?? '';
 
 /** Stable Composio user id for this single-executive install. */
 const EAIOS_USER_ID = 'eaios-executive';
@@ -166,9 +170,14 @@ class LiveComposioAdapter implements ComposioAdapter {
       if (app?.authKind === 'bring_own_auth') {
         return { flowId: `link-${appKey}`, authUrl: undefined, note: `${app.name} needs a custom auth config on the Composio account first (one-time setup).` };
       }
-      // Reuse or create the managed auth config.
-      const existing = asArray<CompAuthConfig>(await this.api<unknown>(`/api/v3/auth_configs?toolkit=${encodeURIComponent(appKey)}`));
-      let configId = existing.find((c) => c.is_composio_managed)?.id ?? existing.find((c) => c.is_composio_managed)?.nanoid;
+      // Reuse or create the managed auth config. DOGFOOD FIX (2026-08-29):
+      // Composio IGNORES ?toolkit= (returns every config — connecting
+      // LinkedIn reused Gmail's config and connected Gmail 3×). The working
+      // filter is ?toolkit_slug=, AND we still require the config's own
+      // toolkit to match appKey before reuse — belt and suspenders.
+      const existing = asArray<CompAuthConfig>(await this.api<unknown>(`/api/v3/auth_configs?toolkit_slug=${encodeURIComponent(appKey)}`));
+      const reusable = existing.find((c) => c.is_composio_managed && configToolkitSlug(c) === appKey);
+      let configId = reusable?.id ?? reusable?.nanoid;
       if (!configId) {
         const created = await this.api<{ auth_config?: CompAuthConfig }>('/api/v3/auth_configs', {
           method: 'POST',
