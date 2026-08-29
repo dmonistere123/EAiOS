@@ -9,8 +9,9 @@ import { hermes } from '../adapters';
 import { useRuntime, refreshAgents, toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
-import { AgentStatusBadge, Card, Drawer, IndeterminateBar, RelativeTime, StateBadge } from '../components/ui';
+import { Drawer, AgentStatusBadge, StateBadge, IndeterminateBar, RelativeTime, Card } from '../components/ui';
 import { OrgChart } from '../components/OrgChart';
+import { AGENT_GOVERNANCE_SOUL } from '../domain/governance';
 import { useAgentChannel } from '../components/AgentChannel';
 
 /** Add Agent drawer (Phase 6.5) — profile creation via the live model catalog. */
@@ -30,7 +31,7 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
   const [role, setRole] = useState('');
   const [catalog, setCatalog] = useState<ModelOptionGroup[] | null>(null);
   const [picked, setPicked] = useState(''); // "provider/model"
-  const [soul, setSoul] = useState('');
+  const [soul, setSoul] = useState(AGENT_GOVERNANCE_SOUL); // governance rules seed every agent (dogfood 2026-08-29)
   const [botToken, setBotToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null); // persistent — a 4s toast is too easy to miss

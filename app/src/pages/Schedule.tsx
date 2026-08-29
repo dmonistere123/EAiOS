@@ -5,11 +5,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { calendarEvents } from '../mocks/fixtures';
 import { hermes } from '../adapters';
 import { TELEGRAM_HOME_DELIVERY } from '../config';
-import { useRuntime, refreshCron, toast } from '../state/runtime';
+import { useRuntime, refreshCron, toast, agentName } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import type { CronJob } from '../domain/types';
-import { Card, SectionTitle, StateBadge, TimeUntil } from '../components/ui';
+import { Card, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
 
 type Source = 'executive' | 'agent' | 'cron' | 'team';
@@ -112,6 +112,18 @@ export default function Schedule() {
   const [enabled, setEnabled] = useState<Record<Source, boolean>>({ executive: true, agent: true, cron: true, team: false });
   const [byAgent, setByAgent] = useState<Record<string, CronJob[]>>({});
   const [newDelegation, setNewDelegation] = useState(false);
+
+  // Dogfood 2026-08-29: delegated work is visible here, not just on Today.
+  const workInFlight = useMemo(
+    () =>
+      s.work
+        .filter((w) => w.ownerType === 'agent' && !['complete', 'cancelled'].includes(w.state))
+        .sort((a, b) => {
+          const rank = { in_progress: 0, waiting_approval: 1, delegated: 2, ready: 3, blocked: 4, new: 5 } as const;
+          return (rank[a.state as keyof typeof rank] ?? 6) - (rank[b.state as keyof typeof rank] ?? 6) || b.updatedAt.localeCompare(a.updatedAt);
+        }),
+    [s.work],
+  );
 
   // W5: per-agent cron ownership. Keyed on the agent id SET + job COUNT —
   // identity-stable refreshes don't refetch, but a created/deleted job does.
@@ -231,6 +243,25 @@ export default function Schedule() {
           </Card>
         ))}
       </div>
+
+      <Card className="p-5">
+        <SectionTitle right={<StateBadge label={`${workInFlight.length} active`} tone={workInFlight.length ? 'signal' : 'neutral'} />}>Work in flight — delegated tasks</SectionTitle>
+        <p className="mb-3 text-xs text-ink-dim">Live kanban tasks your agents hold right now. Approvals still gate external writes — nothing here bypasses them.</p>
+        {workInFlight.length === 0 ? (
+          <p className="text-xs text-ink-faint">Nothing delegated right now — use ＋ New delegated task to put an agent to work.</p>
+        ) : (
+          <ul className="divide-y divide-edge/60">
+            {workInFlight.map((w) => (
+              <li key={w.id} className="flex items-center gap-3 py-2.5 text-sm">
+                <span className="min-w-0 flex-1 truncate text-ink">{w.title}</span>
+                <span className="text-xs text-ink-dim">{agentName(s, w.ownerId ?? '')}</span>
+                <StateBadge label={w.state.replace('_', ' ')} tone={w.state === 'in_progress' ? 'signal' : w.state === 'waiting_approval' ? 'warn' : 'neutral'} />
+                <span className="w-16 text-right text-xs text-ink-faint"><RelativeTime iso={w.updatedAt} /></span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <Card className="p-5">
         <SectionTitle right={<StateBadge label={`${s.cron.length} live job${s.cron.length === 1 ? '' : 's'}`} tone="signal" />}>Create scheduled AI work</SectionTitle>
