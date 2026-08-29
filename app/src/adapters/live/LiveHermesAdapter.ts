@@ -15,7 +15,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
@@ -653,6 +653,24 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `kb-assign-${workItemId}` };
     } catch (e) {
       return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'delegate_failed', safeMessage: e instanceof Error ? e.message : 'Delegation failed.', retryable: true } };
+    }
+  }
+
+  /** On-the-fly delegation (dogfood 2026-08-29): kanban create + optional assignee.
+   * Assigned tasks are auto-executed by the kanban dispatcher (gotcha #14) —
+   * that IS the delegation. Unassigned tasks sit in the executive queue. */
+  async createWorkItem(input: CreateWorkItem): Promise<AuditResult> {
+    try {
+      const prioNum = { critical: 1, high: 2, medium: 3, low: 4 }[input.priority ?? 'medium'];
+      const argv = ['create', input.title, '--priority', String(prioNum), '--created-by', 'eaios-executive', '--json'];
+      if (input.summary?.trim()) argv.push('--body', input.summary.trim());
+      if (input.agentId) argv.push('--assignee', input.agentId);
+      const created = await this.kanban<{ id?: string; task_id?: string }>(argv);
+      this.invalidateTasks();
+      const id = created?.id ?? created?.task_id;
+      return { ok: true, auditEventId: `kb-create-${id ?? Date.now()}`, id };
+    } catch (e) {
+      return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'create_failed', safeMessage: e instanceof Error ? e.message : 'Task creation failed.', retryable: true } };
     }
   }
 

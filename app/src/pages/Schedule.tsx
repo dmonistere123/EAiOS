@@ -10,6 +10,7 @@ import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import type { CronJob } from '../domain/types';
 import { Card, SectionTitle, StateBadge, TimeUntil } from '../components/ui';
+import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
 
 type Source = 'executive' | 'agent' | 'cron' | 'team';
 const SOURCE_META: Record<Source, { label: string; dot: string }> = {
@@ -110,6 +111,7 @@ export default function Schedule() {
   const s = useRuntime();
   const [enabled, setEnabled] = useState<Record<Source, boolean>>({ executive: true, agent: true, cron: true, team: false });
   const [byAgent, setByAgent] = useState<Record<string, CronJob[]>>({});
+  const [newDelegation, setNewDelegation] = useState(false);
 
   // W5: per-agent cron ownership. Keyed on the agent id SET + job COUNT —
   // identity-stable refreshes don't refetch, but a created/deleted job does.
@@ -233,8 +235,15 @@ export default function Schedule() {
       <Card className="p-5">
         <SectionTitle right={<StateBadge label={`${s.cron.length} live job${s.cron.length === 1 ? '' : 's'}`} tone="signal" />}>Create scheduled AI work</SectionTitle>
         <p className="text-xs text-ink-dim">Jobs created here run on the real Hermes scheduler and appear in this calendar, the right rail, and Connections — same object, same store.</p>
-        <NewCronForm onCreated={() => undefined} />
+        <div className="flex flex-wrap items-start gap-3">
+          <NewCronForm onCreated={() => undefined} />
+          {/* Dogfood 2026-08-29: one-off delegation lives beside scheduled work */}
+          <button onClick={() => setNewDelegation(true)} className="rounded-lg border border-signal/40 px-4 py-2 text-sm font-medium text-signal hover:bg-signal/10">
+            ＋ New delegated task
+          </button>
+        </div>
       </Card>
+      {newDelegation && <NewDelegationDrawer onClose={() => setNewDelegation(false)} />}
     </div>
   );
 }

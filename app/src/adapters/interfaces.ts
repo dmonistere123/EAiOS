@@ -109,6 +109,15 @@ export interface CreateSkill {
   body: string;
 }
 
+/** On-the-fly task delegation (dogfood 2026-08-29): create a kanban task from Today/Schedule. */
+export interface CreateWorkItem {
+  title: string;
+  summary?: string;
+  priority?: WorkItem['priority'];
+  /** Assignee profile id; omitted = unassigned ("potential delegation" — sits in the executive queue). */
+  agentId?: string;
+}
+
 export interface CreateCronJob {
   name: string;
   scheduleExpression: string;
@@ -137,6 +146,8 @@ export interface HermesAdapter {
   setTelegramBotToken(profile: string, token: string): Promise<AuditResult>;
 
   listWorkItems(filter?: WorkFilter): Promise<WorkItem[]>;
+  /** Create a task on the fly (Today/Schedule). Assigned tasks are auto-executed by the kanban dispatcher; unassigned sit in the executive queue. */
+  createWorkItem(input: CreateWorkItem): Promise<AuditResult>;
   delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult>;
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;

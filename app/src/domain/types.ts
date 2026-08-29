@@ -297,6 +297,8 @@ export interface AuditResult<T = unknown> {
   ok: boolean;
   data?: T;
   auditEventId: string;
+  /** Newly created entity id when the action creates one (e.g. kanban task). */
+  id?: string;
   newVersion?: string;
   error?: {
     code: string;

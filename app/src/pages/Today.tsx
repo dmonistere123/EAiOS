@@ -4,6 +4,7 @@ import type { TodaySummary, WorkItem } from '../domain/types';
 import { hermes } from '../adapters';
 import { useRuntime, agentName, toast } from '../state/runtime';
 import { Card, Drawer, EmptyState, KpiCard, PriorityBadge, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
+import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
 
 const stateTone: Record<WorkItem['state'], 'neutral' | 'ok' | 'warn' | 'risk' | 'signal'> = {
   new: 'neutral',
@@ -72,6 +73,7 @@ export default function Today() {
   const [delegating, setDelegating] = useState<WorkItem | null>(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [queueShown, setQueueShown] = useState(QUEUE_PAGE);
+  const [newDelegation, setNewDelegation] = useState(false);
 
   useEffect(() => {
     void hermes.getTodaySummary().then(setSummary);
@@ -99,9 +101,17 @@ export default function Today() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{summary.greeting}, Don.</h1>
-        <p className="mt-1 text-sm text-ink-dim">{summary.date} — {summary.headline}</p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{summary.greeting}, Don.</h1>
+          <p className="mt-1 text-sm text-ink-dim">{summary.date} — {summary.headline}</p>
+        </div>
+        <button
+          onClick={() => setNewDelegation(true)}
+          className="shrink-0 rounded-lg border border-signal/40 px-3 py-2 text-sm font-medium text-signal hover:bg-signal/10"
+        >
+          ＋ New delegated task
+        </button>
       </header>
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
@@ -188,6 +198,7 @@ export default function Today() {
       </section>
 
       {delegating && <DelegateDialog item={delegating} onClose={() => setDelegating(null)} />}
+      {newDelegation && <NewDelegationDrawer onClose={() => setNewDelegation(false)} />}
     </div>
   );
 }

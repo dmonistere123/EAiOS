@@ -10,7 +10,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 
@@ -216,6 +216,32 @@ class MockHermesAdapter implements HermesAdapter {
       this.emit('agent.started', agentId, 'Picked up delegated work', workItemId);
     }, 4000);
     return audit();
+  }
+
+  /** Mock on-the-fly delegation (dogfood 2026-08-29). */
+  async createWorkItem(input: CreateWorkItem): Promise<AuditResult> {
+    await delay(200);
+    if (!input.title.trim()) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_input', safeMessage: 'A title is required.', retryable: false } };
+    }
+    const id = `w-new-${Date.now() % 100000}`;
+    this.work = [
+      {
+        id,
+        title: input.title.trim(),
+        summary: input.summary?.trim() || undefined,
+        priority: input.priority ?? 'medium',
+        ownerType: input.agentId ? 'agent' : 'executive',
+        ownerId: input.agentId,
+        state: input.agentId ? 'delegated' : 'ready',
+        delegationCandidate: !input.agentId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      ...this.work,
+    ];
+    this.emit('work.created', input.agentId, input.agentId ? `Task created and delegated: ${input.title.trim()}` : `Task created: ${input.title.trim()}`, id);
+    return { ...audit(), id };
   }
 
   async listApprovals(filter?: ApprovalFilter): Promise<Approval[]> {
