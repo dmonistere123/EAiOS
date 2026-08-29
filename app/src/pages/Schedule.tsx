@@ -214,6 +214,7 @@ export default function Schedule() {
   const [newDelegation, setNewDelegation] = useState(false);
   const [inspectingCron, setInspectingCron] = useState<CronJob | null>(null);
   const [confirmStop, setConfirmStop] = useState<string | null>(null);
+  const [confirmDone, setConfirmDone] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [railBump, setRailBump] = useState(0);
 
@@ -264,6 +265,7 @@ export default function Schedule() {
     const res = await hermes.setWorkItemState(w.id, action, note);
     setBusyAction(null);
     setConfirmStop(null);
+    setConfirmDone(null);
     if (res.ok) {
       toast('ok', `${action === 'stop' ? 'Stopped' : action === 'complete' ? 'Completed' : action === 'pause' ? 'Paused' : action === 'resume' ? 'Resumed' : action === 'defer' ? 'Deferred' : 'Reclaimed'}: ${w.title}`);
       await refreshWork();
@@ -428,12 +430,22 @@ export default function Schedule() {
                   <button onClick={() => void act(w, 'defer')} disabled={busyAction !== null} className="rounded border border-edge px-2 py-1 font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50" title="Park the task (scheduled state) — resume any time">
                     Defer
                   </button>
-                  <button onClick={() => void act(w, 'complete')} disabled={busyAction !== null} className="rounded border border-signal/40 px-2 py-1 font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
-                    Done
-                  </button>
+                  {confirmDone === w.id ? (
+                    <button onClick={() => void act(w, 'complete')} disabled={busyAction !== null} className="rounded bg-signal px-2 py-1 font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50" title="A worker may be actively running this task — completing now abandons its in-flight output">
+                      Worker may be active — confirm Done
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => (w.state === 'in_progress' && health[w.id] !== 'stale' ? setConfirmDone(w.id) : void act(w, 'complete'))}
+                      disabled={busyAction !== null}
+                      className="rounded border border-signal/40 px-2 py-1 font-medium text-signal hover:bg-signal/10 disabled:opacity-50"
+                    >
+                      Done
+                    </button>
+                  )}
                   {confirmStop === w.id ? (
-                    <button onClick={() => void act(w, 'stop')} disabled={busyAction !== null} className="rounded bg-risk px-2 py-1 font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">
-                      Confirm stop
+                    <button onClick={() => void act(w, 'stop')} disabled={busyAction !== null} className="rounded bg-risk px-2 py-1 font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50" title={health[w.id] !== 'stale' ? 'A worker may be actively running this task — stopping abandons its in-flight output' : undefined}>
+                      {health[w.id] !== 'stale' && w.state === 'in_progress' ? 'Worker may be active — confirm stop' : 'Confirm stop'}
                     </button>
                   ) : (
                     <button onClick={() => setConfirmStop(w.id)} disabled={busyAction !== null} className="rounded border border-risk/40 px-2 py-1 font-medium text-risk hover:bg-risk/10 disabled:opacity-50">

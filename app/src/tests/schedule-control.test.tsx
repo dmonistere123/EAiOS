@@ -177,6 +177,26 @@ describe('Schedule — dynamic work control + visibility', () => {
     expect(await within(row).findByRole('button', { name: 'Reclaim' }, { timeout: 8000 })).toBeInTheDocument();
   });
 
+  it('Done on a healthy in-progress run asks first (worker-active guard)', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Schedule />
+      </MemoryRouter>,
+    );
+    const card = (await screen.findByText('Work in flight — delegated tasks')).closest('div.rounded-xl') as HTMLElement;
+    const row = (await within(card).findByText('Prepare investor update email', undefined, { timeout: 8000 })).closest('li') as HTMLElement;
+    // first click does NOT complete — it warns about the live worker
+    await user.click(within(row).getByRole('button', { name: 'Done' }));
+    const confirm = await within(row).findByRole('button', { name: 'Worker may be active — confirm Done' }, { timeout: 8000 });
+    expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('in_progress');
+    // second click completes
+    await user.click(confirm);
+    await vi.waitFor(async () => {
+      expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('complete');
+    }, { timeout: 5000 });
+  });
+
   it('completed tasks within 24h appear in the recently-completed list', async () => {
     mock().__loadFixture({
       work: fx.workItems.map((w) =>
