@@ -311,6 +311,19 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  /** Mock health: no real runs exist, so the 30-min heuristic stands in
+   * (documented — live mode uses host diagnostics, never timestamps). */
+  async getWorkItemHealth(workItemIds: string[]): Promise<Record<string, 'healthy' | 'stale' | 'unknown'>> {
+    await delay(60);
+    return Object.fromEntries(
+      workItemIds.map((id) => {
+        const w = this.work.find((x) => x.id === id);
+        const stale = w?.state === 'in_progress' && Date.now() - new Date(w.updatedAt).getTime() > 30 * 60_000;
+        return [id, stale ? ('stale' as const) : ('healthy' as const)];
+      }),
+    );
+  }
+
   async listActivity(limit = 50): Promise<ActivityEvent[]> {
     await delay(80);
     return clone(this.activity.slice(0, limit));

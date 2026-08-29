@@ -154,6 +154,8 @@ export interface HermesAdapter {
   delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult>;
   /** Dynamic kanban control (dogfood 2026-08-29): pause/resume/complete/stop/defer/reclaim from Schedule. */
   setWorkItemState(workItemId: string, action: WorkItemAction, note?: string): Promise<AuditResult>;
+  /** Run health per task (zombie detection). 'stale' = host-flagged (dead worker/expired lock); drives the stale badge. */
+  getWorkItemHealth?(workItemIds: string[]): Promise<Record<string, 'healthy' | 'stale' | 'unknown'>>;
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;

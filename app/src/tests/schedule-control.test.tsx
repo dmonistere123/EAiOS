@@ -75,12 +75,45 @@ describe('setWorkItemState — live kanban mapping', () => {
     ['resume', 'unblock'],
     ['stop', 'archive'],
     ['defer', 'schedule'],
-    ['reclaim', 'reclaim'],
   ] as const)('%s → kanban %s', async (action, sub) => {
     const calls = stubLiveRpc(() => ({ code: 0, output: '✔ ok\n' }));
     const res = await live.setWorkItemState('t_x1', action, 'note');
     expect(res.ok).toBe(true);
     expect(calls.some((a) => a[1] === sub && a[2] === 't_x1')).toBe(true);
+  });
+
+  it('reclaim is GUARDED: a host-healthy run is refused, never killed', async () => {
+    stubLiveRpc((argv) =>
+      argv.includes('diagnostics')
+        ? { code: 0, output: JSON.stringify([]) } // no flagged tasks → healthy
+        : { code: 0, output: '✔ ok\n' },
+    );
+    const res = await live.setWorkItemState('t_x1', 'reclaim');
+    expect(res.ok).toBe(false);
+    expect(res.error?.code).toBe('run_healthy');
+    expect(res.error?.safeMessage).toContain('actually healthy');
+  });
+
+  it('reclaim proceeds when the host FLAGS the task', async () => {
+    const calls = stubLiveRpc((argv) =>
+      argv.includes('diagnostics')
+        ? { code: 0, output: JSON.stringify([{ task_id: 't_x1', diagnostics: [{ kind: 'lock_expired' }] }]) }
+        : { code: 0, output: '✔ reclaimed\n' },
+    );
+    const res = await live.setWorkItemState('t_x1', 'reclaim');
+    expect(res.ok).toBe(true);
+    expect(calls.some((a) => a[1] === 'reclaim' && a[2] === 't_x1')).toBe(true);
+  });
+
+  it('getWorkItemHealth maps host-flagged tasks to stale, others healthy', async () => {
+    stubLiveRpc((argv) =>
+      argv.includes('diagnostics')
+        ? { code: 0, output: JSON.stringify([{ task_id: 't_zombie', diagnostics: [{ kind: 'worker_dead' }] }]) }
+        : { code: 0, output: '' },
+    );
+    const health = await live.getWorkItemHealth!(['t_zombie', 't_fine']);
+    expect(health.t_zombie).toBe('stale');
+    expect(health.t_fine).toBe('healthy');
   });
 
   it('complete passes --result', async () => {

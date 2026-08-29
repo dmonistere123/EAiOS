@@ -618,9 +618,18 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   /** Dynamic kanban control (dogfood 2026-08-29). Assigned tasks auto-run;
-   * pause=block, resume=unblock, stop=archive, defer=schedule, reclaim=requeue zombie. */
+   * pause=block, resume=unblock, stop=archive, defer=schedule, reclaim=requeue zombie.
+   * RECLAIM IS GUARDED: a task the host considers healthy is refused — the
+   * first stale heuristic (updatedAt>30min) false-flagged LIVE runs and
+   * reclaim clicks terminated two healthy workers (run 22/23). */
   async setWorkItemState(workItemId: string, action: WorkItemAction, note?: string): Promise<AuditResult> {
     try {
+      if (action === 'reclaim') {
+        const health = await this.getWorkItemHealth([workItemId]);
+        if (health[workItemId] === 'healthy') {
+          return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'run_healthy', safeMessage: 'That run is actually healthy — live worker, current heartbeats. Not reclaiming it.', retryable: false } };
+        }
+      }
       switch (action) {
         case 'pause':
           await this.kanban<unknown>(['block', workItemId, ...(note ? [note] : [])]);
@@ -645,6 +654,20 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `kb-${action}-${workItemId}` };
     } catch (e) {
       return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'work_action_failed', safeMessage: e instanceof Error ? e.message : 'Action failed.', retryable: true } };
+    }
+  }
+
+  /** Zombie detection via the host's own diagnostics (board-wide, one call) —
+   * a task is 'stale' only when the HOST flags it (dead worker/expired lock),
+   * never from timestamps alone. */
+  async getWorkItemHealth(workItemIds: string[]): Promise<Record<string, 'healthy' | 'stale' | 'unknown'>> {
+    try {
+      const out = await this.cliText(['kanban', 'diagnostics', '--json']);
+      const rows = JSON.parse(out || '[]') as { task_id?: string; diagnostics?: unknown[] }[];
+      const flagged = new Set(rows.filter((r) => (r.diagnostics ?? []).length > 0).map((r) => r.task_id));
+      return Object.fromEntries(workItemIds.map((id) => [id, flagged.has(id) ? ('stale' as const) : ('healthy' as const)]));
+    } catch {
+      return Object.fromEntries(workItemIds.map((id) => [id, 'unknown' as const]));
     }
   }
 

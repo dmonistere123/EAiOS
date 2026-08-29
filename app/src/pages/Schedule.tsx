@@ -13,7 +13,6 @@ import type { WorkItemAction } from '../adapters/interfaces';
 import { Card, Drawer, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
 
-const STALE_MS = 30 * 60_000; // in_progress with no update this long = likely a zombie run
 const DAY_MS = 24 * 3600_000;
 
 /** Cron inspector (dogfood 2026-08-29): see what a job WILL do, edit, pause, delete. */
@@ -238,7 +237,26 @@ export default function Schedule() {
     [s.work],
   );
 
-  const isStale = (w: WorkItem) => w.state === 'in_progress' && Date.now() - new Date(w.updatedAt).getTime() > STALE_MS;
+  const isStale = (w: WorkItem) => health[w.id] === 'stale';
+
+  // Health comes from the host's diagnostics (live) — never timestamps alone
+  // (the updatedAt heuristic false-flagged healthy long runs, dogfood 2026-08-29).
+  const inProgressIds = workInFlight.filter((w) => w.state === 'in_progress').map((w) => w.id).join(',');
+  const [health, setHealth] = useState<Record<string, 'healthy' | 'stale' | 'unknown'>>({});
+  useEffect(() => {
+    if (!inProgressIds || !hermes.getWorkItemHealth) return;
+    let live = true;
+    const check = () =>
+      void hermes.getWorkItemHealth!(inProgressIds.split(',')).then((h) => {
+        if (live) setHealth(h);
+      });
+    check();
+    const t = setInterval(check, 60_000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [inProgressIds]);
 
   const act = async (w: WorkItem, action: WorkItemAction) => {
     setBusyAction(`${w.id}:${action}`);
