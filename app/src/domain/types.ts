@@ -121,6 +121,12 @@ export interface CronJob {
   approvalPolicy: 'pre_approved' | 'approval_on_result' | 'always_approve';
   lastResult?: 'success' | 'failed' | 'skipped';
   enabled: boolean;
+  /** What the job actually does (the agent prompt) — shown in the inspector (dogfood 2026-08-29). */
+  prompt?: string;
+  /** Delivery target, e.g. 'telegram:-100…'. */
+  deliver?: string;
+  /** Raw last-run status from the host (ok/error/…). */
+  lastStatus?: string;
 }
 
 // ---------- Activity ledger ----------

@@ -10,7 +10,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 
@@ -283,6 +283,31 @@ class MockHermesAdapter implements HermesAdapter {
     await delay(250);
     this.cron = this.cron.map((c) => (c.id === id ? { ...c, ...patch } : c));
     this.emit('config.changed', undefined, `Cron job updated: ${id}`);
+    return audit();
+  }
+
+  async deleteCronJob(id: string): Promise<AuditResult> {
+    await delay(250);
+    this.cron = this.cron.filter((c) => c.id !== id);
+    this.emit('config.changed', undefined, `Cron job removed: ${id}`);
+    return audit();
+  }
+
+  /** Mock dynamic kanban control (dogfood 2026-08-29). */
+  async setWorkItemState(workItemId: string, action: WorkItemAction, note?: string): Promise<AuditResult> {
+    await delay(200);
+    const item = this.work.find((w) => w.id === workItemId);
+    if (!item) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Task not found.', retryable: false } };
+    const stateFor: Record<WorkItemAction, WorkItem['state']> = {
+      pause: 'blocked',
+      resume: item.ownerId ? 'delegated' : 'ready',
+      complete: 'complete',
+      stop: 'cancelled',
+      defer: 'delegated',
+      reclaim: item.ownerId ? 'delegated' : 'ready',
+    };
+    this.work = this.work.map((w) => (w.id === workItemId ? { ...w, state: stateFor[action], updatedAt: new Date().toISOString() } : w));
+    this.emit('work.updated', item.ownerId, `${action}: ${item.title}${note ? ` — ${note}` : ''}`, workItemId);
     return audit();
   }
 

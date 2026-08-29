@@ -129,7 +129,10 @@ export interface CreateCronJob {
   deliver?: string;
 }
 
-export type CronJobPatch = Partial<Pick<CronJob, 'name' | 'scheduleExpression' | 'enabled' | 'approvalPolicy'>>;
+export type CronJobPatch = Partial<Pick<CronJob, 'name' | 'scheduleExpression' | 'enabled' | 'approvalPolicy' | 'prompt' | 'deliver'>>;
+
+/** Work-item lifecycle actions (dogfood 2026-08-29): dynamic kanban control from Schedule. */
+export type WorkItemAction = 'pause' | 'resume' | 'complete' | 'stop' | 'defer' | 'reclaim';
 
 export interface HermesAdapter {
   getTodaySummary(): Promise<TodaySummary>;
@@ -149,6 +152,8 @@ export interface HermesAdapter {
   /** Create a task on the fly (Today/Schedule). Assigned tasks are auto-executed by the kanban dispatcher; unassigned sit in the executive queue. */
   createWorkItem(input: CreateWorkItem): Promise<AuditResult>;
   delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult>;
+  /** Dynamic kanban control (dogfood 2026-08-29): pause/resume/complete/stop/defer/reclaim from Schedule. */
+  setWorkItemState(workItemId: string, action: WorkItemAction, note?: string): Promise<AuditResult>;
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
@@ -156,6 +161,8 @@ export interface HermesAdapter {
   listCronJobs(profile?: string): Promise<CronJob[]>;
   createCronJob(input: CreateCronJob): Promise<AuditResult>;
   updateCronJob(id: string, patch: CronJobPatch): Promise<AuditResult>;
+  /** Permanently remove a scheduled job (confirm in UI first). */
+  deleteCronJob(id: string): Promise<AuditResult>;
 
   listActivity(limit?: number): Promise<import('../domain/types').ActivityEvent[]>;
   subscribeEvents?(handler: (event: RuntimeEvent) => void): Unsubscribe;

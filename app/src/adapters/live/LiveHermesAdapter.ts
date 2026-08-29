@@ -15,7 +15,7 @@ import type {
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
@@ -366,6 +366,9 @@ function mapCron(j: HermesCronJob): CronJob {
     approvalPolicy: 'pre_approved',
     lastResult: j.last_status === 'failed' ? 'failed' : j.last_status ? 'success' : undefined,
     enabled: j.enabled !== false,
+    prompt: j.prompt,
+    deliver: j.deliver,
+    lastStatus: j.last_status,
   };
 }
 
@@ -578,22 +581,96 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   async updateCronJob(id: string, patch: CronJobPatch): Promise<AuditResult> {
-    if (patch.enabled === undefined) {
-      return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'unsupported', safeMessage: 'Only pause/resume is supported against the live scheduler right now.', retryable: false } };
-    }
     try {
-      await this.rpc.call('cron.manage', { action: patch.enabled ? 'resume' : 'pause', name: id });
-      return { ok: true, auditEventId: `cron-${patch.enabled ? 'resume' : 'pause'}-${id}` };
+      if (patch.enabled !== undefined) {
+        await this.rpc.call('cron.manage', { action: patch.enabled ? 'resume' : 'pause', name: id });
+      }
+      // Content edits go through the CLI (cron.manage has no update action — gotcha: gateway forwards only create/remove/pause/resume).
+      const argv = ['cron', 'edit', id];
+      if (patch.name !== undefined) argv.push('--name', patch.name);
+      if (patch.prompt !== undefined) argv.push('--prompt', patch.prompt);
+      if (patch.scheduleExpression !== undefined) argv.push('--schedule', patch.scheduleExpression);
+      if (patch.deliver !== undefined) argv.push('--deliver', patch.deliver);
+      if (argv.length > 3) {
+        await this.cliText(argv);
+      }
+      return { ok: true, auditEventId: `cron-update-${id}-${Date.now()}` };
     } catch (e) {
       return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'cron_update_failed', safeMessage: e instanceof Error ? e.message : 'Cron update failed.', retryable: true } };
+    }
+  }
+
+  /** Remove a scheduled job (cli.exec `cron remove`; destructive — the UI confirms first). */
+  async deleteCronJob(id: string): Promise<AuditResult> {
+    try {
+      await this.cliText(['cron', 'remove', id]);
+      return { ok: true, auditEventId: `cron-remove-${id}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `cron-err-${Date.now()}`, error: { code: 'cron_delete_failed', safeMessage: e instanceof Error ? e.message : 'Cron delete failed.', retryable: true } };
+    }
+  }
+
+  /** Run a CLI command through the gateway; throw on failure, return output text. */
+  private async cliText(argv: string[]): Promise<string> {
+    const res = await this.rpc.call<{ code: number; output: string }>('cli.exec', { argv });
+    if (res.code !== 0) throw new Error(res.output.slice(0, 200) || 'command failed');
+    return res.output ?? '';
+  }
+
+  /** Dynamic kanban control (dogfood 2026-08-29). Assigned tasks auto-run;
+   * pause=block, resume=unblock, stop=archive, defer=schedule, reclaim=requeue zombie. */
+  async setWorkItemState(workItemId: string, action: WorkItemAction, note?: string): Promise<AuditResult> {
+    try {
+      switch (action) {
+        case 'pause':
+          await this.kanban<unknown>(['block', workItemId, ...(note ? [note] : [])]);
+          break;
+        case 'resume':
+          await this.kanban<unknown>(['unblock', workItemId]);
+          break;
+        case 'complete':
+          await this.kanban<unknown>(['complete', workItemId, '--result', note ?? 'Completed by executive from EAiOS']);
+          break;
+        case 'stop':
+          await this.kanban<unknown>(['archive', workItemId]);
+          break;
+        case 'defer':
+          await this.kanban<unknown>(['schedule', workItemId, ...(note ? [note] : [])]);
+          break;
+        case 'reclaim':
+          await this.kanban<unknown>(['reclaim', workItemId, '--reason', note ?? 'Reclaimed from EAiOS (stale run)']);
+          break;
+      }
+      this.invalidateTasks();
+      return { ok: true, auditEventId: `kb-${action}-${workItemId}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'work_action_failed', safeMessage: e instanceof Error ? e.message : 'Action failed.', retryable: true } };
     }
   }
 
   // ----- LIVE: activity (session ledger) -----
   async listActivity(limit = 50): Promise<ActivityEvent[]> {
     try {
-      const res = await this.rpc.call<{ sessions: HermesSession[] }>('session.list');
-      return (res.sessions ?? []).slice(0, limit).map(mapSessionToActivity);
+      // Sessions alone miss the kanban dispatcher entirely (worker sessions are
+      // filtered by the host) — dogfood 2026-08-29: the weather task completed
+      // and the ledger showed nothing. Merge kanban lifecycle events in.
+      const [res, tasks] = await Promise.all([
+        this.rpc.call<{ sessions: HermesSession[] }>('session.list'),
+        this.kanbanTasks().catch(() => [] as KanbanTask[]),
+      ]);
+      const sessionEvents = (res.sessions ?? []).map(mapSessionToActivity);
+      const kanbanEvents: ActivityEvent[] = [];
+      for (const t of tasks) {
+        const created = epochToIso(t.created_at);
+        const started = epochToIso(t.started_at ?? undefined);
+        const completed = epochToIso(t.completed_at ?? undefined);
+        if (created) kanbanEvents.push({ id: `kb-${t.id}-created`, type: 'work.created', occurredAt: created, agentId: t.assignee ?? undefined, workItemId: t.id, action: `Task created: ${t.title}`, severity: 'info' });
+        if (started) kanbanEvents.push({ id: `kb-${t.id}-started`, type: 'agent.started', occurredAt: started, agentId: t.assignee ?? undefined, workItemId: t.id, action: `Agent started: ${t.title}`, severity: 'info' });
+        if (completed) kanbanEvents.push({ id: `kb-${t.id}-completed`, type: 'agent.completed', occurredAt: completed, agentId: t.assignee ?? undefined, workItemId: t.id, action: `Task completed: ${t.title}`, result: t.result?.slice(0, 160) || undefined, severity: 'info' });
+      }
+      return [...sessionEvents, ...kanbanEvents]
+        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
+        .slice(0, limit);
     } catch {
       return this.fallback.listActivity(limit);
     }
