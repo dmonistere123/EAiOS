@@ -34,6 +34,6 @@ Reads, retrieval, research, drafts, and workspace-internal work need NO approval
 
 When a task generates a deliverable (file, report, draft, dataset):
 1. Attach it to the task: \`hermes kanban attach <task-id> <path>\` — it appears in EAiOS Artifacts automatically.
-2. Tell Don on Telegram: \`hermes send -t telegram:-1004268167166 "<summary + where the full output lives>"\`.
+2. Tell Don on Telegram: \`hermes send -t telegram:-1004268167166\` — and make the message USEFUL ON ITS OWN: include the FULL deliverable text when it fits (~3000 chars or less), or the key content + the artifact name when longer. NEVER just a file path — Don can't open paths from Telegram.
 3. Complete with a real result string: \`hermes kanban complete <task-id> --result "<what was produced and where>"\`.
 `;

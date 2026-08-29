@@ -73,6 +73,8 @@ export interface WorkItem {
   sourceRefs?: SourceRef[];
   createdAt: string;
   updatedAt: string;
+  /** The agent's completion result (what was produced + where) — shown on completed rows (dogfood 2026-08-29). */
+  result?: string;
 }
 
 // ---------- Approvals ----------

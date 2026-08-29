@@ -462,11 +462,16 @@ export default function Schedule() {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Completed in the last 24h</div>
             <ul className="mt-1.5 divide-y divide-edge/40">
               {completedRecently.map((w) => (
-                <li key={w.id} className="flex items-center gap-3 py-1.5 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-ink-dim">{w.title}</span>
-                  <span className="text-ink-faint">{agentName(s, w.ownerId ?? '')}</span>
-                  <StateBadge label={w.state === 'complete' ? 'complete' : 'stopped'} tone={w.state === 'complete' ? 'ok' : 'neutral'} />
-                  <span className="w-14 text-right text-ink-faint"><RelativeTime iso={w.updatedAt} /></span>
+                <li key={w.id} className="py-1.5 text-xs">
+                  <div className="flex items-center gap-3">
+                    <span className="min-w-0 flex-1 truncate text-ink-dim">{w.title}</span>
+                    <span className="text-ink-faint">{agentName(s, w.ownerId ?? '')}</span>
+                    <StateBadge label={w.state === 'complete' ? 'complete' : 'stopped'} tone={w.state === 'complete' ? 'ok' : 'neutral'} />
+                    <span className="w-14 text-right text-ink-faint"><RelativeTime iso={w.updatedAt} /></span>
+                  </div>
+                  {w.result && (
+                    <p className="mt-0.5 truncate pl-0.5 text-[11px] text-ink-faint" title={w.result}>↳ {w.result}</p>
+                  )}
                 </li>
               ))}
             </ul>

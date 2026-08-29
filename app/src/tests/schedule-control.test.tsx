@@ -197,10 +197,10 @@ describe('Schedule — dynamic work control + visibility', () => {
     }, { timeout: 5000 });
   });
 
-  it('completed tasks within 24h appear in the recently-completed list', async () => {
+  it('completed tasks within 24h appear in the recently-completed list, with their result', async () => {
     mock().__loadFixture({
       work: fx.workItems.map((w) =>
-        w.id === 'w-09' ? { ...w, updatedAt: new Date(Date.now() - 2 * 3600_000).toISOString() } : w,
+        w.id === 'w-09' ? { ...w, updatedAt: new Date(Date.now() - 2 * 3600_000).toISOString(), result: 'Digest produced and sent to Don on Telegram.' } : w,
       ),
     });
     await refreshWork();
@@ -211,6 +211,7 @@ describe('Schedule — dynamic work control + visibility', () => {
     );
     expect(await screen.findByText('Completed in the last 24h', undefined, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText('Expense anomaly digest')).toBeInTheDocument();
+    expect(screen.getByText(/Digest produced and sent to Don/)).toBeInTheDocument();
   });
 });
 

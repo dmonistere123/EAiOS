@@ -234,6 +234,7 @@ function mapTask(t: KanbanTask): WorkItem {
     delegationCandidate: !t.assignee && ['ready', 'triage'].includes(t.status),
     createdAt: epochToIso(t.created_at) ?? new Date().toISOString(),
     updatedAt: epochToIso(t.completed_at ?? t.started_at ?? t.created_at) ?? new Date().toISOString(),
+    result: t.result ?? undefined,
   };
 }
 

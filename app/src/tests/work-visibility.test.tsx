@@ -55,6 +55,7 @@ describe('Add Agent — governance seed', () => {
     expect(seed.value).toContain('approval gate (never bypass)');
     expect(seed.value).toContain('kanban attach');
     expect(seed.value).toContain('telegram:-1004268167166');
+    expect(seed.value).toContain('NEVER just a file path'); // deliverable content rides IN the telegram (dogfood 2026-08-29)
     await user.keyboard('{Escape}');
   });
 });

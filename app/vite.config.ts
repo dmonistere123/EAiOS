@@ -492,18 +492,26 @@ function artifactsMiddleware() {
         task_title: string | null; task_assignee: string | null; task_status: string | null
       }[]
       return {
-        artifacts: rows.map((r) => ({
-          id: `att-${r.id}`,
-          taskId: r.task_id,
-          taskTitle: r.task_title,
-          name: r.filename,
-          mimeType: r.content_type ?? guessMime(r.filename),
-          sizeBytes: r.size,
-          uploadedBy: r.uploaded_by,
-          agentId: r.task_assignee ?? r.uploaded_by ?? 'default',
-          taskStatus: r.task_status,
-          createdAt: new Date(r.created_at * 1000).toISOString(),
-        })),
+        artifacts: rows.map((r) => {
+          const mimeType = r.content_type ?? guessMime(r.filename)
+          // Text-ish attachments are readable in-app (dogfood 2026-08-29:
+          // the deliverable must be RECEIVABLE in EAiOS, not just Telegram).
+          const previewable = mimeType.startsWith('text/') || mimeType === 'application/json'
+          return {
+            id: `att-${r.id}`,
+            taskId: r.task_id,
+            taskTitle: r.task_title,
+            name: r.filename,
+            mimeType,
+            sizeBytes: r.size,
+            uploadedBy: r.uploaded_by,
+            agentId: r.task_assignee ?? r.uploaded_by ?? 'default',
+            taskStatus: r.task_status,
+            createdAt: new Date(r.created_at * 1000).toISOString(),
+            previewAvailable: previewable,
+            downloadUrl: `/api/artifacts/att-${r.id}/raw`,
+          }
+        }),
       }
     } finally {
       db.close()
