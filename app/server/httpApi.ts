@@ -36,7 +36,7 @@ import {
   updateKanbanTaskBody,
   writeSettings,
 } from './apiCore.ts';
-import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring';
+import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring.ts';
 import type { PlaybookInput, SkillInput } from './authoring.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 
