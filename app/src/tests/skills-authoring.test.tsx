@@ -115,6 +115,42 @@ describe('mock createSkill parity', () => {
   });
 });
 
+describe('mock lifecycle parity', () => {
+  it('disables, enables, and deletes a skill', async () => {
+    await hermes.createSkill({ name: 'toggle-skill', category: 'productivity', description: 'Toggle me.', body: '# x' });
+    expect((await hermes.listSkills()).find((s) => s.id === 'toggle-skill')?.status).toBe('enabled');
+
+    const disable = await hermes.updateSkillStatus('toggle-skill', 'productivity', 'disabled');
+    expect(disable.ok).toBe(true);
+    expect((await hermes.listSkills()).find((s) => s.id === 'toggle-skill')?.status).toBe('disabled');
+
+    const enable = await hermes.updateSkillStatus('toggle-skill', 'productivity', 'enabled');
+    expect(enable.ok).toBe(true);
+    expect((await hermes.listSkills()).find((s) => s.id === 'toggle-skill')?.status).toBe('enabled');
+
+    const del = await hermes.deleteSkill('toggle-skill', 'productivity');
+    expect(del.ok).toBe(true);
+    expect((await hermes.listSkills()).find((s) => s.id === 'toggle-skill')).toBeUndefined();
+  });
+
+  it('disables, enables, and deletes a playbook', async () => {
+    const created = await hermes.savePlaybook({ name: 'Toggle Playbook', description: 'x', status: 'draft', mode: 'task', skills: [], body: '# x' });
+    expect(created.data?.enabled).toBe(true);
+
+    const disable = await hermes.updatePlaybookEnabled(created.data!.id, false);
+    expect(disable.ok).toBe(true);
+    expect((await hermes.listPlaybooks()).find((p) => p.id === created.data!.id)?.enabled).toBe(false);
+
+    const enable = await hermes.updatePlaybookEnabled(created.data!.id, true);
+    expect(enable.ok).toBe(true);
+    expect((await hermes.listPlaybooks()).find((p) => p.id === created.data!.id)?.enabled).toBe(true);
+
+    const del = await hermes.deletePlaybook(created.data!.id);
+    expect(del.ok).toBe(true);
+    expect((await hermes.listPlaybooks()).find((p) => p.id === created.data!.id)).toBeUndefined();
+  });
+});
+
 describe('authoring drawers (page)', () => {
   it('New playbook drawer creates a card', async () => {
     const user = userEvent.setup();

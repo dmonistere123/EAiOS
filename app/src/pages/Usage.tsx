@@ -1,10 +1,125 @@
 /** Usage — tokens, cost, budget. Estimated vs authoritative is always labeled. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { hermes } from '../adapters';
-import { useRuntime, agentName, refreshUsage, toast } from '../state/runtime';
+import { useRuntime, agentName, refreshUsage, refreshDailySpend, toast } from '../state/runtime';
 import { Card, KpiCard, RelativeTime, SectionTitle, StateBadge } from '../components/ui';
+import type { DailySpendDay } from '../domain/types';
 
 const fmt = (n: number) => n.toLocaleString();
+
+/** F29: threshold editor — the same settings store the 6:30am watchdog cron reads. */
+function ThresholdEditor({ thresholdUsd, onSaved }: { thresholdUsd: number; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const save = async (value: number | null) => {
+    setSaving(true);
+    const res = await hermes.setDailySpendAlert(value);
+    setSaving(false);
+    if (res.ok) {
+      toast('ok', value === null ? 'Daily alert reset to $5 default.' : `Daily alert threshold set to $${value}.`);
+      setEditing(false);
+      onSaved();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Threshold save failed.');
+    }
+  };
+
+  if (editing) {
+    return (
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const v = Number(draft);
+          if (Number.isFinite(v) && v > 0) void save(v);
+        }}
+      >
+        <input
+          type="number" min="0.5" step="0.5" required autoFocus value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          aria-label="Daily spend alert threshold in USD"
+          className="w-20 rounded-lg border border-edge bg-canvas px-2 py-1 text-sm text-ink"
+        />
+        <button type="submit" disabled={saving} className="rounded-lg bg-signal px-2.5 py-1 text-xs font-semibold text-canvas disabled:opacity-50">Save</button>
+        <button type="button" onClick={() => setEditing(false)} className="text-xs text-ink-faint hover:text-ink-dim">Cancel</button>
+      </form>
+    );
+  }
+  return (
+    <button onClick={() => { setDraft(String(thresholdUsd)); setEditing(true); }} className="text-[11px] text-signal hover:underline">
+      Alert above ${thresholdUsd}/day
+    </button>
+  );
+}
+
+/** F29: 14-day rate-card spend strip with breach flags + day drill-down. */
+function DailySpendCard({ days, thresholdUsd, freshnessAt, onThresholdSaved }: { days: DailySpendDay[]; thresholdUsd: number; freshnessAt: string; onThresholdSaved: () => void }) {
+  const firstBreach = [...days].reverse().find((d) => d.overThreshold);
+  const [selected, setSelected] = useState<string>(firstBreach?.date ?? days[days.length - 1]?.date ?? '');
+  const max = Math.max(thresholdUsd * 1.2, ...days.map((d) => d.costUsd), 0.01);
+  const sel = days.find((d) => d.date === selected);
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <SectionTitle>Daily estimated spend</SectionTitle>
+        <div className="flex items-center gap-3">
+          <span className="text-[11px] text-ink-faint">fresh <RelativeTime iso={freshnessAt} /></span>
+          <ThresholdEditor thresholdUsd={thresholdUsd} onSaved={onThresholdSaved} />
+        </div>
+      </div>
+
+      <div className="mt-4 flex h-28 items-end gap-1.5" role="list" aria-label="Daily spend bars">
+        {days.map((d) => {
+          const pct = Math.max(3, (d.costUsd / max) * 100);
+          const isToday = d.date === days[days.length - 1]?.date;
+          return (
+            <button
+              key={d.date}
+              role="listitem"
+              onClick={() => setSelected(d.date)}
+              title={`${d.date} — $${d.costUsd.toFixed(2)}${d.overThreshold ? ' (over threshold)' : ''}`}
+              aria-label={`${d.date}: $${d.costUsd.toFixed(2)}${d.overThreshold ? ', over threshold' : ''}`}
+              className={`flex-1 rounded-t transition-colors ${d.overThreshold ? 'bg-risk hover:bg-risk/80' : 'bg-signal/50 hover:bg-signal/70'} ${selected === d.date ? 'ring-2 ring-signal' : ''} ${isToday ? 'border border-dashed border-signal/60' : ''}`}
+              style={{ height: `${pct}%` }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] text-ink-faint">
+        <span>{days[0]?.date}</span>
+        <span className="text-risk">— ${thresholdUsd} alert line</span>
+        <span>{days[days.length - 1]?.date} (today)</span>
+      </div>
+
+      {sel && (
+        <div className="mt-4 rounded-lg border border-edge bg-canvas p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-ink">{sel.date}</div>
+            <div className={`text-sm font-semibold ${sel.overThreshold ? 'text-risk' : 'text-signal'}`}>${sel.costUsd.toFixed(2)}</div>
+          </div>
+          <div className="mt-1 text-[11px] text-ink-faint">{fmt(sel.inputTokens)} in · {fmt(sel.outputTokens)} out</div>
+          {sel.topSessions.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {sel.topSessions.map((t) => (
+                <li key={t.sessionId} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 truncate text-ink-dim">{t.title} <span className="text-ink-faint">· {t.model}</span></span>
+                  <span className="shrink-0 font-medium text-ink">${t.costUsd.toFixed(2)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-2 text-[11px] text-ink-faint">No spend recorded this day.</div>
+          )}
+        </div>
+      )}
+
+      <p className="mt-3 text-xs text-ink-faint">EAiOS rate-card estimate — fresh input + output tokens at public model rates, cache reads excluded (validated within ~5% of provider billing). Over-threshold days also trigger the 6:30am Telegram watchdog.</p>
+    </Card>
+  );
+}
 
 /** Monthly budget KPI with inline editor (F15 — EAiOS-owned settings store). */
 function BudgetCard({ budgetUsd }: { budgetUsd?: number }) {
@@ -67,6 +182,10 @@ export default function Usage() {
   const s = useRuntime();
   const u = s.usage;
 
+  useEffect(() => {
+    void refreshDailySpend();
+  }, []);
+
   if (!u) {
     return (
       <div className="space-y-6">
@@ -107,6 +226,8 @@ export default function Usage() {
           </div>
         </Card>
       )}
+
+      {s.dailySpend && <DailySpendCard days={s.dailySpend.days} thresholdUsd={s.dailySpend.thresholdUsd} freshnessAt={s.dailySpend.freshnessAt} onThresholdSaved={() => void refreshDailySpend()} />}
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">

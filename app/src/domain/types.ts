@@ -181,6 +181,7 @@ export interface Playbook {
   description: string;
   version: string;
   status: 'draft' | 'published';
+  enabled: boolean;
   ownerAgentId?: string;
   mode: 'task' | 'swarm';
   /** default profile to run as; undefined = executive chooses at run time */
@@ -244,6 +245,25 @@ export interface UsageSummary {
   freshnessAt: string;
 }
 
+/** F29 daily spend estimate (EAiOS rate card, config/rate-card.json — shared
+ * with the spend-watchdog cron). Fresh input+output only, cache excluded;
+ * labeled estimate, never presented as provider billing. */
+export interface DailySpendDay {
+  date: string; // YYYY-MM-DD, server-local
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  overThreshold: boolean;
+  topSessions: { sessionId: string; title: string; model: string; costUsd: number; inputTokens: number; outputTokens: number }[];
+}
+
+export interface DailySpendReport {
+  thresholdUsd: number;
+  estimatedWith: 'eaios-rate-card';
+  days: DailySpendDay[];
+  freshnessAt: string;
+}
+
 // ---------- Today ----------
 
 export interface TodaySummary {
@@ -269,6 +289,7 @@ export type RuntimeEventType =
   | 'agent.failed'
   | 'approval.requested'
   | 'approval.decided'
+  | 'approval.updated'
   | 'connector.called'
   | 'cron.started'
   | 'cron.completed'
@@ -333,6 +354,22 @@ export type AssistantEvent =
   | { kind: 'error'; message: string };
 
 // ---------- Assistant: sessions + channel views (W1, D-B1/D-B2) ----------
+
+/** A delegated task execution, joined to its kanban worker session (Don
+ * 2026-08-29: "delegated runs should show as sessions in the rail"). The
+ * worker session is deny-listed from session.list (source='kanban'), but
+ * resume+history works — workerSessionId unlocks the real transcript. */
+export interface DelegatedRun {
+  taskId: string;
+  title: string;
+  assignee: string; // profile name ('default' = Ally)
+  status: string; // kanban status (ready/running/done/blocked/…)
+  result?: string;
+  createdAt: string;
+  completedAt?: string;
+  workerSessionId?: string;
+  workerMessageCount?: number;
+}
 
 /** A durable session of a profile, from session.list (all sources; the
  * gateway deny-lists kanban/tool). No last_activity_at on the RPC row —

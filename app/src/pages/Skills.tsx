@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { useRuntime, agentName, refreshPlaybooks, refreshPlaybookRuns, refreshSkills, refreshWork, toast } from '../state/runtime';
 import { hermes } from '../adapters';
-import type { Playbook } from '../domain/types';
+import type { Playbook, Skill } from '../domain/types';
 import type { PlaybookInput } from '../adapters/interfaces';
 import { Card, Drawer, RelativeTime, StateBadge } from '../components/ui';
 import { slugify } from './Staff';
@@ -233,6 +233,68 @@ function NewSkillDrawer({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ---------- skill card ----------
+
+function SkillCard({ skill }: { skill: Skill }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    const next = skill.status === 'enabled' ? 'disabled' : 'enabled';
+    const res = await hermes.updateSkillStatus(skill.id, skill.category, next);
+    setBusy(false);
+    if (res.ok) {
+      toast('ok', `Skill ${next}: ${skill.name}`);
+      await refreshSkills();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Update failed.');
+    }
+  };
+
+  const doDelete = async () => {
+    setBusy(true);
+    const res = await hermes.deleteSkill(skill.id, skill.category);
+    setBusy(false);
+    setConfirmDelete(false);
+    if (res.ok) {
+      toast('ok', `Skill deleted: ${skill.name}`);
+      await refreshSkills();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Delete failed.');
+    }
+  };
+
+  return (
+    <Card className={`p-5 ${skill.status === 'enabled' ? '' : 'opacity-70'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-sm font-semibold text-ink">{skill.name}</div>
+          <div className="mt-1 text-xs text-ink-dim">{skill.description ?? 'No description.'}</div>
+        </div>
+        <StateBadge label={skill.status} tone={skill.status === 'enabled' ? 'ok' : 'warn'} />
+      </div>
+      <div className="mt-4 flex items-center justify-between border-t border-edge pt-3 text-[11px] text-ink-faint">
+        <span className="rounded bg-canvas-overlay px-1.5 py-0.5 font-mono">{skill.category}</span>
+        <span>{skill.version ? `v${skill.version}` : '—'}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button onClick={toggle} disabled={busy} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50">
+          {skill.status === 'enabled' ? 'Disable' : 'Enable'}
+        </button>
+        {confirmDelete ? (
+          <>
+            <button onClick={() => void doDelete()} disabled={busy} className="rounded-lg bg-risk px-3 py-1.5 text-xs font-medium text-canvas hover:bg-risk/90 disabled:opacity-50">Confirm delete</button>
+            <button onClick={() => setConfirmDelete(false)} disabled={busy} className="rounded-lg px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay">Cancel</button>
+          </>
+        ) : (
+          <button onClick={() => setConfirmDelete(true)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-risk hover:bg-risk/10">Delete</button>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ---------- run + cards (pre-W7, unchanged behavior) ----------
 
 function RunPlaybookDrawer({ playbook, onClose }: { playbook: Playbook; onClose: () => void }) {
@@ -293,11 +355,38 @@ function PlaybookCard({ playbook, onEdit }: { playbook: Playbook; onEdit: () => 
   const s = useRuntime();
   const [running, setRunning] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
   const runs = s.playbookRuns.filter((r) => r.playbookId === playbook.id);
   const lastRun = runs[0];
 
+  const toggleEnabled = async () => {
+    setBusy(true);
+    const res = await hermes.updatePlaybookEnabled(playbook.id, !playbook.enabled);
+    setBusy(false);
+    if (res.ok) {
+      toast('ok', `Playbook ${playbook.enabled ? 'disabled' : 'enabled'}: ${playbook.name}`);
+      await refreshPlaybooks();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Update failed.');
+    }
+  };
+
+  const doDelete = async () => {
+    setBusy(true);
+    const res = await hermes.deletePlaybook(playbook.id);
+    setBusy(false);
+    setConfirmDelete(false);
+    if (res.ok) {
+      toast('ok', `Playbook deleted: ${playbook.name}`);
+      await refreshPlaybooks();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Delete failed.');
+    }
+  };
+
   return (
-    <Card className="p-5">
+    <Card className={`p-5 ${playbook.enabled ? '' : 'opacity-70'}`}>
       <div className="flex items-start justify-between">
         <div>
           <div className="font-mono text-sm font-semibold text-ink">{playbook.name}</div>
@@ -305,6 +394,7 @@ function PlaybookCard({ playbook, onEdit }: { playbook: Playbook; onEdit: () => 
         </div>
         <div className="flex gap-1.5">
           <StateBadge label={playbook.status} tone={playbook.status === 'published' ? 'ok' : 'warn'} />
+          {!playbook.enabled && <StateBadge label="disabled" tone="neutral" />}
           {playbook.mode === 'swarm' && <StateBadge label="swarm" tone="signal" />}
         </div>
       </div>
@@ -312,9 +402,24 @@ function PlaybookCard({ playbook, onEdit }: { playbook: Playbook; onEdit: () => 
         <span>v{playbook.version}{playbook.ownerAgentId ? ` · ${agentName(s, playbook.ownerAgentId)}` : ''}</span>
         <span>{lastRun ? <>Last run <RelativeTime iso={lastRun.createdAt} /></> : 'Never run'}</span>
       </div>
-      <div className="mt-3 flex gap-2">
-        <button onClick={() => setRunning(true)} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">Run</button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {playbook.enabled ? (
+          <button onClick={() => setRunning(true)} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">Run</button>
+        ) : (
+          <span className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-faint">Disabled</span>
+        )}
         <button onClick={onEdit} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay">Edit</button>
+        <button onClick={toggleEnabled} disabled={busy} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50">
+          {playbook.enabled ? 'Disable' : 'Enable'}
+        </button>
+        {confirmDelete ? (
+          <>
+            <button onClick={() => void doDelete()} disabled={busy} className="rounded-lg bg-risk px-3 py-1.5 text-xs font-medium text-canvas hover:bg-risk/90 disabled:opacity-50">Confirm delete</button>
+            <button onClick={() => setConfirmDelete(false)} disabled={busy} className="rounded-lg px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay">Cancel</button>
+          </>
+        ) : (
+          <button onClick={() => setConfirmDelete(true)} className="rounded-lg px-3 py-1.5 text-xs font-medium text-risk hover:bg-risk/10">Delete</button>
+        )}
         <button onClick={() => setShowHistory((v) => !v)} className="rounded-lg px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay" aria-expanded={showHistory}>
           History ({runs.length})
         </button>
@@ -380,19 +485,7 @@ export default function Skills() {
       {tab === 'skill' ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {s.skills.map((sk) => (
-            <Card key={sk.id} className="p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-mono text-sm font-semibold text-ink">{sk.name}</div>
-                  <div className="mt-1 text-xs text-ink-dim">{sk.description ?? 'No description.'}</div>
-                </div>
-                <StateBadge label={sk.status} tone={sk.status === 'enabled' ? 'ok' : 'warn'} />
-              </div>
-              <div className="mt-4 flex items-center justify-between border-t border-edge pt-3 text-[11px] text-ink-faint">
-                <span className="rounded bg-canvas-overlay px-1.5 py-0.5 font-mono">{sk.category}</span>
-                <span>{sk.version ? `v${sk.version}` : '—'}</span>
-              </div>
-            </Card>
+            <SkillCard key={`${sk.category}/${sk.id}`} skill={sk} />
           ))}
           {s.skills.length === 0 && (
             <p className="text-sm text-ink-faint">No skills loaded yet — the runtime hydrates this list from the adapter.</p>

@@ -5,3 +5,4 @@ sidecar/__pycache__/
 # EAiOS-owned local settings (Phase 6.2 F15) — per-machine, never committed
 settings.local.json
 settings.local.json.tmp
+notify-state.json

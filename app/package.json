@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:sidecar": "../sidecar/.venv/bin/python -m unittest discover -s ../sidecar -p 'test_*.py' -v"
+    "test:sidecar": "../sidecar/.venv/bin/python -m unittest discover -s ../sidecar -p 'test_*.py' -v",
+    "start": "node server/prod.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

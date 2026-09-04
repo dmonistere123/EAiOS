@@ -10,6 +10,7 @@ import type {
   ActivityEvent,
   KnowledgeSource,
   UsageSummary,
+  DailySpendReport,
   WorkItem,
 } from '../domain/types';
 import type { Connection, CalendarEvent } from '../adapters/interfaces';
@@ -116,6 +117,7 @@ export const approvals: Approval[] = [
     evidence: [{ kind: 'artifact', label: 'Investor email draft' }],
     proposedDiff: '+ Q3 ARR $4.2M (+18% QoQ)\n+ NRR 117%\n- Removed: unaudited pipeline figure',
     rollbackPlan: 'Recall attempt within 30s; follow-up correction email template attached.',
+    payload: 'To: investors@allygnment.com\nSubject: Investor Update — September 2026\n\nTeam,\n\nQ3 ARR $4.2M (+18% QoQ). NRR 117%.\n\nBest,\nDon',
   },
 ];
 
@@ -159,6 +161,38 @@ export const usageSummary: UsageSummary = {
     { agentId: 'sentinel', inputTokens: 190_600, outputTokens: 34_200, costUsd: 11.2 },
   ],
   freshnessAt: min(6),
+};
+
+/** F29: 14-day rate-card spend strip. Day -3 breaches the $5 threshold so the
+ * UI's risk styling + drill-down are exercised; today shows a small in-progress day. */
+export const dailySpendReport: DailySpendReport = {
+  thresholdUsd: 5,
+  estimatedWith: 'eaios-rate-card',
+  days: [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map((back) => {
+    const d = new Date(Date.now() - back * 86_400_000);
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const base = [1.2, 0.4, 2.1, 0.9, 3.3, 1.1, 0.2, 2.8, 1.6, 0.7, 11.35, 2.65, 1.9, 0.42][13 - back];
+    const day: DailySpendReport['days'][number] = {
+      date,
+      costUsd: base,
+      inputTokens: Math.round(base * 400_000),
+      outputTokens: Math.round(base * 40_000),
+      overThreshold: base > 5,
+      topSessions: [],
+    };
+    if (back === 3) {
+      day.topSessions = [
+        { sessionId: 'sess-casual', title: 'Casual check-in', model: 'kimi-k3', costUsd: 5.96, inputTokens: 1_610_000, outputTokens: 81_000 },
+        { sessionId: 'sess-ncaaf', title: 'NCAAF week lookahead', model: 'kimi-k3', costUsd: 0.9, inputTokens: 142_000, outputTokens: 34_000 },
+        { sessionId: 'sess-triage', title: 'Inbox triage 2026-09-02', model: 'kimi-k3', costUsd: 0.72, inputTokens: 121_000, outputTokens: 26_000 },
+      ];
+    }
+    if (back === 0) {
+      day.topSessions = [{ sessionId: 'sess-eaios', title: 'Continue EAiOS handoff', model: 'kimi-k3', costUsd: 0.31, inputTokens: 82_000, outputTokens: 6_000 }];
+    }
+    return day;
+  }),
+  freshnessAt: min(4),
 };
 
 export const knowledgeSources: KnowledgeSource[] = [

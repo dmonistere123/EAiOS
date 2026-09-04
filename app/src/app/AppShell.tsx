@@ -11,6 +11,7 @@ import {
 } from '../state/runtime';
 import { useRailDeclaration } from '../state/rail';
 import { RelativeTime, RiskBadge, TimeUntil, ToastHost } from '../components/ui';
+import { ConciergeWidget } from '../components/ConciergeWidget';
 
 const LIMITS = { left: { min: 208, max: 360, def: 264 }, right: { min: 280, max: 440, def: 340 } };
 const STORE_KEY = 'eaios.panes.v1';
@@ -116,7 +117,7 @@ function DragHandle(props: { onMouseDown: (e: React.MouseEvent) => void; onDoubl
 
 export function RailSection({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
   return (
-    <section className="border-b border-edge px-4 py-3">
+    <section className="border-b border-edge px-4 py-3" data-rail-section={title}>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">{title}</h3>
         {typeof count === 'number' && <span className="rounded-full bg-canvas-overlay px-2 py-0.5 text-[11px] text-ink-dim">{count}</span>}
@@ -257,6 +258,14 @@ export default function AppShell() {
           >
             {s.gateway === 'live' ? '● Live' : s.gateway === 'offline' ? '○ Reconnecting' : 'Mock'}
           </span>
+          {s.degraded.length > 0 && (
+            <span
+              className="rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-warn"
+              title={`Showing fallback data for: ${s.degraded.join(', ')}. The live read failed — this is cached/mock content, not the real board.`}
+            >
+              ⚠ degraded: {s.degraded.join(', ')}
+            </span>
+          )}
         </div>
         <div className="mx-auto w-full max-w-md">
           <input
@@ -343,6 +352,8 @@ export default function AppShell() {
           </button>
         )}
       </div>
+      {/* F26: floating navigation concierge — every page, drawers/toasts outrank it */}
+      <ConciergeWidget />
       <ToastHost />
     </div>
   );

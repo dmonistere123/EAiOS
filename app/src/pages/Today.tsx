@@ -1,5 +1,6 @@
 /** Today — executive landing: summary KPIs, operating queue, delegation. */
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { TodaySummary, WorkItem } from '../domain/types';
 import { hermes } from '../adapters';
 import { useRuntime, agentName, toast } from '../state/runtime';
@@ -94,6 +95,17 @@ export default function Today() {
     () => executiveQueue.filter((w) => w.delegationCandidate && !dismissed.has(w.id)),
     [executiveQueue, dismissed],
   );
+
+  // Dogfood 2026-08-29: delegated work finished "invisibly" — the result went
+  // to Telegram but the front screen said nothing. Delivered = completed in
+  // the last 24h, with the real result string and links to its artifacts.
+  const delivered = useMemo(() => {
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    return s.work
+      .filter((w) => w.state === 'complete' && Date.parse(w.updatedAt) >= cutoff)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 8);
+  }, [s.work]);
 
   if (!summary) {
     return <div className="animate-pulse space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-28 rounded-xl bg-canvas-raised" />)}</div>;
@@ -199,6 +211,40 @@ export default function Today() {
 
       {delegating && <DelegateDialog item={delegating} onClose={() => setDelegating(null)} />}
       {newDelegation && <NewDelegationDrawer onClose={() => setNewDelegation(false)} />}
+
+      {delivered.length > 0 && (
+        <section>
+          <SectionTitle>Delivered in the last 24h</SectionTitle>
+          <Card className="overflow-hidden">
+            <ul className="divide-y divide-edge/60">
+              {delivered.map((w) => {
+                const files = s.artifacts.filter((a) => a.workItemId === w.id);
+                return (
+                  <li key={w.id} className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <StateBadge label="complete" tone="ok" />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{w.title}</span>
+                      <span className="text-xs text-ink-faint">
+                        {w.ownerId ? agentName(s, w.ownerId) : 'Ally'} · <RelativeTime iso={w.updatedAt} />
+                      </span>
+                    </div>
+                    {w.result && <p className="mt-1.5 line-clamp-2 text-xs text-ink-dim">{w.result}</p>}
+                    {files.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {files.map((a) => (
+                          <Link key={a.id} to="/artifacts" className="rounded-full border border-signal/30 px-2 py-0.5 text-[10px] text-signal hover:bg-signal/10">
+                            📎 {a.name}
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </section>
+      )}
     </div>
   );
 }

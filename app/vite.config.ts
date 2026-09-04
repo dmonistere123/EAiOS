@@ -5,9 +5,10 @@ import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from '
 import { join, relative, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import { writePlaybook, writeSkill } from './server/authoring.ts'
+import { writePlaybook, writeSkill, updateSkillStatus, deleteSkill, updatePlaybookEnabled, deletePlaybook } from './server/authoring.ts'
 import type { PlaybookInput, SkillInput } from './server/authoring.ts'
 import { hasProfileEnvKey, setProfileEnvKey } from './server/profileEnv.ts'
+import { handleApiRequest } from './server/httpApi.ts'
 
 /** Shared index caches (30s) — write middlewares bust them on mutation. */
 const indexCache: { skills?: { at: number; body: string }; playbooks?: { at: number; body: string } } = {}
@@ -47,11 +48,12 @@ function skillsIndexMiddleware() {
       const km = m[1].match(new RegExp(`^${key}:\\s*"?([^"\\n]+?)"?\\s*$`, 'm'))
       return km?.[1]
     }
-    return { name: pick('name'), description: pick('description'), version: pick('version') }
+    const status = pick('status')
+    return { name: pick('name'), description: pick('description'), version: pick('version'), status: status === 'disabled' ? 'disabled' : 'enabled' }
   }
 
   const scan = () => {
-    const skills: { name: string; category: string; description?: string; version?: string }[] = []
+    const skills: { name: string; category: string; description?: string; version?: string; status: 'enabled' | 'disabled' }[] = []
     const walk = (dir: string, depth: number) => {
       if (depth > 4) return
       let entries
@@ -69,7 +71,7 @@ function skillsIndexMiddleware() {
             const name = fm.name
             if (!name) continue
             const category = relative(root, join(p, '..')).split(sep)[0] || 'general'
-            skills.push({ name, category, description: fm.description, version: fm.version })
+            skills.push({ name, category, description: fm.description, version: fm.version, status: fm.status as 'enabled' | 'disabled' })
           } catch {
             // unreadable skill file — skip, don't fail the index
           }
@@ -83,13 +85,40 @@ function skillsIndexMiddleware() {
   return {
     name: 'eaios-skills-index',
     configureServer(server: MwServer) {
-      server.middlewares.use('/api/skills-index', (_req, res) => {
+      server.middlewares.use('/api/skills-index', (req, res) => {
+        res.setHeader('content-type', 'application/json')
+        if (req.method === 'PUT' || req.method === 'DELETE') {
+          void readJsonBody(req)
+            .then((body) => {
+              try {
+                const slug = String(body.slug ?? '')
+                const category = String(body.category ?? '')
+                if (req.method === 'PUT') {
+                  const status = String(body.status ?? '')
+                  if (status !== 'enabled' && status !== 'disabled') throw new Error('status must be enabled or disabled')
+                  updateSkillStatus(root, category, slug, status as 'enabled' | 'disabled')
+                } else {
+                  deleteSkill(root, category, slug)
+                }
+                indexCache.skills = undefined
+                res.statusCode = 200
+                res.end(JSON.stringify({ ok: true }))
+              } catch (e) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+              }
+            })
+            .catch((e) => {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
+            })
+          return
+        }
         try {
           if (!indexCache.skills || Date.now() - indexCache.skills.at > 30_000) {
             indexCache.skills = { at: Date.now(), body: JSON.stringify({ skills: statSync(root, { throwIfNoEntry: false }) ? scan() : [] }) }
           }
           res.statusCode = 200
-          res.setHeader('content-type', 'application/json')
           res.end(indexCache.skills.body)
         } catch (e) {
           res.statusCode = 500
@@ -144,6 +173,7 @@ function playbooksIndexMiddleware() {
           description: pickScalar(fm, 'description') ?? '',
           version: pickScalar(fm, 'version') ?? '0.0.0',
           status: pickScalar(fm, 'status') === 'published' ? 'published' : 'draft',
+          enabled: pickScalar(fm, 'enabled') !== 'false',
           mode: pickScalar(fm, 'mode') === 'swarm' ? 'swarm' : 'task',
           assignee: pickScalar(fm, 'assignee'),
           ownerAgentId: pickScalar(fm, 'owner'),
@@ -171,11 +201,41 @@ function playbooksIndexMiddleware() {
           void readJsonBody(req)
             .then((body) => {
               try {
+                if (body.enabled !== undefined && !body.body && !body.name) {
+                  const slug = String(body.id ?? '')
+                  if (!slug) throw new Error('id is required')
+                  updatePlaybookEnabled(root, slug, Boolean(body.enabled))
+                  indexCache.playbooks = undefined
+                  res.statusCode = 200
+                  res.end(JSON.stringify({ ok: true }))
+                  return
+                }
                 const saved = writePlaybook(root, body as unknown as PlaybookInput)
                 indexCache.playbooks = undefined // bust — the next GET re-scans
                 const playbook = scan().find((p) => p.id === saved.id)
                 res.statusCode = saved.created ? 201 : 200
                 res.end(JSON.stringify({ playbook: { ...(playbook ?? {}), id: saved.id, version: saved.version, status: saved.status } }))
+              } catch (e) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+              }
+            })
+            .catch((e) => {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `bad JSON: ${e instanceof Error ? e.message : String(e)}` }))
+            })
+          return
+        }
+        if (req.method === 'DELETE') {
+          void readJsonBody(req)
+            .then((body) => {
+              try {
+                const slug = String(body.id ?? '')
+                if (!slug) throw new Error('id is required')
+                deletePlaybook(root, slug)
+                indexCache.playbooks = undefined
+                res.statusCode = 200
+                res.end(JSON.stringify({ ok: true }))
               } catch (e) {
                 res.statusCode = 400
                 res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
@@ -366,7 +426,13 @@ function usageMiddleware() {
   return {
     name: 'eaios-usage',
     configureServer(server: { middlewares: { use: (path: string, fn: (req: { url?: string }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: (b: string) => void }) => void) => void } }) {
-      server.middlewares.use('/api/usage', (req, res) => {
+      server.middlewares.use('/api/usage', (req, res, next?: () => void) => {
+        // /api/usage/daily rides the SHARED router (httpApi, like /api/kanban)
+        // — the inline aggregate below must not consume it (F22 interim).
+        if ((req.url ?? '').startsWith('/daily')) {
+          next?.()
+          return
+        }
         try {
           const url = new URL(req.url ?? '', 'http://localhost')
           const now = new Date()
@@ -398,7 +464,7 @@ function usageMiddleware() {
  */
 function eaiosSettingsMiddleware() {
   const file = join(__dirname, '..', 'settings.local.json')
-  const ALLOWED = new Set(['usageBudgetUsd'])
+  const ALLOWED = new Set(['usageBudgetUsd', 'dailySpendAlertUsd'])
 
   const readAll = (): Record<string, unknown> => {
     try {
@@ -429,6 +495,11 @@ function eaiosSettingsMiddleware() {
               if (patch.usageBudgetUsd !== null && (typeof patch.usageBudgetUsd !== 'number' || !(patch.usageBudgetUsd > 0))) {
                 res.statusCode = 400
                 res.end(JSON.stringify({ error: 'usageBudgetUsd must be a positive number or null' }))
+                return
+              }
+              if (patch.dailySpendAlertUsd !== null && (typeof patch.dailySpendAlertUsd !== 'number' || !(patch.dailySpendAlertUsd > 0))) {
+                res.statusCode = 400
+                res.end(JSON.stringify({ error: 'dailySpendAlertUsd must be a positive number or null' }))
                 return
               }
               const next = readAll()
@@ -574,6 +645,33 @@ function artifactsMiddleware() {
   }
 }
 
+/**
+ * Dev delegate for the truncation-proof kanban board read (dogfood
+ * 2026-08-29: cli.exec caps output at 48000 chars — past that the work slice
+ * silently fell back to mock). The shared router (server/httpApi.ts) owns
+ * the endpoint; prod serves it too. F22 consolidates the rest of these
+ * middlewares the same way pre-flip.
+ */
+function kanbanDelegateMiddleware() {
+  return {
+    name: 'eaios-kanban-delegate',
+    configureServer(server: { middlewares: { use: (fn: (req: { url?: string }, res: unknown, next: () => void) => void) => void } }) {
+      // Mounted WITHOUT a path: connect strips mount prefixes from req.url,
+      // so the shared router must see the full /api/kanban path itself.
+      server.middlewares.use((req, res, next) => {
+        if (!(req.url ?? '').startsWith('/api/kanban') && !(req.url ?? '').startsWith('/api/usage/daily')) {
+          next()
+          return
+        }
+        void handleApiRequest(req as never, res as never, {
+          hermesHome: process.env.HERMES_HOME ?? join(homedir(), '.hermes'),
+          eaiosRoot: join(__dirname, '..'),
+        })
+      })
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   // Node-side env (NOT inlined into the client bundle — safe for secrets).
@@ -582,7 +680,7 @@ export default defineConfig(({ mode }) => {
   const hermesToken = env.VITE_HERMES_TOKEN ?? ''
 
   return {
-    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), profileEnvMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware()],
+    plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), profileEnvMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware(), kanbanDelegateMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
       allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],

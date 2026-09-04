@@ -4,11 +4,13 @@
  * full conversation history (D-B2): Ally's sessions resume into the chat,
  * other agents' sessions open read-only in a drawer. */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AssistantSessionRef, ChatMessage } from '../domain/types';
+import type { AssistantSessionRef, ChatMessage, DelegatedRun } from '../domain/types';
 import { hermes } from '../adapters';
+import type { AssistantAttachment } from '../adapters/interfaces';
 import { Card, Drawer, SectionTitle, StateBadge, AgentStatusBadge } from '../components/ui';
 import { ChunkDrawer } from '../components/ChunkDrawer';
 import { AgentChannel } from '../components/AgentChannel';
+import { DelegatedRunDrawer } from '../components/DelegatedRunDrawer';
 import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
@@ -91,6 +93,8 @@ export default function Assistant() {
   const [streaming, setStreaming] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const [openSession, setOpenSession] = useState<AssistantSessionRef | null>(null);
   const [sessions, setSessions] = useState<AssistantSessionRef[]>([]);
@@ -129,6 +133,44 @@ export default function Assistant() {
     };
   }, [contextId, contextIsAlly]);
 
+  // Delegated runs (Don 2026-08-29): every executed task appears as a
+  // read-only session in the rail — Ally context sees all staff runs, an
+  // agent context sees only its own.
+  const [runs, setRuns] = useState<DelegatedRun[]>([]);
+  const [openRun, setOpenRun] = useState<DelegatedRun | null>(null);
+  useEffect(() => {
+    let stale = false;
+    void hermes.listDelegatedRuns().then((rows) => {
+      if (!stale) setRuns(rows);
+    });
+    return () => {
+      stale = true;
+    };
+  }, []);
+  const contextRuns = useMemo(() => {
+    const allyIds = new Set(['default', 'ally', allyId]);
+    return runs.filter((r) => (contextIsAlly ? true : r.assignee === contextId || (allyIds.has(r.assignee) && allyIds.has(contextId))));
+  }, [runs, contextId, contextIsAlly, allyId]);
+
+  // Don 2026-08-29: worker sessions ARE Ally (or agent) sessions — they
+  // belong in Conversations alongside Desktop/Telegram/Cron, not only in
+  // the separate runs section. The gateway deny-lists kanban sources from
+  // session.list, so merge them client-side from the runs read.
+  const allSessions = useMemo(() => {
+    const runSessions: AssistantSessionRef[] = contextRuns
+      .filter((r) => r.workerSessionId)
+      .map((r) => ({
+        id: r.workerSessionId!,
+        title: r.title,
+        preview: (r.result ?? '').slice(0, 80),
+        startedAt: r.createdAt,
+        messageCount: r.workerMessageCount ?? 0,
+        source: 'kanban',
+      }));
+    const seen = new Set(sessions.map((s) => s.id));
+    return [...sessions, ...runSessions.filter((r) => !seen.has(r.id))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }, [sessions, contextRuns]);
+
   const resumeSession = useCallback(async (storedId: string) => {
     const res = await hermes.resumeAssistantSession(storedId);
     if (!res.ok) {
@@ -141,20 +183,37 @@ export default function Assistant() {
   }, []);
 
   // W2: declare this page's rail — conversations for the selected profile.
+  const openKanbanRun = useCallback(
+    (sess: AssistantSessionRef) => {
+      const run = contextRuns.find((r) => r.workerSessionId === sess.id);
+      setOpenRun(
+        run ?? {
+          taskId: sess.id,
+          title: sess.title,
+          assignee: contextId,
+          status: 'done',
+          createdAt: sess.startedAt,
+          workerSessionId: sess.id,
+          workerMessageCount: sess.messageCount,
+        },
+      );
+    },
+    [contextRuns, contextId],
+  );
   const railSections = useMemo<RailSectionDef[]>(
     () => [
       {
         key: 'conversations',
         title: `Conversations — ${contextName}`,
-        count: sessions.length,
+        count: allSessions.length,
         node: (
           <ul className="space-y-1.5">
-            {sessions.map((sess) => (
+            {allSessions.map((sess) => (
               <li key={sess.id}>
                 <button
-                  onClick={() => (contextIsAlly ? void resumeSession(sess.id) : setOpenSession(sess))}
+                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly ? void resumeSession(sess.id) : setOpenSession(sess))}
                   className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay"
-                  title={contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
+                  title={sess.source === 'kanban' ? 'Delegated run — view result + transcript (read-only)' : contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
                 >
                   <div className="truncate text-xs font-medium text-ink">{sess.title}</div>
                   {sess.preview && <div className="mt-0.5 truncate text-[11px] text-ink-faint">{sess.preview}</div>}
@@ -165,28 +224,87 @@ export default function Assistant() {
                 </button>
               </li>
             ))}
-            {sessions.length === 0 && <li className="px-2 text-xs text-ink-faint">No conversations yet.</li>}
+            {allSessions.length === 0 && <li className="px-2 text-xs text-ink-faint">No conversations yet.</li>}
+          </ul>
+        ),
+      },
+      {
+        key: 'delegated-runs',
+        title: 'Delegated runs',
+        count: contextRuns.length,
+        node: (
+          <ul className="space-y-1.5">
+            {contextRuns.slice(0, 15).map((run) => (
+              <li key={run.taskId}>
+                <button
+                  onClick={() => setOpenRun(run)}
+                  className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay"
+                  title="View result + worker transcript (read-only)"
+                >
+                  <div className="truncate text-xs font-medium text-ink">{run.title}</div>
+                  <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
+                    <span className="capitalize">{run.status}</span>
+                    <span>{run.workerMessageCount != null ? `${run.workerMessageCount} msg` : '—'}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+            {contextRuns.length === 0 && <li className="px-2 text-xs text-ink-faint">No delegated runs yet — assign a task and it shows up here.</li>}
           </ul>
         ),
       },
     ],
-    [sessions, contextName, contextIsAlly, resumeSession],
+    [allSessions, contextRuns, contextName, contextIsAlly, resumeSession, openKanbanRun],
   );
   usePageRail(railSections);
 
   const send = async () => {
     const text = draft.trim();
-    if (!text || sending || streaming !== null) return;
+    if ((!text && attachments.length === 0) || sending || streaming !== null) return;
     setSending(true);
     setDraft('');
-    const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text, at: new Date().toISOString() };
+    const displayText = text || `[${attachments.length} attachment${attachments.length === 1 ? '' : 's'}]`;
+    const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text: displayText, at: new Date().toISOString() };
     setThread((t) => [...t, optimistic]);
-    const res = await hermes.sendAssistantMessage(text);
+    const toSend = attachments;
+    setAttachments([]);
+    const res = await hermes.sendAssistantMessage(text, { attachments: toSend });
     setSending(false);
     if (!res.ok) {
       setThread((t) => t.filter((m) => m.id !== optimistic.id)); // never pretend it sent
       toast('error', res.error?.safeMessage ?? 'Message failed to send.');
     }
+  };
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setAttachBusy(true);
+    const textish = /^(text\/|application\/(json|csv|pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document)|message\/rfc822)/;
+    const loaded: AssistantAttachment[] = [];
+    for (const file of Array.from(files)) {
+      if (file.size > 2_000_000) {
+        toast('error', `${file.name} is too large (2 MB max for chat upload).`);
+        continue;
+      }
+      const isText = textish.test(file.type);
+      const content = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ''));
+        reader.readAsText(file);
+      });
+      if (isText && content.length > 0) {
+        loaded.push({ name: file.name, mimeType: file.type || 'text/plain', content, encoding: 'text' });
+      } else {
+        const b64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '');
+          reader.readAsDataURL(file);
+        });
+        loaded.push({ name: file.name, mimeType: file.type || 'application/octet-stream', content: b64, encoding: 'base64' });
+      }
+    }
+    setAttachments((prev) => [...prev, ...loaded]);
+    setAttachBusy(false);
   };
 
   const newChat = async () => {
@@ -272,22 +390,39 @@ export default function Assistant() {
             )}
           </div>
           <form
-            className="mt-4 flex gap-2"
+            className="mt-4 space-y-2"
             onSubmit={(e) => {
               e.preventDefault();
               void send();
             }}
           >
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={busy ? 'Ally is responding…' : 'Message Ally…'}
-              aria-label="Message Ally"
-              className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
-            />
-            <button type="submit" disabled={busy || !draft.trim()} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-              Send
-            </button>
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {attachments.map((a) => (
+                  <span key={a.name} className="inline-flex items-center gap-1 rounded-md border border-edge bg-canvas-overlay px-2 py-0.5 text-[11px] text-ink-dim">
+                    📎 {a.name}
+                    <button type="button" onClick={() => setAttachments((prev) => prev.filter((x) => x !== a))} className="text-ink-faint hover:text-risk">&times;</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={busy ? 'Ally is responding…' : 'Message Ally…'}
+                aria-label="Message Ally"
+                className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+              />
+              <label className="cursor-pointer rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink hover:bg-canvas-overlay disabled:opacity-50">
+                {attachBusy ? '…' : '📎'}
+                <input type="file" multiple className="hidden" onChange={(e) => void handleFiles(e.target.files)} disabled={busy || attachBusy} />
+              </label>
+              <button type="submit" disabled={busy || (!draft.trim() && attachments.length === 0)} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+                Send
+              </button>
+            </div>
+            <p className="text-[10px] text-ink-faint">Text files are read inline; binary files are sent as base64 (2 MB max each).</p>
           </form>
         </Card>
 
@@ -351,6 +486,7 @@ export default function Assistant() {
       {openSession && !contextIsAlly && (
         <SessionTranscriptDrawer session={openSession} profile={contextId} agentName={contextName} onClose={() => setOpenSession(null)} />
       )}
+      {openRun && <DelegatedRunDrawer run={openRun} onClose={() => setOpenRun(null)} />}
     </div>
   );
 }

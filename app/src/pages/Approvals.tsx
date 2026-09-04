@@ -1,5 +1,5 @@
 /** Approvals — human gate. Decisions are auditable; governed actions wait here. */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Approval } from '../domain/types';
 import { hermes } from '../adapters';
@@ -9,7 +9,14 @@ import { Card, Drawer, EmptyState, RelativeTime, RiskBadge, StateBadge } from '.
 function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
   const [busy, setBusy] = useState(false);
+  const [editingPayload, setEditingPayload] = useState(false);
+  const [draftPayload, setDraftPayload] = useState(approval.payload ?? '');
   const work = s.work.find((w) => w.id === approval.workItemId);
+
+  useEffect(() => {
+    setDraftPayload(approval.payload ?? '');
+    setEditingPayload(false);
+  }, [approval.id, approval.payload]);
 
   const decide = async (decision: 'approved' | 'rejected' | 'changes_requested') => {
     setBusy(true);
@@ -21,6 +28,19 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
       onClose();
     } else {
       toast('error', res.error?.safeMessage ?? 'Decision failed.');
+    }
+  };
+
+  const savePayload = async () => {
+    setBusy(true);
+    const res = await hermes.updateApprovalPayload(approval.id, draftPayload);
+    setBusy(false);
+    if (res.ok) {
+      toast('ok', `Payload updated. Audit ${res.auditEventId}.`);
+      await refreshApprovals();
+      setEditingPayload(false);
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Save failed.');
     }
   };
 
@@ -62,8 +82,34 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
 
         {approval.payload && (
           <div>
-            <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Prepared content — exactly what gets executed</div>
-            <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim">{approval.payload}</pre>
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Prepared content — exactly what gets executed</div>
+              {!editingPayload && (
+                <button onClick={() => setEditingPayload(true)} disabled={busy} className="rounded px-2 py-1 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
+                  Edit
+                </button>
+              )}
+            </div>
+            {editingPayload ? (
+              <div className="mt-2 space-y-2">
+                <textarea
+                  value={draftPayload}
+                  onChange={(e) => setDraftPayload(e.target.value)}
+                  rows={10}
+                  className="w-full rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim outline-none focus:border-signal/60"
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => void savePayload()} disabled={busy} className="rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+                    Save changes
+                  </button>
+                  <button onClick={() => { setDraftPayload(approval.payload ?? ''); setEditingPayload(false); }} disabled={busy} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim">{approval.payload}</pre>
+            )}
           </div>
         )}
 

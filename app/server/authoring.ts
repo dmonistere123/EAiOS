@@ -7,6 +7,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
+import { rmSync } from 'node:fs';
 
 export const SLUG_RE = /^[a-z][a-z0-9-]*$/;
 const MAX_SLUG = 64;
@@ -173,4 +174,59 @@ export function writeSkill(root: string, input: SkillInput): { path: string; nam
   mkdirSync(dir, { recursive: true });
   writeAtomic(path, buildSkillMarkdown(input));
   return { path, name: slug, category };
+}
+
+// ---------- skill lifecycle ----------
+
+function rewriteSkillFrontmatter(path: string, mutator: (fm: string) => string) {
+  const text = readFileSync(path, 'utf8');
+  const m = text.match(/^(---\n[\s\S]*?\n---)(\n[\s\S]*)$/);
+  if (!m) throw new Error('skill has no frontmatter');
+  writeAtomic(path, mutator(m[1]) + m[2]);
+}
+
+export function updateSkillStatus(root: string, category: string, slug: string, status: 'enabled' | 'disabled') {
+  assertSlug(slug, 'skill name');
+  assertSlug(category, 'category');
+  const path = confinedPath(root, category, slug, 'SKILL.md');
+  if (!existsSync(path)) throw new Error(`skill "${slug}" not found in ${category}`);
+  rewriteSkillFrontmatter(path, (fm) => {
+    const next = fm.replace(/^status:\s*\S+\s*$/m, '').trim();
+    return `${next}\nstatus: ${status}`;
+  });
+}
+
+export function deleteSkill(root: string, category: string, slug: string) {
+  assertSlug(slug, 'skill name');
+  assertSlug(category, 'category');
+  const dir = confinedPath(root, category, slug);
+  if (!existsSync(dir)) throw new Error(`skill "${slug}" not found in ${category}`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// ---------- playbook lifecycle ----------
+
+function rewritePlaybookFrontmatter(root: string, slug: string, mutator: (fm: string) => string) {
+  const path = confinedPath(root, `${slug}.md`);
+  const text = readFileSync(path, 'utf8');
+  const m = text.match(/^(---\n[\s\S]*?\n---)(\n[\s\S]*)$/);
+  if (!m) throw new Error('playbook has no frontmatter');
+  writeAtomic(path, mutator(m[1]) + m[2]);
+}
+
+export function updatePlaybookEnabled(root: string, slug: string, enabled: boolean) {
+  assertSlug(slug, 'playbook id');
+  const path = confinedPath(root, `${slug}.md`);
+  if (!existsSync(path)) throw new Error(`playbook "${slug}" not found`);
+  rewritePlaybookFrontmatter(root, slug, (fm) => {
+    const next = fm.replace(/^enabled:\s*\S+\s*$/m, '').trim();
+    return `${next}\nenabled: ${enabled}`;
+  });
+}
+
+export function deletePlaybook(root: string, slug: string) {
+  assertSlug(slug, 'playbook id');
+  const path = confinedPath(root, `${slug}.md`);
+  if (!existsSync(path)) throw new Error(`playbook "${slug}" not found`);
+  rmSync(path, { force: true });
 }

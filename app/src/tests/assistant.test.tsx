@@ -124,7 +124,7 @@ describe('live assistant session lifecycle', () => {
       if (m === 'prompt.submit') return { status: 'streaming' };
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.sendAssistantMessage('hello quill', 'quill');
+    const res = await live.sendAssistantMessage('hello quill', { agentId: 'quill' });
     expect(res.ok).toBe(true);
     expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — quill', profile: 'quill' } });
     expect(localStorage.getItem('eaios.assistant.storedSessionId.quill')).toBe('stored-quill');
@@ -175,6 +175,20 @@ describe('mock assistant contract', () => {
     const after = await hermes.getAssistantHistory();
     expect(after.at(-1)?.role).toBe('ally');
     expect(after.at(-1)?.text).toContain('draft the update');
+    unsub();
+  });
+
+  it('send with attachments appends an attachment note to the user message', async () => {
+    const events: AssistantEvent[] = [];
+    const unsub = hermes.subscribeAssistant((e) => events.push(e));
+    const res = await hermes.sendAssistantMessage('summarize this', {
+      attachments: [{ name: 'note.txt', mimeType: 'text/plain', content: 'hello world', encoding: 'text' }],
+    });
+    expect(res.ok).toBe(true);
+    await vi.waitFor(() => expect(events.some((e) => e.kind === 'complete')).toBe(true), { timeout: 5000 });
+    const after = await hermes.getAssistantHistory();
+    const lastUser = after.filter((m) => m.role === 'you').pop();
+    expect(lastUser?.text).toContain('Attached: note.txt (text)');
     unsub();
   });
 });

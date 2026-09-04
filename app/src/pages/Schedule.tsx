@@ -2,18 +2,20 @@
  * W5: the rail groups live cron jobs by OWNING agent (per-profile jobs.json
  * stores, HANDOFF #17). The host records no creator field — the rail says so. */
 import { useEffect, useMemo, useState } from 'react';
-import { calendarEvents } from '../mocks/fixtures';
+import { calendarEvents as fixtureCalendarEvents } from '../mocks/fixtures';
 import { hermes } from '../adapters';
 import { TELEGRAM_HOME_DELIVERY } from '../config';
 import { useRuntime, refreshCron, refreshWork, toast, agentName } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
-import type { CronJob, WorkItem } from '../domain/types';
-import type { WorkItemAction } from '../adapters/interfaces';
+import type { CronJob, DelegatedRun, WorkItem } from '../domain/types';
+import type { CalendarEvent, WorkItemAction } from '../adapters/interfaces';
 import { Card, Drawer, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
+import { DelegatedRunDrawer } from '../components/DelegatedRunDrawer';
 
 const DAY_MS = 24 * 3600_000;
+const RECENT_DAYS = 3;
 
 /** Cron inspector (dogfood 2026-08-29): see what a job WILL do, edit, pause, delete. */
 function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () => void; onChanged: () => void }) {
@@ -215,6 +217,22 @@ export default function Schedule() {
   const [inspectingCron, setInspectingCron] = useState<CronJob | null>(null);
   const [confirmStop, setConfirmStop] = useState<string | null>(null);
   const [confirmDone, setConfirmDone] = useState<string | null>(null);
+  const [confirmDeleteWork, setConfirmDeleteWork] = useState<string | null>(null);
+  const [openRun, setOpenRun] = useState<DelegatedRun | null>(null);
+  const [runs, setRuns] = useState<DelegatedRun[]>([]);
+  const [localEvents, setLocalEvents] = useState<CalendarEvent[]>(() => fixtureCalendarEvents.filter((e) => e.source !== 'cron'));
+  const [confirmDeleteEvent, setConfirmDeleteEvent] = useState<string | null>(null);
+  const [confirmDeleteCron, setConfirmDeleteCron] = useState<string | null>(null);
+  useEffect(() => {
+    let stale = false;
+    void hermes.listDelegatedRuns().then((rows) => {
+      if (!stale) setRuns(rows);
+    });
+    return () => {
+      stale = true;
+    };
+  }, [s.work.length]);
+  const runsByTaskId = useMemo(() => new Map(runs.map((r) => [r.taskId, r])), [runs]);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [railBump, setRailBump] = useState(0);
 
@@ -233,7 +251,7 @@ export default function Schedule() {
   const completedRecently = useMemo(
     () =>
       s.work
-        .filter((w) => ['complete', 'cancelled'].includes(w.state) && Date.now() - new Date(w.updatedAt).getTime() < DAY_MS)
+        .filter((w) => ['complete', 'cancelled'].includes(w.state) && Date.now() - new Date(w.updatedAt).getTime() < RECENT_DAYS * DAY_MS)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     [s.work],
   );
@@ -261,16 +279,35 @@ export default function Schedule() {
 
   const act = async (w: WorkItem, action: WorkItemAction) => {
     setBusyAction(`${w.id}:${action}`);
-    const note = action === 'defer' ? 'Deferred by executive from EAiOS' : action === 'reclaim' ? 'Reclaimed from EAiOS (stale run)' : undefined;
+    const note = action === 'defer' ? 'Deferred by executive from EAiOS' : action === 'reclaim' ? 'Reclaimed from EAiOS (stale run)' : action === 'delete' ? 'Deleted by executive from EAiOS' : undefined;
     const res = await hermes.setWorkItemState(w.id, action, note);
     setBusyAction(null);
     setConfirmStop(null);
     setConfirmDone(null);
+    setConfirmDeleteWork(null);
     if (res.ok) {
-      toast('ok', `${action === 'stop' ? 'Stopped' : action === 'complete' ? 'Completed' : action === 'pause' ? 'Paused' : action === 'resume' ? 'Resumed' : action === 'defer' ? 'Deferred' : 'Reclaimed'}: ${w.title}`);
+      toast('ok', `${action === 'stop' ? 'Stopped' : action === 'complete' ? 'Completed' : action === 'pause' ? 'Paused' : action === 'resume' ? 'Resumed' : action === 'defer' ? 'Deferred' : action === 'delete' ? 'Deleted' : 'Reclaimed'}: ${w.title}`);
       await refreshWork();
     } else {
       toast('error', res.error?.safeMessage ?? 'Action failed.');
+    }
+  };
+
+  const deleteEvent = async (id: string) => {
+    setLocalEvents((prev) => prev.filter((e) => e.id !== id));
+    setConfirmDeleteEvent(null);
+    toast('ok', 'Calendar event removed.');
+  };
+
+  const deleteCron = async (job: CronJob) => {
+    const res = await hermes.deleteCronJob(job.id);
+    setConfirmDeleteCron(null);
+    if (res.ok) {
+      toast('ok', `Cron job "${job.name}" deleted.`);
+      await refreshCron();
+      setRailBump((b) => b + 1);
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Delete failed.');
     }
   };
 
@@ -293,8 +330,77 @@ export default function Schedule() {
   const railSections = useMemo<RailSectionDef[]>(
     () => [
       {
+        key: 'schedules-calendar',
+        title: 'My calendar',
+        count: localEvents.filter((e) => ['executive', 'team'].includes(e.source)).length,
+        node: (
+          <div className="space-y-2">
+            {localEvents.filter((e) => ['executive', 'team'].includes(e.source)).length === 0 ? (
+              <p className="px-2 text-xs text-ink-faint">No calendar events.</p>
+            ) : (
+              localEvents
+                .filter((e) => ['executive', 'team'].includes(e.source))
+                .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
+                .map((e) => (
+                  <div key={e.id} className="rounded-lg px-2 py-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-xs font-medium text-ink">{e.title}</div>
+                      {confirmDeleteEvent === e.id ? (
+                        <button onClick={() => void deleteEvent(e.id)} className="shrink-0 rounded bg-risk px-1.5 py-0.5 text-[10px] font-semibold text-canvas hover:bg-risk/90">
+                          Confirm
+                        </button>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteEvent(e.id)} className="shrink-0 rounded border border-risk/40 px-1.5 py-0.5 text-[10px] font-medium text-risk hover:bg-risk/10">
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-ink-faint">
+                      {new Date(e.startsAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {new Date(e.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                    </div>
+                  </div>
+                ))
+            )}
+            <p className="px-2 pt-1 text-[10px] leading-snug text-ink-faint">Live Google Calendar delete not yet wired — mock events are local-only.</p>
+          </div>
+        ),
+      },
+      {
+        key: 'schedules-agent',
+        title: 'Agent schedules',
+        count: workInFlight.length,
+        node: (
+          <div className="space-y-2">
+            {workInFlight.length === 0 ? (
+              <p className="px-2 text-xs text-ink-faint">No delegated tasks.</p>
+            ) : (
+              workInFlight.map((w) => (
+                <div key={w.id} className="rounded-lg px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="truncate text-xs font-medium text-ink">{w.title}</div>
+                    {confirmDeleteWork === w.id ? (
+                      <button onClick={() => void act(w, 'delete')} disabled={busyAction !== null} className="shrink-0 rounded bg-risk px-1.5 py-0.5 text-[10px] font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">
+                        Confirm
+                      </button>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteWork(w.id)} className="shrink-0 rounded border border-risk/40 px-1.5 py-0.5 text-[10px] font-medium text-risk hover:bg-risk/10">
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
+                    <span>{agentName(s, w.ownerId ?? '')}</span>
+                    <StateBadge label={w.state.replace('_', ' ')} tone={w.state === 'in_progress' ? 'signal' : w.state === 'waiting_approval' ? 'warn' : 'neutral'} />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        ),
+      },
+      {
         key: 'schedules-by-agent',
-        title: 'Schedules by agent',
+        title: 'Cron jobs',
         count: totalJobs,
         node: (
           <div className="space-y-3">
@@ -306,9 +412,20 @@ export default function Schedule() {
                     <li key={j.id} className="rounded-lg px-2 py-1.5">
                       <div className="flex items-center justify-between gap-2">
                         <div className="truncate text-xs font-medium text-ink">{j.name}</div>
-                        <button onClick={() => setInspectingCron(j)} className="shrink-0 rounded border border-signal/40 px-1.5 py-0.5 text-[10px] font-medium text-signal hover:bg-signal/10">
-                          Inspect
-                        </button>
+                        <div className="flex shrink-0 gap-1">
+                          {confirmDeleteCron === j.id ? (
+                            <button onClick={() => void deleteCron(j)} className="rounded bg-risk px-1.5 py-0.5 text-[10px] font-semibold text-canvas hover:bg-risk/90">
+                              Confirm
+                            </button>
+                          ) : (
+                            <button onClick={() => setConfirmDeleteCron(j.id)} className="rounded border border-risk/40 px-1.5 py-0.5 text-[10px] font-medium text-risk hover:bg-risk/10">
+                              Delete
+                            </button>
+                          )}
+                          <button onClick={() => setInspectingCron(j)} className="rounded border border-signal/40 px-1.5 py-0.5 text-[10px] font-medium text-signal hover:bg-signal/10">
+                            Inspect
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
                         <TimeUntil iso={j.nextRunAt} />
@@ -328,11 +445,11 @@ export default function Schedule() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [byAgent, totalJobs, s.agents],
+    [byAgent, totalJobs, s.agents, localEvents, workInFlight, confirmDeleteEvent, confirmDeleteWork, confirmDeleteCron, busyAction],
   );
   usePageRail(railSections);
 
-  // Calendar events = fixture events (executive/agent — mock until Google
+  // Calendar events = fixture events (executive/agent/team — mock until Google
   // Calendar is connected) + REAL cron jobs as their own overlay.
   const events = useMemo(() => {
     const cronEvts = s.cron.map((j) => ({
@@ -343,10 +460,10 @@ export default function Schedule() {
       source: 'cron' as const,
       refId: j.id,
     }));
-    return [...calendarEvents.filter((e) => e.source !== 'cron'), ...cronEvts]
+    return [...localEvents, ...cronEvts]
       .filter((e) => enabled[e.source])
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt));
-  }, [enabled, s.cron]);
+  }, [enabled, s.cron, localEvents]);
 
   const days = useMemo(() => {
     const map = new Map<string, typeof events>();
@@ -359,21 +476,34 @@ export default function Schedule() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Schedule</h1>
-          <p className="mt-1 text-sm text-ink-dim">Your meetings and your AI staff's planned work in one view. Cron overlay is live; executive calendar connects via Google in the Connections phase.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(SOURCE_META) as Source[]).map((src) => (
-            <label key={src} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-edge bg-canvas-raised px-2.5 py-1.5 text-xs text-ink-dim">
-              <input type="checkbox" checked={enabled[src]} onChange={() => setEnabled((e) => ({ ...e, [src]: !e[src] }))} className="accent-[#32c5ff]" />
-              <span className={`h-2 w-2 rounded-full ${SOURCE_META[src].dot}`} aria-hidden />
-              {SOURCE_META[src].label}
-            </label>
-          ))}
-        </div>
+      {/* Don 2026-08-30: stacked header — title, then the creation card directly
+       * under the description, then the source filters below it. */}
+      <header>
+        <h1 className="text-2xl font-semibold tracking-tight">Schedule</h1>
+        <p className="mt-1 text-sm text-ink-dim">Your meetings and your AI staff's planned work in one view. Cron overlay is live; executive calendar connects via Google in the Connections phase.</p>
       </header>
+
+      <Card className="p-5">
+        <SectionTitle right={<StateBadge label={`${s.cron.length} live job${s.cron.length === 1 ? '' : 's'}`} tone="signal" />}>Create scheduled AI work</SectionTitle>
+        <p className="text-xs text-ink-dim">Jobs created here run on the real Hermes scheduler and appear in this calendar, the right rail, and Connections — same object, same store.</p>
+        <div className="flex flex-wrap items-start gap-3">
+          <NewCronForm onCreated={() => undefined} />
+          {/* Dogfood 2026-08-29: one-off delegation lives beside scheduled work */}
+          <button onClick={() => setNewDelegation(true)} className="rounded-lg border border-signal/40 px-4 py-2 text-sm font-medium text-signal hover:bg-signal/10">
+            ＋ New delegated task
+          </button>
+        </div>
+      </Card>
+
+      <div className="flex flex-wrap gap-2">
+        {(Object.keys(SOURCE_META) as Source[]).map((src) => (
+          <label key={src} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-edge bg-canvas-raised px-2.5 py-1.5 text-xs text-ink-dim">
+            <input type="checkbox" checked={enabled[src]} onChange={() => setEnabled((e) => ({ ...e, [src]: !e[src] }))} className="accent-[#32c5ff]" />
+            <span className={`h-2 w-2 rounded-full ${SOURCE_META[src].dot}`} aria-hidden />
+            {SOURCE_META[src].label}
+          </label>
+        ))}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
         {days.map(([day, evts]) => (
@@ -401,6 +531,10 @@ export default function Schedule() {
       <Card className="p-5">
         <SectionTitle right={<StateBadge label={`${workInFlight.length} active`} tone={workInFlight.length ? 'signal' : 'neutral'} />}>Work in flight — delegated tasks</SectionTitle>
         <p className="mb-3 text-xs text-ink-dim">Live kanban tasks your agents hold right now. Approvals still gate external writes — nothing here bypasses them.</p>
+        {/* Don 2026-08-30: cap the list area at ~100 lines (100lh ≈ 1600px at
+         * text-xs), then a right-side scrollbar — the card no longer pushes
+         * the rest of the page down on heavy dogfooding days. */}
+        <div className="max-h-[100lh] overflow-y-auto pr-2 text-xs">
         {workInFlight.length === 0 ? (
           <p className="text-xs text-ink-faint">Nothing delegated right now — use ＋ New delegated task to put an agent to work.</p>
         ) : (
@@ -444,12 +578,21 @@ export default function Schedule() {
                     </button>
                   )}
                   {confirmStop === w.id ? (
-                    <button onClick={() => void act(w, 'stop')} disabled={busyAction !== null} className="rounded bg-risk px-2 py-1 font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50" title={health[w.id] !== 'stale' ? 'A worker may be actively running this task — stopping abandons its in-flight output' : undefined}>
+                    <button onClick={() => void act(w, 'stop')} disabled={busyAction !== null} className="rounded bg-risk px-2 py-1 font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50" title={health[w.id] !== 'stale' && w.state === 'in_progress' ? 'A worker may be actively running this task — stopping abandons its in-flight output' : undefined}>
                       {health[w.id] !== 'stale' && w.state === 'in_progress' ? 'Worker may be active — confirm stop' : 'Confirm stop'}
                     </button>
                   ) : (
                     <button onClick={() => setConfirmStop(w.id)} disabled={busyAction !== null} className="rounded border border-risk/40 px-2 py-1 font-medium text-risk hover:bg-risk/10 disabled:opacity-50">
                       Stop
+                    </button>
+                  )}
+                  {confirmDeleteWork === w.id ? (
+                    <button onClick={() => void act(w, 'delete')} disabled={busyAction !== null} className="rounded bg-risk px-2 py-1 font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50" title="Permanently remove this delegated task">
+                      Confirm delete
+                    </button>
+                  ) : (
+                    <button onClick={() => setConfirmDeleteWork(w.id)} disabled={busyAction !== null} className="rounded border border-risk/40 px-2 py-1 font-medium text-risk hover:bg-risk/10 disabled:opacity-50">
+                      Delete
                     </button>
                   )}
                 </span>
@@ -459,37 +602,48 @@ export default function Schedule() {
         )}
         {completedRecently.length > 0 && (
           <div className="mt-4 border-t border-edge pt-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Completed in the last 24h</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Completed in the last 3 days</div>
             <ul className="mt-1.5 divide-y divide-edge/40">
-              {completedRecently.map((w) => (
-                <li key={w.id} className="py-1.5 text-xs">
-                  <div className="flex items-center gap-3">
-                    <span className="min-w-0 flex-1 truncate text-ink-dim">{w.title}</span>
-                    <span className="text-ink-faint">{agentName(s, w.ownerId ?? '')}</span>
-                    <StateBadge label={w.state === 'complete' ? 'complete' : 'stopped'} tone={w.state === 'complete' ? 'ok' : 'neutral'} />
-                    <span className="w-14 text-right text-ink-faint"><RelativeTime iso={w.updatedAt} /></span>
-                  </div>
-                  {w.result && (
-                    <p className="mt-0.5 truncate pl-0.5 text-[11px] text-ink-faint" title={w.result}>↳ {w.result}</p>
-                  )}
-                </li>
-              ))}
+              {completedRecently.map((w) => {
+                const run = runsByTaskId.get(w.id);
+                return (
+                  <li key={w.id} className="py-1.5 text-xs">
+                    <button
+                      onClick={() =>
+                        setOpenRun(
+                          run ?? {
+                            taskId: w.id,
+                            title: w.title,
+                            assignee: w.ownerId ?? 'default',
+                            status: w.state === 'complete' ? 'done' : 'archived',
+                            result: w.result,
+                            createdAt: w.createdAt,
+                            completedAt: w.updatedAt,
+                          },
+                        )
+                      }
+                      className="w-full text-left"
+                      title="Read the result + worker transcript"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="min-w-0 flex-1 truncate text-ink-dim">{w.title}</span>
+                        <span className="text-ink-faint">{agentName(s, w.ownerId ?? '')}</span>
+                        <StateBadge label={w.state === 'complete' ? 'complete' : 'stopped'} tone={w.state === 'complete' ? 'ok' : 'neutral'} />
+                        <span className="w-14 text-right text-ink-faint"><RelativeTime iso={w.updatedAt} /></span>
+                      </div>
+                      {w.result && (
+                        <p className="mt-0.5 truncate pl-0.5 text-[11px] text-ink-faint" title={w.result}>↳ {w.result}</p>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
-      </Card>
-
-      <Card className="p-5">
-        <SectionTitle right={<StateBadge label={`${s.cron.length} live job${s.cron.length === 1 ? '' : 's'}`} tone="signal" />}>Create scheduled AI work</SectionTitle>
-        <p className="text-xs text-ink-dim">Jobs created here run on the real Hermes scheduler and appear in this calendar, the right rail, and Connections — same object, same store.</p>
-        <div className="flex flex-wrap items-start gap-3">
-          <NewCronForm onCreated={() => undefined} />
-          {/* Dogfood 2026-08-29: one-off delegation lives beside scheduled work */}
-          <button onClick={() => setNewDelegation(true)} className="rounded-lg border border-signal/40 px-4 py-2 text-sm font-medium text-signal hover:bg-signal/10">
-            ＋ New delegated task
-          </button>
         </div>
       </Card>
+      {openRun && <DelegatedRunDrawer run={openRun} onClose={() => setOpenRun(null)} />}
       {newDelegation && <NewDelegationDrawer onClose={() => setNewDelegation(false)} />}
       {inspectingCron && <CronInspector job={inspectingCron} onClose={() => setInspectingCron(null)} onChanged={() => setRailBump((b) => b + 1)} />}
     </div>

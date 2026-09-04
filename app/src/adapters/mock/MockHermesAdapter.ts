@@ -5,12 +5,12 @@
  */
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
-  EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
+  DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
+  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 
@@ -74,6 +74,14 @@ class MockHermesAdapter implements HermesAdapter {
         this.tick = undefined;
       }
     };
+  }
+
+  /** Test hook: stop the background event tick. */
+  __stopEvents() {
+    if (this.tick) {
+      clearInterval(this.tick);
+      this.tick = undefined;
+    }
   }
 
   /** §13 acceptance-fixture API: replace mock state wholesale (scenario tests only — never called by pages). */
@@ -265,6 +273,15 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  async updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult> {
+    await delay(200);
+    const ap = this.approvals.find((a) => a.id === approvalId);
+    if (!ap) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Approval not found.', retryable: false } };
+    this.approvals = this.approvals.map((a) => (a.id === approvalId ? { ...a, payload } : a));
+    this.emit('approval.updated', ap.requestedByAgentId, `Approval payload updated: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
+    return audit();
+  }
+
   async listCronJobs(profile?: string): Promise<CronJob[]> {
     await delay();
     // W5 mock parity: profile scopes to that agent's jobs; undefined = all.
@@ -298,7 +315,12 @@ class MockHermesAdapter implements HermesAdapter {
     await delay(200);
     const item = this.work.find((w) => w.id === workItemId);
     if (!item) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Task not found.', retryable: false } };
-    const stateFor: Record<WorkItemAction, WorkItem['state']> = {
+    if (action === 'delete') {
+      this.work = this.work.filter((w) => w.id !== workItemId);
+      this.emit('work.updated', item.ownerId, `Deleted: ${item.title}${note ? ` — ${note}` : ''}`, workItemId);
+      return audit();
+    }
+    const stateFor: Record<Exclude<WorkItemAction, 'delete'>, WorkItem['state']> = {
       pause: 'blocked',
       resume: item.ownerId ? 'delegated' : 'ready',
       complete: 'complete',
@@ -381,6 +403,20 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  async getDailySpend(_days = 14): Promise<DailySpendReport> {
+    await delay();
+    return clone(fx.dailySpendReport);
+  }
+
+  /** F29: mock threshold lives in the fixture — edits persist for the session. */
+  async setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult> {
+    await delay(150);
+    fx.dailySpendReport.thresholdUsd = thresholdUsd ?? 5;
+    for (const d of fx.dailySpendReport.days) d.overThreshold = d.costUsd > fx.dailySpendReport.thresholdUsd;
+    this.emit('config.changed', undefined, thresholdUsd === null ? 'Daily spend alert cleared (default $5)' : `Daily spend alert set to $${thresholdUsd}`);
+    return audit();
+  }
+
   /** W7: writable in-memory skills list (create lands here; mock parity). */
   private skillsList: Skill[] = fx.skillsAndPlaybooks
     .filter((r) => r.kind === 'skill')
@@ -417,6 +453,24 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  async updateSkillStatus(slug: string, category: string, status: 'enabled' | 'disabled'): Promise<AuditResult> {
+    await delay(150);
+    const sk = this.skillsList.find((s) => s.id === slug && s.category === category);
+    if (!sk) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Skill not found.', retryable: false } };
+    this.skillsList = this.skillsList.map((s) => (s.id === slug ? { ...s, status } : s));
+    this.emit('config.changed', undefined, `Skill ${status}: ${slug}`);
+    return audit();
+  }
+
+  async deleteSkill(slug: string, category: string): Promise<AuditResult> {
+    await delay(150);
+    const sk = this.skillsList.find((s) => s.id === slug && s.category === category);
+    if (!sk) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Skill not found.', retryable: false } };
+    this.skillsList = this.skillsList.filter((s) => !(s.id === slug && s.category === category));
+    this.emit('config.changed', undefined, `Skill deleted: ${slug}`);
+    return audit();
+  }
+
   // ----- playbooks (Phase 5.4) -----
 
   private playbooks: Playbook[] = fx.skillsAndPlaybooks
@@ -427,6 +481,7 @@ class MockHermesAdapter implements HermesAdapter {
       description: r.purpose,
       version: r.version,
       status: r.status,
+      enabled: true,
       ownerAgentId: r.ownerAgentId,
       mode: 'task' as const,
       body: `# ${r.name}\n\nMock workflow body — the live adapter reads the real markdown from ~/eaios/playbooks.`,
@@ -511,6 +566,7 @@ class MockHermesAdapter implements HermesAdapter {
       description: input.description,
       version: existing ? mockBumpPatch(existing.version) : '0.1.0',
       status: existing ? (existing.status === 'published' ? 'draft' : input.status) : input.status,
+      enabled: true,
       ownerAgentId: input.ownerAgentId,
       mode: input.mode,
       assignee: input.assignee,
@@ -525,38 +581,85 @@ class MockHermesAdapter implements HermesAdapter {
     return audit(clone(saved));
   }
 
-  // ----- mock assistant chat (Phase 6.4a) -----
-  private assistantThread: ChatMessage[] = [
-    { id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() },
-  ];
-  private assistantHandlers = new Set<(e: AssistantEvent) => void>();
+  async updatePlaybookEnabled(slug: string, enabled: boolean): Promise<AuditResult> {
+    await delay(150);
+    const pb = this.playbooks.find((p) => p.id === slug);
+    if (!pb) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Playbook not found.', retryable: false } };
+    this.playbooks = this.playbooks.map((p) => (p.id === slug ? { ...p, enabled } : p));
+    this.emit('config.changed', pb.ownerAgentId, `Playbook ${enabled ? 'enabled' : 'disabled'}: ${pb.name}`);
+    return audit();
+  }
 
-  async getAssistantHistory(): Promise<ChatMessage[]> {
+  async deletePlaybook(slug: string): Promise<AuditResult> {
+    await delay(150);
+    const pb = this.playbooks.find((p) => p.id === slug);
+    if (!pb) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Playbook not found.', retryable: false } };
+    this.playbooks = this.playbooks.filter((p) => p.id !== slug);
+    this.emit('config.changed', pb.ownerAgentId, `Playbook deleted: ${pb.name}`);
+    return audit();
+  }
+
+  // ----- mock assistant chat (Phase 6.4a; lane-keyed F26 2026-08-30) -----
+  // Lanes are keyed by agentId ('default' = Ally's main chat, 'concierge' =
+  // the navigation widget); the default lane keeps the seeded greeting and
+  // its singleton-persistence semantics across tests in a file.
+  private assistantThreads = new Map<string, ChatMessage[]>([
+    ['default', [{ id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() }]],
+  ]);
+  private assistantHandlers = new Map<string, Set<(e: AssistantEvent) => void>>();
+
+  private assistantLaneThread(agentId = 'default'): ChatMessage[] {
+    let t = this.assistantThreads.get(agentId);
+    if (!t) {
+      t = [];
+      this.assistantThreads.set(agentId, t);
+    }
+    return t;
+  }
+
+  private assistantLaneHandlers(agentId = 'default'): Set<(e: AssistantEvent) => void> {
+    let h = this.assistantHandlers.get(agentId);
+    if (!h) {
+      h = new Set();
+      this.assistantHandlers.set(agentId, h);
+    }
+    return h;
+  }
+
+  async getAssistantHistory(agentId = 'default'): Promise<ChatMessage[]> {
     await delay();
-    return clone(this.assistantThread);
+    return clone(this.assistantLaneThread(agentId));
   }
 
   /** Mock send: appends the user message, then streams a canned Ally reply. */
-  async sendAssistantMessage(text: string): Promise<AuditResult> {
+  async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
     await delay(120);
-    this.assistantThread.push({ id: `m-${Date.now()}-u`, role: 'you', text, at: new Date().toISOString() });
-    const reply = `On it — "${text.slice(0, 60)}". (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.) Grounded in your knowledge base: eaios://chunk/k-01-0`;
-    const emit = (e: AssistantEvent) => this.assistantHandlers.forEach((h) => h(e));
+    const agentId = opts.agentId ?? 'default';
+    const thread = this.assistantLaneThread(agentId);
+    const attachmentNote = opts.attachments?.length
+      ? `\n\n[Attached: ${opts.attachments.map((a) => `${a.name} (${a.encoding})`).join(', ')}]`
+      : '';
+    const fullText = text + attachmentNote;
+    thread.push({ id: `m-${Date.now()}-u`, role: 'you', text: fullText, at: new Date().toISOString() });
+    const reply = `On it — "${text.slice(0, 60)}"${opts.attachments?.length ? ` with ${opts.attachments.length} attachment${opts.attachments.length === 1 ? '' : 's'}` : ''}. (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.) Grounded in your knowledge base: eaios://chunk/k-01-0`;
+    const handlers = this.assistantLaneHandlers(agentId);
+    const emit = (e: AssistantEvent) => handlers.forEach((h) => h(e));
     setTimeout(() => {
       emit({ kind: 'start' });
       const words = reply.split(' ');
       words.forEach((w, i) => setTimeout(() => emit({ kind: 'delta', text: (i ? ' ' : '') + w }), 25 * (i + 1)));
       setTimeout(() => {
-        this.assistantThread.push({ id: `m-${Date.now()}-a`, role: 'ally', text: reply, at: new Date().toISOString() });
+        thread.push({ id: `m-${Date.now()}-a`, role: 'ally', text: reply, at: new Date().toISOString() });
         emit({ kind: 'complete', text: reply });
       }, 25 * words.length + 80);
     }, 80);
     return audit();
   }
 
-  subscribeAssistant(handler: (event: AssistantEvent) => void): Unsubscribe {
-    this.assistantHandlers.add(handler);
-    return () => this.assistantHandlers.delete(handler);
+  subscribeAssistant(handler: (event: AssistantEvent) => void, agentId = 'default'): Unsubscribe {
+    const handlers = this.assistantLaneHandlers(agentId);
+    handlers.add(handler);
+    return () => handlers.delete(handler);
   }
 
   // ----- mock assistant sessions + channels (W1, D-B1/D-B2) -----
@@ -581,6 +684,11 @@ class MockHermesAdapter implements HermesAdapter {
     'sess-ally-1': [
       { id: 'ta-1', role: 'you', text: 'What needs my attention before the board call?', at: new Date(Date.now() - 20 * 3600_000).toISOString() },
       { id: 'ta-2', role: 'ally', text: 'Three things: the partnership approval, the Q3 deck narrative, and rain on your Dallas drive Thursday.', at: new Date(Date.now() - 20 * 3600_000 + 60_000).toISOString() },
+    ],
+    'sess-run-1': [
+      { id: 'tr-1', role: 'you', text: 'work kanban task t-run-1', at: new Date(Date.now() - 3 * 3600_000).toISOString() },
+      { id: 'tr-2', role: 'ally', text: "Reading both inboxes now — Gmail first, then Outlook.", at: new Date(Date.now() - 3 * 3600_000 + 30_000).toISOString() },
+      { id: 'tr-3', role: 'ally', text: 'Triaged Gmail + Outlook: 3 actionable items (Regions alert, Kojo Fit return, AA trip confirmation). Full report attached.', at: new Date(Date.now() - 2.8 * 3600_000).toISOString() },
     ],
     'sess-scout-1': [
       { id: 'ts-1', role: 'you', text: 'Where did the tooling shortlist land?', at: new Date(Date.now() - 5 * 3600_000).toISOString() },
@@ -619,19 +727,49 @@ class MockHermesAdapter implements HermesAdapter {
     return clone(this.transcripts[sessionId] ?? []);
   }
 
+  /** Delegated runs (mock parity for the rail/Schedule drawers): two fixture
+   * runs — one done with a real transcript, one in flight without one. */
+  async listDelegatedRuns(): Promise<DelegatedRun[]> {
+    await delay();
+    return clone(this.delegatedRuns);
+  }
+
+  private delegatedRuns: DelegatedRun[] = [
+    {
+      taskId: 't-run-1',
+      title: 'Email triage — both inboxes',
+      assignee: 'ally',
+      status: 'done',
+      result: 'Triaged Gmail + Outlook: 3 actionable items (Regions alert, Kojo Fit return, AA trip confirmation). Full report attached.',
+      createdAt: new Date(Date.now() - 3 * 3600_000).toISOString(),
+      completedAt: new Date(Date.now() - 2.8 * 3600_000).toISOString(),
+      workerSessionId: 'sess-run-1',
+      workerMessageCount: 4,
+    },
+    {
+      taskId: 't-run-2',
+      title: 'Market scan: AI ops tooling',
+      assignee: 'scout',
+      status: 'running',
+      createdAt: new Date(Date.now() - 900_000).toISOString(),
+    },
+  ];
+
   async resumeAssistantSession(storedId: string): Promise<AuditResult> {
     await delay(200);
     const t = this.transcripts[storedId];
     if (!t) {
       return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'That conversation could not be resumed.', retryable: false } };
     }
-    this.assistantThread = clone(t);
+    this.assistantThreads.set('default', clone(t));
     return audit();
   }
 
-  async startNewAssistantChat(): Promise<AuditResult> {
+  async startNewAssistantChat(agentId = 'default'): Promise<AuditResult> {
     await delay(200);
-    this.assistantThread = [this.freshGreeting()];
+    // Default lane reseeds its greeting; other lanes reset to EMPTY (the
+    // concierge widget renders its own intro card + example prompts).
+    this.assistantThreads.set(agentId, agentId === 'default' ? [this.freshGreeting()] : []);
     return audit();
   }
 

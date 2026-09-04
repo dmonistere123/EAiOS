@@ -1,13 +1,10 @@
 ---
-name: Competitor Deep-Dive
-description: Parallel research swarm on one named competitor, verified and synthesized into a cited brief.
-version: 0.3.0
-owner: default
+name: "Competitor Deep-Dive"
+description: "Parallel research swarm on one named competitor, verified and synthesized into a cited brief."
+version: 0.3.1
+owner: "default"
 status: draft
-mode: swarm
-workers: [default:Product & pricing moves, default:Hiring & leadership signals, default:Customer sentiment & reviews, default:Funding & financial signals]
-verifier: default
-synthesizer: default
+mode: task
 ---
 
 # Competitor Deep-Dive (swarm)

@@ -6,7 +6,7 @@
  * - Status is never color-alone (badges render text)
  * - Approval rows have a keyboard-reachable Inspect path (row click is pointer-only)
  */
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 // @ts-expect-error — transitive lib; its dist/index.d.ts doesn't resolve under bundler moduleResolution (test-only import)
@@ -19,6 +19,8 @@ import Approvals from '../pages/Approvals';
 import Settings from '../pages/Settings';
 import Assistant from '../pages/Assistant';
 import { startRuntime } from '../state/runtime';
+import { hermes } from '../adapters';
+import type { Approval } from '../domain/types';
 
 beforeAll(() => {
   startRuntime();
@@ -82,6 +84,23 @@ describe('§14.4 keyboard reachability + names', () => {
     renderAt('/approvals', <Approvals />, 'approvals');
     const inspect = await screen.findAllByRole('button', { name: 'Inspect' });
     expect(inspect.length).toBe(3); // one per pending fixture approval
+  });
+
+  it('approval inspector lets the executive edit the prepared payload', async () => {
+    const user = userEvent.setup();
+    renderAt('/approvals', <Approvals />, 'approvals');
+    const matches = await screen.findAllByText('Investor update — 14 recipients');
+    const row = (matches[0].closest('tr') ?? matches[0].closest('li')) as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Inspect' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+    const textarea = await screen.findByRole('textbox');
+    await user.clear(textarea);
+    await user.type(textarea, 'To: investors@allygnment.com\nSubject: Updated');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await vi.waitFor(async () => {
+      const updated = (await hermes.listApprovals({ status: ['pending'] })).find((a: Approval) => a.id === 'a-03');
+      expect(updated?.payload).toBe('To: investors@allygnment.com\nSubject: Updated');
+    }, { timeout: 4000 });
   });
 });
 

@@ -135,6 +135,29 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(calls.some((a) => a[1] === 'complete')).toBe(false); // never close without execution
   });
 
+  it('updateApprovalPayload PUTs a new envelope body to /api/kanban', async () => {
+    const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'outlook', risk: 'medium' as const, requestedBy: 'quill', payload: 'Original body' };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
+        return new Response(JSON.stringify({ tasks: [{ id: 't_810c8eff', title: 'Send email', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
+      }
+      if (url === '/api/kanban' && init?.method === 'PUT') {
+        const body = JSON.parse(String(init.body)) as { id: string; body: string };
+        expect(body.id).toBe('t_810c8eff');
+        const parsed = JSON.parse(body.body) as { payload: string };
+        expect(parsed.payload).toBe('Edited body');
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
+    const res = await live.updateApprovalPayload('t_810c8eff', 'Edited body');
+    expect(res.ok).toBe(true);
+    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(true);
+  });
+
   it('reads still parse --json output', async () => {
     stubRpc((argv) =>
       argv.includes('--json')

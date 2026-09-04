@@ -10,12 +10,12 @@
  */
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
-  EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
+  DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
+  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
-  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction,
+  CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
@@ -642,6 +642,7 @@ class LiveHermesAdapter implements HermesAdapter {
           await this.kanban<unknown>(['complete', workItemId, '--result', note ?? 'Completed by executive from EAiOS']);
           break;
         case 'stop':
+        case 'delete':
           await this.kanban<unknown>(['archive', workItemId]);
           break;
         case 'defer':
@@ -680,7 +681,12 @@ class LiveHermesAdapter implements HermesAdapter {
       // and the ledger showed nothing. Merge kanban lifecycle events in.
       const [res, tasks] = await Promise.all([
         this.rpc.call<{ sessions: HermesSession[] }>('session.list'),
-        this.kanbanTasks().catch(() => [] as KanbanTask[]),
+        this.kanbanTasks().catch(() => {
+          // Partial degradation: sessions may render while kanban events are
+          // missing — surface it, don't let the gap pass silently (spec §2).
+          this.degraded.add('activity');
+          return [] as KanbanTask[];
+        }),
       ]);
       const sessionEvents = (res.sessions ?? []).map(mapSessionToActivity);
       const kanbanEvents: ActivityEvent[] = [];
@@ -692,10 +698,12 @@ class LiveHermesAdapter implements HermesAdapter {
         if (started) kanbanEvents.push({ id: `kb-${t.id}-started`, type: 'agent.started', occurredAt: started, agentId: t.assignee ?? undefined, workItemId: t.id, action: `Agent started: ${t.title}`, severity: 'info' });
         if (completed) kanbanEvents.push({ id: `kb-${t.id}-completed`, type: 'agent.completed', occurredAt: completed, agentId: t.assignee ?? undefined, workItemId: t.id, action: `Task completed: ${t.title}`, result: t.result?.slice(0, 160) || undefined, severity: 'info' });
       }
+      this.degraded.delete('activity');
       return [...sessionEvents, ...kanbanEvents]
         .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))
         .slice(0, limit);
     } catch {
+      this.degraded.add('activity');
       return this.fallback.listActivity(limit);
     }
   }
@@ -710,6 +718,16 @@ class LiveHermesAdapter implements HermesAdapter {
 
   // ----- LIVE: kanban-backed work loop (Phase 3) -----
 
+  /** Slice-degradation tracker (spec §2 honest degradation): when a live
+   * read falls back to mock, the slice is recorded until a live read
+   * succeeds again — the shell surfaces it instead of letting mock data
+   * masquerade as live (dogfood 2026-08-29: the work slice showed fixture
+   * data under a ● LIVE badge for hours). */
+  private degraded = new Set<string>();
+  getDegradedSlices(): string[] {
+    return [...this.degraded];
+  }
+
   /** Run a kanban CLI command through the gateway. --json output is parsed;
    * write subcommands (assign/complete/block/…) print human text on success
    * (exit 0) — DOGFOOD FIX 2026-08-29: blind JSON.parse turned SUCCESSFUL
@@ -719,7 +737,15 @@ class LiveHermesAdapter implements HermesAdapter {
     const res = await this.rpc.call<{ code: number; output: string }>('cli.exec', { argv: ['kanban', ...argv] });
     if (res.code !== 0) throw new Error(res.output.slice(0, 200) || 'kanban command failed');
     const out = (res.output ?? '').trim();
-    if (out.startsWith('[') || out.startsWith('{')) return JSON.parse(out) as T;
+    if (out.startsWith('[') || out.startsWith('{')) {
+      try {
+        return JSON.parse(out) as T;
+      } catch (e) {
+        // cli.exec truncates output at 48000 chars — a capped payload must
+        // never parse halfway into fake data (dogfood 2026-08-29).
+        throw new Error(`kanban output unparseable (${out.length} chars — cli.exec caps at 48000): ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     return out as T;
   }
 
@@ -728,9 +754,21 @@ class LiveHermesAdapter implements HermesAdapter {
 
   private async kanbanTasks(): Promise<KanbanTask[]> {
     if (this.tasksCache && Date.now() - this.tasksCache.at < 4000) return this.tasksCache.tasks;
-    const tasks = await this.kanban<KanbanTask[]>(['list', '--json', '--archived']);
-    this.tasksCache = { at: Date.now(), tasks: tasks ?? [] };
-    return this.tasksCache.tasks;
+    // HTTP-first: /api/kanban (node:sqlite read, like /api/usage + /api/artifacts)
+    // is immune to the cli.exec 48000-char cap. cli.exec stays as fallback;
+    // its parse failure now carries an explicit truncation message.
+    try {
+      const res = await fetch('/api/kanban');
+      if (!res.ok) throw new Error(`kanban index HTTP ${res.status}`);
+      const data = (await res.json()) as { tasks?: KanbanTask[] };
+      const tasks = data.tasks ?? [];
+      this.tasksCache = { at: Date.now(), tasks };
+      return tasks;
+    } catch {
+      const tasks = await this.kanban<KanbanTask[]>(['list', '--json', '--archived']);
+      this.tasksCache = { at: Date.now(), tasks: tasks ?? [] };
+      return tasks;
+    }
   }
 
   private invalidateTasks() {
@@ -743,8 +781,10 @@ class LiveHermesAdapter implements HermesAdapter {
       if (filter?.state) rows = rows.filter((w) => filter.state!.includes(w.state));
       if (filter?.ownerType) rows = rows.filter((w) => w.ownerType === filter.ownerType);
       if (filter?.delegationCandidate) rows = rows.filter((w) => w.delegationCandidate);
+      this.degraded.delete('work');
       return rows;
     } catch {
+      this.degraded.add('work'); // surfaced in the shell — never silent (spec §2)
       return this.fallback.listWorkItems(filter);
     }
   }
@@ -787,8 +827,10 @@ class LiveHermesAdapter implements HermesAdapter {
       let out = rows;
       if (filter?.status) out = out.filter((a) => filter.status!.includes(a.status));
       if (filter?.risk) out = out.filter((a) => filter.risk!.includes(a.risk));
+      this.degraded.delete('approvals');
       return out;
     } catch {
+      this.degraded.add('approvals');
       return this.fallback.listApprovals(filter);
     }
   }
@@ -823,6 +865,31 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  async updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult> {
+    try {
+      const tasks = await this.kanbanTasks();
+      const task = tasks.find((t) => t.id === approvalId);
+      const env = parseEnvelope(task?.body);
+      if (!task || !env) {
+        return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Approval task not found or not an envelope.', retryable: false } };
+      }
+      const nextBody = JSON.stringify({ ...env, payload });
+      const res = await fetch('/api/kanban', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: approvalId, body: nextBody }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      this.invalidateTasks();
+      return { ok: true, auditEventId: `kb-payload-edit-${approvalId}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'payload_update_failed', safeMessage: e instanceof Error ? e.message : 'Payload update failed.', retryable: true } };
+    }
+  }
+
   async getTodaySummary(): Promise<TodaySummary> {
     try {
       const tasks = await this.kanbanTasks();
@@ -830,6 +897,7 @@ class LiveHermesAdapter implements HermesAdapter {
       const open = work.filter((t) => !['done', 'archived'].includes(t.status));
       const approvals = tasks.filter((t) => parseEnvelope(t.body) && !['done', 'blocked', 'archived'].includes(t.status));
       const h = new Date().getHours();
+      this.degraded.delete('today');
       return {
         greeting: h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening',
         date: new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }),
@@ -839,6 +907,7 @@ class LiveHermesAdapter implements HermesAdapter {
         headline: approvals.length > 0 ? `${approvals.length} item${approvals.length === 1 ? '' : 's'} need your decision.` : 'Nothing waiting on your decision.',
       };
     } catch {
+      this.degraded.add('today');
       return this.fallback.getTodaySummary();
     }
   }
@@ -861,11 +930,11 @@ class LiveHermesAdapter implements HermesAdapter {
     try {
       const res = await this.rpc.call<{ skills: Record<string, string[]> }>('skills.manage', { action: 'list' });
       const byCategory = res.skills ?? {};
-      let details = new Map<string, { category: string; description?: string; version?: string }>();
+      let details = new Map<string, { category: string; description?: string; version?: string; status?: 'enabled' | 'disabled' }>();
       try {
         const idxRes = await fetch('/api/skills-index');
         if (idxRes.ok) {
-          const idx = (await idxRes.json()) as { skills?: { name: string; category: string; description?: string; version?: string }[] };
+          const idx = (await idxRes.json()) as { skills?: { name: string; category: string; description?: string; version?: string; status?: 'enabled' | 'disabled' }[] };
           details = new Map((idx.skills ?? []).map((s) => [s.name, s]));
         }
       } catch {
@@ -877,11 +946,11 @@ class LiveHermesAdapter implements HermesAdapter {
         for (const name of names) {
           seen.add(name);
           const d = details.get(name);
-          out.push({ id: name, name, category, description: d?.description, version: d?.version, status: 'enabled' });
+          out.push({ id: name, name, category, description: d?.description, version: d?.version, status: d?.status ?? 'enabled' });
         }
       }
       for (const [name, d] of details) {
-        if (!seen.has(name)) out.push({ id: name, name, category: d.category, description: d.description, version: d.version, status: 'enabled' });
+        if (!seen.has(name)) out.push({ id: name, name, category: d.category, description: d.description, version: d.version, status: d.status ?? 'enabled' });
       }
       return out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     } catch {
@@ -993,6 +1062,72 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `skill-create-${Date.now()}` };
     } catch (e) {
       return { ok: false, auditEventId: `skill-create-err-${Date.now()}`, error: { code: 'skill_create_failed', safeMessage: e instanceof Error ? e.message : 'Skill creation failed.', retryable: true } };
+    }
+  }
+
+  /** Enable/disable a skill: PUT /api/skills-index. WRITE — never mock-faked. */
+  async updateSkillStatus(slug: string, category: string, status: 'enabled' | 'disabled'): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/skills-index', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slug, category, status }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `skills-index HTTP ${res.status}`);
+      return { ok: true, auditEventId: `skill-status-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `skill-status-err-${Date.now()}`, error: { code: 'skill_status_failed', safeMessage: e instanceof Error ? e.message : 'Skill status update failed.', retryable: true } };
+    }
+  }
+
+  /** Delete a skill: DELETE /api/skills-index. WRITE — never mock-faked. */
+  async deleteSkill(slug: string, category: string): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/skills-index', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slug, category }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `skills-index HTTP ${res.status}`);
+      return { ok: true, auditEventId: `skill-delete-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `skill-delete-err-${Date.now()}`, error: { code: 'skill_delete_failed', safeMessage: e instanceof Error ? e.message : 'Skill delete failed.', retryable: true } };
+    }
+  }
+
+  /** Enable/disable a playbook: PUT /api/playbooks-index with enabled flag. WRITE — never mock-faked. */
+  async updatePlaybookEnabled(slug: string, enabled: boolean): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/playbooks-index', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: slug, enabled }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `playbooks-index HTTP ${res.status}`);
+      this.playbooksCache = undefined;
+      return { ok: true, auditEventId: `pb-enabled-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `pb-enabled-err-${Date.now()}`, error: { code: 'playbook_enable_failed', safeMessage: e instanceof Error ? e.message : 'Playbook enable/disable failed.', retryable: true } };
+    }
+  }
+
+  /** Delete a playbook: DELETE /api/playbooks-index. WRITE — never mock-faked. */
+  async deletePlaybook(slug: string): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/playbooks-index', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: slug }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `playbooks-index HTTP ${res.status}`);
+      this.playbooksCache = undefined;
+      return { ok: true, auditEventId: `pb-delete-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `pb-delete-err-${Date.now()}`, error: { code: 'playbook_delete_failed', safeMessage: e instanceof Error ? e.message : 'Playbook delete failed.', retryable: true } };
     }
   }
 
@@ -1117,6 +1252,34 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Budget save failed.', retryable: true } };
     }
   }
+
+  /** F29: rate-card $ per local day from /api/usage/daily (shared router, like /api/kanban). */
+  async getDailySpend(days = 14): Promise<DailySpendReport> {
+    try {
+      const res = await fetch(`/api/usage/daily?days=${days}`);
+      if (!res.ok) throw new Error(`usage daily ${res.status}`);
+      this.degraded.delete('usage-daily');
+      return (await res.json()) as DailySpendReport;
+    } catch (e) {
+      this.degraded.add('usage-daily');
+      return this.fallback.getDailySpend(days); // graceful degradation (spec §2)
+    }
+  }
+
+  /** F29: threshold lives in the same settings store the watchdog reads. */
+  async setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/eaios-settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dailySpendAlertUsd: thresholdUsd }),
+      });
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      return { ok: true, auditEventId: `settings-daily-alert-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Threshold save failed.', retryable: true } };
+    }
+  }
   // ----- LIVE: assistant chat (Phase 6.4a, spec §8.2) -----
   /**
    * Session lifecycle (probed 2026-08-26): session.create returns a runtime
@@ -1145,7 +1308,9 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   private assistantProfileParams(agentId: string) {
-    return agentId && agentId !== 'default' ? { profile: agentId } : {};
+    // 'concierge' (F26) is a second chat LANE on the default profile (Ally),
+    // not a profile — sending profile:'concierge' would 404 the RPC.
+    return agentId && agentId !== 'default' && agentId !== 'concierge' ? { profile: agentId } : {};
   }
 
   private async ensureAssistantSession(agentId = 'default'): Promise<string> {
@@ -1167,7 +1332,7 @@ class LiveHermesAdapter implements HermesAdapter {
       }
     }
     const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
+      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId === 'concierge' ? 'Concierge' : agentId}`,
       ...profileParams,
     });
     lane.sid = c.session_id;
@@ -1221,18 +1386,23 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  async sendAssistantMessage(text: string, agentId = 'default'): Promise<AuditResult> {
+  async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
     try {
+      const agentId = opts.agentId ?? 'default';
+      const attachmentBlock = opts.attachments?.length
+        ? '\n\n--- attached documents ---\n' + opts.attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
+        : '';
+      const fullText = text + attachmentBlock;
       let sid = await this.ensureAssistantSession(agentId);
       try {
-        await this.rpc.call('prompt.submit', { session_id: sid, text });
+        await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       } catch (e) {
         // Stale runtime sid (gateway restarted): drop it, resume/create, retry ONCE.
         if (!/4001|session not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
         this.assistantSidToAgent.delete(sid);
         this.assistantLane(agentId).sid = undefined;
         sid = await this.ensureAssistantSession(agentId);
-        await this.rpc.call('prompt.submit', { session_id: sid, text });
+        await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       }
       return { ok: true, auditEventId: `chat-send-${Date.now()}` };
     } catch (e) {
@@ -1300,23 +1470,72 @@ class LiveHermesAdapter implements HermesAdapter {
   /** Read-only transcript of any session of any profile (channel drawer). */
   async getSessionTranscript(profile: string | undefined, sessionId: string): Promise<ChatMessage[]> {
     try {
-      const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
-        'session.history',
-        { session_id: sessionId, ...(profile ? { profile } : {}) },
-      );
-      return LiveHermesAdapter.mapHistoryMessages(h);
+      try {
+        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+          'session.history',
+          { session_id: sessionId, ...(profile ? { profile } : {}) },
+        );
+        return LiveHermesAdapter.mapHistoryMessages(h);
+      } catch {
+        // Deny-listed/detached sessions (kanban workers, source='kanban')
+        // 4001 on direct history — resume-before-use, then read via the
+        // runtime id (probed live 2026-08-29: resume+history works).
+        const r = await this.rpc.call<{ session_id?: string }>('session.resume', { session_id: sessionId, ...(profile ? { profile } : {}) });
+        if (!r.session_id) throw new Error('session resume returned no runtime id');
+        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+          'session.history',
+          { session_id: r.session_id, ...(profile ? { profile } : {}) },
+        );
+        return LiveHermesAdapter.mapHistoryMessages(h);
+      }
     } catch {
       return this.fallback.getSessionTranscript(profile, sessionId); // graceful degradation (spec §2)
     }
   }
 
-  /** Rebind the default (Ally) lane to a runtime sid + persist the stored id. */
-  private bindAllyLane(runtimeSid: string, storedId?: string) {
-    const lane = this.assistantLane('default');
+  /** Delegated runs for the rail/Schedule drawers — /api/kanban-runs joins
+   * tasks to their (deny-listed) worker sessions server-side. */
+  async listDelegatedRuns(): Promise<DelegatedRun[]> {
+    try {
+      const res = await fetch('/api/kanban-runs');
+      if (!res.ok) throw new Error(`kanban runs HTTP ${res.status}`);
+      const data = (await res.json()) as {
+        runs?: {
+          id: string; title: string; assignee: string | null; status: string; result: string | null;
+          created_at: number; completed_at: number | null;
+          worker_session_id: string | null; worker_message_count: number | null;
+        }[];
+      };
+      this.degraded.delete('runs');
+      return (data.runs ?? []).map((r) => ({
+        taskId: r.id,
+        title: r.title,
+        assignee: r.assignee ?? 'default',
+        status: r.status,
+        result: r.result ?? undefined,
+        createdAt: epochToIso(r.created_at) ?? new Date().toISOString(),
+        completedAt: epochToIso(r.completed_at ?? undefined),
+        workerSessionId: r.worker_session_id ?? undefined,
+        workerMessageCount: r.worker_message_count ?? undefined,
+      }));
+    } catch {
+      this.degraded.add('runs');
+      return this.fallback.listDelegatedRuns();
+    }
+  }
+
+  /** Rebind a chat lane to a runtime sid + persist the stored id. */
+  private bindAssistantLane(agentId: string, runtimeSid: string, storedId?: string) {
+    const lane = this.assistantLane(agentId);
     if (lane.sid && lane.sid !== runtimeSid) this.assistantSidToAgent.delete(lane.sid);
     lane.sid = runtimeSid;
-    this.assistantSidToAgent.set(runtimeSid, 'default');
-    if (storedId) localStorage.setItem(LiveHermesAdapter.assistantStoredKey('default'), storedId);
+    this.assistantSidToAgent.set(runtimeSid, agentId);
+    if (storedId) localStorage.setItem(LiveHermesAdapter.assistantStoredKey(agentId), storedId);
+  }
+
+  /** Rebind the default (Ally) lane to a runtime sid + persist the stored id. */
+  private bindAllyLane(runtimeSid: string, storedId?: string) {
+    this.bindAssistantLane('default', runtimeSid, storedId);
   }
 
   /**
@@ -1335,12 +1554,15 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  /** Fresh Ally chat: create a new session (bypassing the stored id) and rebind. */
-  async startNewAssistantChat(): Promise<AuditResult> {
+  /** Fresh chat in a lane: create a new session (bypassing the stored id) and rebind. 'concierge' is a lane on the default profile, not a profile (assistantProfileParams guards the RPC). */
+  async startNewAssistantChat(agentId = 'default'): Promise<AuditResult> {
     try {
-      const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', { title: 'EAiOS — My Assistant' });
+      const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
+        title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId === 'concierge' ? 'Concierge' : agentId}`,
+        ...this.assistantProfileParams(agentId),
+      });
       if (!c.session_id) throw new Error('create returned no session id');
-      this.bindAllyLane(c.session_id, c.stored_session_id);
+      this.bindAssistantLane(agentId, c.session_id, c.stored_session_id);
       return { ok: true, auditEventId: `chat-new-${Date.now()}` };
     } catch (e) {
       return { ok: false, auditEventId: `chat-new-err-${Date.now()}`, error: { code: 'chat_new_failed', safeMessage: e instanceof Error ? e.message : 'Could not start a new chat.', retryable: true } };

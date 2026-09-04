@@ -15,6 +15,7 @@ import * as fx from '../mocks/fixtures';
 
 beforeAll(() => {
   startRuntime();
+  (hermes as unknown as { __stopEvents(): void }).__stopEvents();
 });
 
 afterEach(async () => {
@@ -27,6 +28,8 @@ const mock = () =>
   hermes as unknown as {
     __loadFixture(patch: { work?: typeof fx.workItems; cron?: typeof fx.cronJobs }): void;
   };
+
+const DAY_MS = 24 * 3600_000;
 
 function stubLiveRpc(behavior: (argv: string[]) => { code: number; output: string }) {
   const calls: string[][] = [];
@@ -74,6 +77,7 @@ describe('setWorkItemState — live kanban mapping', () => {
     ['pause', 'block'],
     ['resume', 'unblock'],
     ['stop', 'archive'],
+    ['delete', 'archive'],
     ['defer', 'schedule'],
   ] as const)('%s → kanban %s', async (action, sub) => {
     const calls = stubLiveRpc(() => ({ code: 0, output: '✔ ok\n' }));
@@ -125,13 +129,15 @@ describe('setWorkItemState — live kanban mapping', () => {
 });
 
 describe('setWorkItemState — mock transitions', () => {
-  it('pause blocks, resume restores, stop cancels', async () => {
+  it('pause blocks, resume restores, stop cancels, delete removes', async () => {
     await hermes.setWorkItemState('w-03', 'pause');
     expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('blocked');
     await hermes.setWorkItemState('w-03', 'resume');
     expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('delegated');
     await hermes.setWorkItemState('w-03', 'stop');
     expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('cancelled');
+    await hermes.setWorkItemState('w-04', 'delete');
+    expect((await hermes.listWorkItems()).find((w) => w.id === 'w-04')).toBeUndefined();
   });
 
   it('unknown task is an honest not_found', async () => {
@@ -197,10 +203,10 @@ describe('Schedule — dynamic work control + visibility', () => {
     }, { timeout: 5000 });
   });
 
-  it('completed tasks within 24h appear in the recently-completed list, with their result', async () => {
+  it('completed tasks within 3 days appear in the recently-completed list, with their result', async () => {
     mock().__loadFixture({
       work: fx.workItems.map((w) =>
-        w.id === 'w-09' ? { ...w, updatedAt: new Date(Date.now() - 2 * 3600_000).toISOString(), result: 'Digest produced and sent to Don on Telegram.' } : w,
+        w.id === 'w-09' ? { ...w, updatedAt: new Date(Date.now() - 2 * DAY_MS).toISOString(), result: 'Digest produced and sent to Don on Telegram.' } : w,
       ),
     });
     await refreshWork();
@@ -209,9 +215,25 @@ describe('Schedule — dynamic work control + visibility', () => {
         <Schedule />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('Completed in the last 24h', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText('Completed in the last 3 days', undefined, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText('Expense anomaly digest')).toBeInTheDocument();
     expect(screen.getByText(/Digest produced and sent to Don/)).toBeInTheDocument();
+  });
+
+  it('main delegated task list has a Delete button', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Schedule />
+      </MemoryRouter>,
+    );
+    const card = (await screen.findByText('Work in flight — delegated tasks')).closest('div.rounded-xl') as HTMLElement;
+    const row = (await within(card).findByText('Prepare investor update email', undefined, { timeout: 4000 })).closest('li') as HTMLElement;
+    await user.click(within(row).getByRole('button', { name: 'Delete' }));
+    await user.click(await within(row).findByRole('button', { name: 'Confirm delete' }, { timeout: 4000 }));
+    await vi.waitFor(async () => {
+      expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')).toBeUndefined();
+    }, { timeout: 5000 });
   });
 });
 

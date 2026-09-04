@@ -1,0 +1,15 @@
+{
+  "comment": "EAiOS spend rate card (F29/F30) — SINGLE SOURCE OF TRUTH for cost estimation. Read by: app server apiCore (Usage page /api/usage/daily) and scripts/spend-watchdog.py (cron d0f0f4fb3ba9). Rates = USD per 1M tokens, FRESH input + output only (cache excluded — validated vs Don's actual bill, Sep 2: $11.35 est vs ~$12 charged). 'match' is a case-insensitive substring of the model id; first match wins. Public list prices, Sept 2026.",
+  "rates": [
+    { "match": "kimi-k3", "input": 3.00, "output": 14.00 },
+    { "match": "kimi-k2.7-code-highspeed", "input": 1.90, "output": 8.00 },
+    { "match": "kimi-k2.7", "input": 0.95, "output": 4.00 },
+    { "match": "kimi-k2.6", "input": 0.95, "output": 4.00 },
+    { "match": "deepseek-v4-flash", "input": 0.088, "output": 0.176 },
+    { "match": "qwen3.7-flash", "input": 0.030, "output": 0.130 },
+    { "match": "glm-5", "input": 0.30, "output": 1.20 },
+    { "match": "glm-4", "input": 0.30, "output": 0.90 },
+    { "match": "minimax-m", "input": 0.60, "output": 2.40 }
+  ],
+  "default": { "input": 3.00, "output": 14.00 }
+}

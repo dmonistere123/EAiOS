@@ -9,6 +9,7 @@ type RuntimeState = Parameters<typeof selectCronByNextRun>[0];
 const baseState = (): RuntimeState => ({
   ready: true,
   gateway: 'mock',
+  degraded: [],
   agents: [] as Agent[],
   work: [] as WorkItem[],
   approvals: [] as Approval[],
@@ -19,6 +20,7 @@ const baseState = (): RuntimeState => ({
   playbooks: [],
   playbookRuns: [],
   usage: null,
+  dailySpend: null,
   artifacts: [],
   toasts: [],
 });

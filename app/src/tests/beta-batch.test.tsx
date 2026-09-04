@@ -37,11 +37,15 @@ function renderAt(route: string, element: React.ReactElement, path: string) {
 describe('W5 — Schedule ownership rail', () => {
   it('groups cron jobs by owning agent; creator gap noted honestly', async () => {
     renderAt('/schedule', <Schedule />, 'schedule');
-    expect(await screen.findByText('Schedules by agent')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'My calendar' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Agent schedules' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Cron jobs' })).toBeInTheDocument();
     expect(screen.queryByText('Operational Watchtower')).not.toBeInTheDocument();
     // mock fixtures: ally → morning briefing, scout → competitor digest, sentinel → watchdog
-    expect(await screen.findByText("Morning briefing → Ally's Portal")).toBeInTheDocument();
-    expect(await screen.findByText('Competitor news digest')).toBeInTheDocument();
+    const cronSection = (await screen.findByRole('heading', { name: 'Cron jobs' })).closest('[data-rail-section]') as HTMLElement;
+    expect(cronSection).toBeTruthy();
+    expect(await within(cronSection).findByText("Morning briefing → Ally's Portal")).toBeInTheDocument();
+    expect(await within(cronSection).findByText('Competitor news digest')).toBeInTheDocument();
     expect(await screen.findByText(/doesn't record who created each job/)).toBeInTheDocument();
   });
 

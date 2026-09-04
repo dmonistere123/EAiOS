@@ -30,10 +30,10 @@ describe('Schedule — Work in flight', () => {
     expect(within(card).getByText('Market scan: AI ops tooling')).toBeInTheDocument();
     expect(await within(card).findByText(/^Ally$/, undefined, { timeout: 4000 })).toBeInTheDocument();
     expect(within(card).getByText('waiting approval')).toBeInTheDocument();
-    // w-09 is complete — excluded from the ACTIVE list but shown in "Completed in the last 24h"
+    // w-09 is complete — excluded from the ACTIVE list but shown in "Completed in the last 3 days"
     const activeList = within(card).getAllByRole('list')[0];
     expect(within(activeList).queryByText('Expense anomaly digest')).not.toBeInTheDocument();
-    expect(within(card).getByText('Completed in the last 24h')).toBeInTheDocument();
+    expect(within(card).getByText('Completed in the last 3 days')).toBeInTheDocument();
     expect(within(card).getByText('Expense anomaly digest')).toBeInTheDocument();
     // the approval-gate assurance copy is on the card
     expect(within(card).getByText(/nothing here bypasses them/)).toBeInTheDocument();

@@ -15,11 +15,13 @@ import type {
   AuditResult,
   ChatMessage,
   CronJob,
+  DelegatedRun,
   EnvironmentFile,
   EnvironmentFileRef,
   RuntimeEvent,
   TodaySummary,
   UsageSummary,
+  DailySpendReport,
   WorkItem,
   KnowledgeSource,
   Skill,
@@ -132,9 +134,19 @@ export interface CreateCronJob {
 export type CronJobPatch = Partial<Pick<CronJob, 'name' | 'scheduleExpression' | 'enabled' | 'approvalPolicy' | 'prompt' | 'deliver'>>;
 
 /** Work-item lifecycle actions (dogfood 2026-08-29): dynamic kanban control from Schedule. */
-export type WorkItemAction = 'pause' | 'resume' | 'complete' | 'stop' | 'defer' | 'reclaim';
+export type WorkItemAction = 'pause' | 'resume' | 'complete' | 'stop' | 'defer' | 'reclaim' | 'delete';
+
+export interface AssistantAttachment {
+  name: string;
+  mimeType: string;
+  content: string; // text content for text-ish files; base64 for binary
+  encoding: 'text' | 'base64';
+}
 
 export interface HermesAdapter {
+  /** Slices currently serving fallback data (live adapter only; absent on
+   * mock). Spec §2: degradation must be visible, never silent. */
+  getDegradedSlices?(): string[];
   getTodaySummary(): Promise<TodaySummary>;
   listAgents(): Promise<Agent[]>;
   getAgent(agentId: string): Promise<Agent>;
@@ -159,6 +171,8 @@ export interface HermesAdapter {
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
+  /** Edit the prepared payload of a pending approval before deciding. */
+  updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult>;
 
   listCronJobs(profile?: string): Promise<CronJob[]>;
   createCronJob(input: CreateCronJob): Promise<AuditResult>;
@@ -177,7 +191,15 @@ export interface HermesAdapter {
   getUsage(range: DateRange): Promise<UsageSummary>;
   /** Set (or clear, with null) the EAiOS-owned monthly usage budget (F15). */
   setUsageBudget(budgetUsd: number | null): Promise<AuditResult>;
+  /** F29 daily spend estimate over the last N local days (rate card, threshold from settings). */
+  getDailySpend(days?: number): Promise<DailySpendReport>;
+  /** Set (or clear, with null) the daily spend alert threshold shared with the watchdog cron (F29). */
+  setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult>;
   listSkills(): Promise<Skill[]>;
+  /** Enable or disable a skill (rewrites SKILL.md frontmatter). */
+  updateSkillStatus(slug: string, category: string, status: 'enabled' | 'disabled'): Promise<AuditResult>;
+  /** Delete a user-local skill directory. */
+  deleteSkill(slug: string, category: string): Promise<AuditResult>;
 
   listPlaybooks(): Promise<Playbook[]>;
   /**
@@ -191,6 +213,10 @@ export interface HermesAdapter {
   listPlaybookRuns(playbookId?: string): Promise<PlaybookRun[]>;
   /** Create or edit a playbook (W7, D-B3). Edit bumps the patch version server-side; editing a published playbook lands as a new draft. */
   savePlaybook(input: PlaybookInput): Promise<AuditResult<Playbook>>;
+  /** Enable or disable a playbook (rewrites frontmatter enabled flag). Disabled playbooks are hidden from the run list. */
+  updatePlaybookEnabled(slug: string, enabled: boolean): Promise<AuditResult>;
+  /** Delete a playbook markdown file. */
+  deletePlaybook(slug: string): Promise<AuditResult>;
   /** Create a user-local skill (W7, D-B3). Create-only — overwrite refused. */
   createSkill(input: CreateSkill): Promise<AuditResult>;
 
@@ -202,7 +228,7 @@ export interface HermesAdapter {
   /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */
   getAssistantHistory(agentId?: string): Promise<ChatMessage[]>;
   /** Send a message to a staff agent (default = Ally); the reply arrives via subscribeAssistant events. */
-  sendAssistantMessage(text: string, agentId?: string): Promise<AuditResult>;
+  sendAssistantMessage(text: string, opts?: { agentId?: string; attachments?: AssistantAttachment[] }): Promise<AuditResult>;
   /** Streaming chat events for the selected agent session ONLY — other sessions' events never surface here. */
   subscribeAssistant(handler: (event: AssistantEvent) => void, agentId?: string): Unsubscribe;
 
@@ -213,10 +239,12 @@ export interface HermesAdapter {
   getChannelFor(agentId: string): Promise<AgentChannel>;
   /** Read-only transcript of any one session of any profile (drawer view — never a chat target). */
   getSessionTranscript(profile: string | undefined, sessionId: string): Promise<ChatMessage[]>;
+  /** Delegated task executions joined to their worker sessions (rail "Delegated runs" + Schedule click-to-read). */
+  listDelegatedRuns(): Promise<DelegatedRun[]>;
   /** Resume one of Ally's stored sessions into the Assistant chat (Ally-only, D-B1). Fails honestly — never pretends a resume worked. */
   resumeAssistantSession(storedId: string): Promise<AuditResult>;
-  /** Start a fresh Ally chat, replacing the stored session id. */
-  startNewAssistantChat(): Promise<AuditResult>;
+  /** Start a fresh chat in a lane ('default' = Ally's main chat, 'concierge' = the navigation widget), replacing the lane's stored session id. */
+  startNewAssistantChat(agentId?: string): Promise<AuditResult>;
 }
 
 // ---------- Composio (mock until Phase 4) ----------

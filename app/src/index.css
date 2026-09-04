@@ -73,3 +73,80 @@ body {
     transform: translateY(-3px);
   }
 }
+
+/* Staff org chart — "AI Office" orbital motion (hand-rolled, no deps).
+   Ring wrapper rotates around its own center; each node counter-rotates
+   so labels stay upright. Durations/direction set inline per ring. */
+@keyframes eaios-orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes eaios-orbit-counter {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.eaios-orbit-ring {
+  position: absolute;
+  animation: eaios-orbit-spin linear infinite;
+}
+.eaios-orbit-counter {
+  animation: eaios-orbit-counter linear infinite;
+}
+
+/* Hovering a ring pauses it (and its counter-rotation) so nodes are easy to click. */
+.eaios-orgchart .eaios-orbit-ring:hover,
+.eaios-orgchart .eaios-orbit-ring:hover .eaios-orbit-counter {
+  animation-play-state: paused;
+}
+
+/* Brain hub glow pulse */
+@keyframes eaios-hub-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 32px rgba(50, 197, 255, 0.28),
+      inset 0 0 24px rgba(50, 197, 255, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 48px rgba(50, 197, 255, 0.42),
+      inset 0 0 30px rgba(50, 197, 255, 0.16);
+  }
+}
+.eaios-hub {
+  animation: eaios-hub-pulse 3s ease-in-out infinite;
+}
+
+/* Concierge panel (F26): brief slide-up on open — decorative only. */
+@keyframes eaios-concierge-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.eaios-concierge-panel {
+  animation: eaios-concierge-in 160ms ease-out;
+}
+
+/* Reduced motion: orbit off — the static ring layout remains. */
+@media (prefers-reduced-motion: reduce) {
+  .eaios-orgchart .eaios-orbit-ring,
+  .eaios-orgchart .eaios-orbit-counter,
+  .eaios-orgchart .eaios-hub,
+  .eaios-orgchart .animate-ping,
+  .eaios-concierge-panel {
+    animation: none;
+  }
+}

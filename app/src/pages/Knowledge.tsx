@@ -87,16 +87,31 @@ function RetrievalPanel() {
 }
 
 function AddSourceDrawer({ onClose }: { onClose: () => void }) {
+  const s = useRuntime();
   const [mode, setMode] = useState<'file' | 'url'>('file');
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [scope, setScope] = useState<KnowledgeSource['scope']>('private');
+  const [allowedAgentIds, setAllowedAgentIds] = useState<string[]>([]);
   const [citable, setCitable] = useState(true);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const toggleAgent = (id: string) => {
+    setAllowedAgentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
   const submit = async () => {
-    const meta = { name, scope, citationEnabled: citable };
+    if (scope === 'agent' && allowedAgentIds.length === 0) {
+      toast('error', 'Select at least one agent for an agent-scoped source.');
+      return;
+    }
+    const meta: import('../adapters/interfaces').KnowledgeSourceInput = {
+      name,
+      scope,
+      citationEnabled: citable,
+      ...(scope === 'agent' ? { allowedAgentIds } : {}),
+    };
     setBusy(true);
     try {
       if (mode === 'file') {
@@ -166,6 +181,25 @@ function AddSourceDrawer({ onClose }: { onClose: () => void }) {
             <option value="agent">agent — named agents only</option>
           </select>
         </label>
+
+        {scope === 'agent' && (
+          <div className="block text-sm">
+            <span className="mb-1 block text-xs text-ink-dim">Allowed agents</span>
+            <div className="space-y-1.5 rounded-lg border border-edge bg-canvas px-3 py-2">
+              {s.agents.length === 0 ? (
+                <p className="text-xs text-ink-faint">No agents loaded yet.</p>
+              ) : (
+                s.agents.map((a) => (
+                  <label key={a.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={allowedAgentIds.includes(a.id)} onChange={() => toggleAgent(a.id)} className="accent-signal" />
+                    <span>{a.name}</span>
+                    <span className="text-xs text-ink-faint">{a.role}</span>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={citable} onChange={(e) => setCitable(e.target.checked)} className="accent-signal" />

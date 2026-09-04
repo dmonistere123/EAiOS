@@ -5,7 +5,7 @@
  * applies live events from subscribeEvents.
  */
 import { useSyncExternalStore } from 'react';
-import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary, Artifact } from '../domain/types';
+import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary, DailySpendReport, Artifact } from '../domain/types';
 import { hermes, adapterMode, live, knowledge } from '../adapters';
 
 export interface Toast {
@@ -17,6 +17,10 @@ export interface Toast {
 interface State {
   ready: boolean;
   gateway: 'live' | 'mock' | 'offline';
+  /** Slices currently serving mock/cached data while the badge says live
+   * (spec §2 honest degradation — dogfood 2026-08-29: the work slice hid a
+   * silent mock fallback for hours). Empty = everything healthy. */
+  degraded: string[];
   agents: Agent[];
   work: WorkItem[];
   approvals: Approval[];
@@ -27,6 +31,7 @@ interface State {
   playbooks: Playbook[];
   playbookRuns: PlaybookRun[];
   usage: UsageSummary | null;
+  dailySpend: DailySpendReport | null;
   artifacts: Artifact[];
   toasts: Toast[];
 }
@@ -34,6 +39,7 @@ interface State {
 let state: State = {
   ready: false,
   gateway: 'mock',
+  degraded: [],
   agents: [],
   work: [],
   approvals: [],
@@ -44,6 +50,7 @@ let state: State = {
   playbooks: [],
   playbookRuns: [],
   usage: null,
+  dailySpend: null,
   artifacts: [],
   toasts: [],
 };
@@ -84,7 +91,12 @@ const seqs: Record<string, number> = {};
 async function guarded<T>(key: string, fn: () => Promise<T>, apply: (v: T) => void) {
   const my = (seqs[key] = (seqs[key] ?? 0) + 1);
   const v = await fn();
-  if (seqs[key] === my) apply(v);
+  if (seqs[key] === my) {
+    apply(v);
+    // Degradation is adapter-reported (live adapter tracks which slices fell
+    // back); refresh the shell-visible list after every slice lands.
+    set({ degraded: hermes.getDegradedSlices?.() ?? [] });
+  }
 }
 
 export async function refreshApprovals() {
@@ -131,6 +143,11 @@ export function usageRangeMonthToDate() {
 
 export async function refreshUsage() {
   await guarded('usage', () => hermes.getUsage(usageRangeMonthToDate()), (usage) => set({ usage }));
+}
+
+/** F29: daily rate-card spend strip for the Usage page. */
+export async function refreshDailySpend() {
+  await guarded('dailySpend', () => hermes.getDailySpend(14), (dailySpend) => set({ dailySpend }));
 }
 
 export async function refreshArtifacts() {
