@@ -269,3 +269,125 @@ describe('Assistant page (mock mode)', () => {
     expect(await screen.findByText(/No Ally↔Scout chat yet/)).toBeInTheDocument();
   });
 });
+
+// ---------- voice I/O (browser Web Speech API) ----------
+
+describe('Assistant voice I/O', () => {
+  class MockSpeechRecognition extends EventTarget {
+    continuous = false;
+    interimResults = false;
+    lang = '';
+    start = vi.fn();
+    stop = vi.fn();
+    abort = vi.fn();
+  }
+
+  let recognitionInstance: MockSpeechRecognition | null = null;
+
+  function installVoiceStubs(supported: boolean) {
+    recognitionInstance = null;
+    if (supported) {
+      Object.defineProperty(globalThis, 'SpeechRecognition', {
+        value: vi.fn(function () {
+          recognitionInstance = new MockSpeechRecognition();
+          return recognitionInstance;
+        }),
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'webkitSpeechRecognition', {
+        value: vi.fn(function () {
+          recognitionInstance = new MockSpeechRecognition();
+          return recognitionInstance;
+        }),
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'speechSynthesis', {
+        value: {
+          speak: vi.fn(),
+          cancel: vi.fn(),
+          getVoices: vi.fn(() => []),
+          paused: false,
+          pending: false,
+          speaking: false,
+          onvoiceschanged: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        },
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', {
+        value: vi.fn(function (this: unknown, text: string) {
+          (this as { text: string }).text = text;
+        }),
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      Object.defineProperty(globalThis, 'SpeechRecognition', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'webkitSpeechRecognition', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'speechSynthesis', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+      Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', {
+        value: undefined,
+        configurable: true,
+        writable: true,
+      });
+    }
+  }
+
+  beforeEach(() => {
+    installVoiceStubs(true);
+  });
+
+  afterEach(() => {
+    installVoiceStubs(false);
+  });
+
+  it('mic button is available when voice is supported', async () => {
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('button', { name: 'Speak to Ally' })).toBeInTheDocument();
+  });
+
+  it('read-aloud button on Ally messages calls speech synthesis', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/chief of staff/);
+    const speakButtons = await screen.findAllByRole('button', { name: 'Read aloud' });
+    expect(speakButtons.length).toBeGreaterThan(0);
+    await user.click(speakButtons[0]);
+    expect(speechSynthesis.speak).toHaveBeenCalled();
+  });
+
+  it('voice unsupported hides the mic button', async () => {
+    installVoiceStubs(false);
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/chief of staff/);
+    expect(screen.queryByRole('button', { name: 'Speak to Ally' })).not.toBeInTheDocument();
+  });
+});

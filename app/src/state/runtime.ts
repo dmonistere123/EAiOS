@@ -163,6 +163,18 @@ export async function refreshAll() {
 
 let started = false;
 
+let asyncPollingEnabled = true;
+
+/** Test hook: disable the auto-polling effects (health/cron/delegated-runs)
+ *  that cause act(...) warnings in jsdom tests. */
+export function __setAsyncPolling(enabled: boolean) {
+  asyncPollingEnabled = enabled;
+}
+
+export function __getAsyncPolling() {
+  return asyncPollingEnabled;
+}
+
 export function startRuntime() {
   if (started) return;
   started = true;
@@ -180,11 +192,22 @@ export function startRuntime() {
   // within ~1s). The gateway can emit bursts (e.g. sessions.changed storms);
   // a trailing debounce keeps refreshes cheap and ordered.
   let evtTimer: ReturnType<typeof setTimeout> | undefined;
+  let eventRefreshEnabled = true;
   const scheduleEventRefresh = () => {
+    if (!eventRefreshEnabled) return;
     clearTimeout(evtTimer);
     evtTimer = setTimeout(() => void refreshAll(), 800);
   };
   hermes.subscribeEvents?.(() => scheduleEventRefresh());
+
+  /** Test hook: stop the runtime from scheduling debounced event refreshes. */
+  (startRuntime as unknown as { __disableEventRefresh?(): void }).__disableEventRefresh = () => {
+    eventRefreshEnabled = false;
+    if (evtTimer) {
+      clearTimeout(evtTimer);
+      evtTimer = undefined;
+    }
+  };
 }
 
 /**

@@ -27,7 +27,10 @@ import type {
   Skill,
   Playbook,
   PlaybookRun,
-} from '../domain/types';
+  TravelTrip,
+  TravelBooking,
+  TravelAgentResult,
+} from '../domain/types.ts';
 
 export type Unsubscribe = () => void;
 
@@ -180,7 +183,7 @@ export interface HermesAdapter {
   /** Permanently remove a scheduled job (confirm in UI first). */
   deleteCronJob(id: string): Promise<AuditResult>;
 
-  listActivity(limit?: number): Promise<import('../domain/types').ActivityEvent[]>;
+  listActivity(limit?: number): Promise<import('../domain/types.ts').ActivityEvent[]>;
   subscribeEvents?(handler: (event: RuntimeEvent) => void): Unsubscribe;
 
   listArtifacts(filter?: ArtifactFilter): Promise<Artifact[]>;
@@ -245,6 +248,79 @@ export interface HermesAdapter {
   resumeAssistantSession(storedId: string): Promise<AuditResult>;
   /** Start a fresh chat in a lane ('default' = Ally's main chat, 'concierge' = the navigation widget), replacing the lane's stored session id. */
   startNewAssistantChat(agentId?: string): Promise<AuditResult>;
+
+  // ---------- Travel (F31) ----------
+  listTrips(): Promise<TravelTrip[]>;
+  getTrip(id: string): Promise<TravelTrip | null>;
+  searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]>;
+  /** Natural-language travel agent: parses a query like "find flights BHM to BTR Sep 15-17" into a search and returns results + summary. */
+  travelAgent(query: string): Promise<TravelAgentResult>;
+  createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>>;
+  proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>>;
+  decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
+  /** Browser-use provider status + vault state. */
+  getTravelBrowserStatus(): Promise<{
+    enabled: boolean;
+    chromeBin?: string;
+    vaultUnlocked: boolean;
+    configuredSites: string[];
+    sessionSites: string[];
+    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
+  }>;
+
+  // ---------- Browser vault credential manager ----------
+  listTravelVaultSites(): Promise<TravelVaultSite[]>;
+  getTravelVaultSite(site: string): Promise<TravelVaultSite | null>;
+  setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult>;
+  removeTravelVaultSite(site: string): Promise<AuditResult>;
+}
+
+export interface TravelVaultSite {
+  site: string;
+  hasUsername: boolean;
+  hasPassword: boolean;
+  hasTotp: boolean;
+  notes?: string;
+  updatedAt: string;
+}
+
+export interface TravelVaultSiteInput {
+  username?: string;
+  password?: string;
+  totpSeed?: string;
+  notes?: string;
+}
+
+export interface CreateTripInput {
+  name: string;
+  destination: string;
+  startsAt: string;
+  endsAt: string;
+}
+
+export interface TravelSearchParams {
+  kind: 'flight' | 'hotel' | 'car' | 'restaurant';
+  origin?: string;
+  destination?: string;
+  checkIn?: string;
+  checkOut?: string;
+  departureDate?: string;
+  returnDate?: string;
+  date?: string;
+  pickupLocation?: string;
+  dropoffLocation?: string;
+  partySize?: number;
+}
+
+export interface TravelSearchResult {
+  id: string;
+  kind: TravelSearchParams['kind'];
+  title: string;
+  subtitle: string;
+  priceUsd?: number;
+  provider: string;
+  externalUrl?: string;
+  meta: Record<string, string>;
 }
 
 // ---------- Composio (mock until Phase 4) ----------
@@ -354,7 +430,7 @@ export interface KnowledgeAdapter {
   removeSource(sourceId: string): Promise<AuditResult>;
   searchKnowledge(query: string, limit?: number): Promise<KnowledgeSearchResult[]>;
   getChunk(chunkId: string): Promise<KnowledgeChunk>;
-  getRetrievalEvidence(answerId: string): Promise<import('../domain/types').EvidenceRef[]>;
+  getRetrievalEvidence(answerId: string): Promise<import('../domain/types.ts').EvidenceRef[]>;
 }
 
 // ---------- Calendar (mock until Phase 4) ----------

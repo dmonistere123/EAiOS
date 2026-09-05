@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { calendarEvents as fixtureCalendarEvents } from '../mocks/fixtures';
 import { hermes } from '../adapters';
 import { TELEGRAM_HOME_DELIVERY } from '../config';
-import { useRuntime, refreshCron, refreshWork, toast, agentName } from '../state/runtime';
+import { useRuntime, refreshCron, refreshWork, toast, agentName, __getAsyncPolling } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import type { CronJob, DelegatedRun, WorkItem } from '../domain/types';
@@ -224,6 +224,7 @@ export default function Schedule() {
   const [confirmDeleteEvent, setConfirmDeleteEvent] = useState<string | null>(null);
   const [confirmDeleteCron, setConfirmDeleteCron] = useState<string | null>(null);
   useEffect(() => {
+    if (!__getAsyncPolling()) return;
     let stale = false;
     void hermes.listDelegatedRuns().then((rows) => {
       if (!stale) setRuns(rows);
@@ -263,7 +264,7 @@ export default function Schedule() {
   const inProgressIds = workInFlight.filter((w) => w.state === 'in_progress').map((w) => w.id).join(',');
   const [health, setHealth] = useState<Record<string, 'healthy' | 'stale' | 'unknown'>>({});
   useEffect(() => {
-    if (!inProgressIds || !hermes.getWorkItemHealth) return;
+    if (!inProgressIds || !hermes.getWorkItemHealth || !__getAsyncPolling()) return;
     let live = true;
     const check = () =>
       void hermes.getWorkItemHealth!(inProgressIds.split(',')).then((h) => {
@@ -315,7 +316,7 @@ export default function Schedule() {
   // identity-stable refreshes don't refetch, but a created/deleted job does.
   const agentIds = s.agents.map((a) => a.id).join(',');
   useEffect(() => {
-    if (!agentIds) return;
+    if (!agentIds || !__getAsyncPolling()) return;
     let stale = false;
     void Promise.all(agentIds.split(',').map(async (id) => [id, await hermes.listCronJobs(id)] as const)).then((entries) => {
       if (!stale) setByAgent(Object.fromEntries(entries));

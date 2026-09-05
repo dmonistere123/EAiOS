@@ -6,13 +6,15 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun,
+  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
   CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
+  CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
+import { MockTravelAdapter } from './MockTravelAdapter';
 
 const delay = (ms = 180) => new Promise((r) => setTimeout(r, ms + Math.random() * 160));
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -39,6 +41,7 @@ class MockHermesAdapter implements HermesAdapter {
   private artifacts = clone(fx.artifacts);
   private handlers = new Set<Handler>();
   private tick?: ReturnType<typeof setInterval>;
+  private travel = new MockTravelAdapter();
 
   // ----- event simulation -------------------------------------------------
   private emit(type: RuntimeEvent['type'], agentId: string | undefined, action: string, workItemId?: string) {
@@ -812,6 +815,76 @@ class MockHermesAdapter implements HermesAdapter {
     if (id.startsWith('soul-')) this.soulContents.set(id, _content);
     this.emit('config.changed', undefined, `Environment file saved: ${id}`);
     return audit();
+  }
+
+  // ---------- Travel (F31) ----------
+  async listTrips(): Promise<TravelTrip[]> {
+    await delay();
+    return this.travel.listTrips();
+  }
+
+  async getTrip(id: string): Promise<TravelTrip | null> {
+    await delay();
+    return this.travel.getTrip(id);
+  }
+
+  async searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]> {
+    await delay(350);
+    return this.travel.searchTravel(params);
+  }
+
+  async travelAgent(query: string): Promise<TravelAgentResult> {
+    await delay(400);
+    return this.travel.travelAgent(query);
+  }
+
+  async createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>> {
+    await delay(250);
+    return this.travel.createTrip(input);
+  }
+
+  async proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>> {
+    await delay(250);
+    return this.travel.proposeBooking(tripId, resultId, note);
+  }
+
+  async decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
+    await delay(200);
+    return this.travel.decideTravelApproval(approvalId, decision);
+  }
+
+  async getTravelBrowserStatus(): Promise<{
+    enabled: boolean;
+    chromeBin?: string;
+    vaultUnlocked: boolean;
+    configuredSites: string[];
+    sessionSites: string[];
+    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
+  }> {
+    await delay(100);
+    return this.travel.getTravelBrowserStatus();
+  }
+
+  // ---------- Browser vault credential manager ----------
+
+  async listTravelVaultSites(): Promise<TravelVaultSite[]> {
+    await delay(100);
+    return this.travel.listTravelVaultSites();
+  }
+
+  async getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
+    await delay(80);
+    return this.travel.getTravelVaultSite(site);
+  }
+
+  async setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
+    await delay(200);
+    return this.travel.setTravelVaultSite(site, input);
+  }
+
+  async removeTravelVaultSite(site: string): Promise<AuditResult> {
+    await delay(150);
+    return this.travel.removeTravelVaultSite(site);
   }
 }
 

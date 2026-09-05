@@ -4,22 +4,31 @@
  * stale-run surfacing, recently-completed, and the cron inspector
  * (view prompt / edit / pause-resume / delete).
  */
-import { describe, expect, it, beforeAll, afterEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, within, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Schedule from '../pages/Schedule';
-import { startRuntime, refreshWork } from '../state/runtime';
+import { startRuntime, refreshWork, getState, __setAsyncPolling } from '../state/runtime';
 import { hermes, live } from '../adapters';
 import * as fx from '../mocks/fixtures';
 
-beforeAll(() => {
+beforeAll(async () => {
   startRuntime();
   (hermes as unknown as { __stopEvents(): void }).__stopEvents();
+  (startRuntime as unknown as { __disableEventRefresh(): void }).__disableEventRefresh();
+  // The Schedule page has mount-time polling effects (health/cron/delegated-runs)
+  // that fire async state updates and produce act(...) warnings under jsdom.
+  // Disable them for this suite; the stale-badge test re-enables health polling.
+  __setAsyncPolling(false);
+  // Drain the unawaited initial refreshAll() so it cannot race with fixture
+  // patches in individual tests.
+  await vi.waitFor(() => expect(getState().ready).toBe(true), { timeout: 8000 });
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  cleanup();
   mock().__loadFixture({ work: fx.workItems, cron: fx.cronJobs });
   await refreshWork();
 });
@@ -148,6 +157,10 @@ describe('setWorkItemState — mock transitions', () => {
 });
 
 describe('Schedule — dynamic work control + visibility', () => {
+  beforeEach(() => {
+    __setAsyncPolling(false);
+  });
+
   it('rows carry actions; pause flips the row to blocked with a Resume button', async () => {
     const user = userEvent.setup();
     render(
@@ -158,7 +171,7 @@ describe('Schedule — dynamic work control + visibility', () => {
     const card = (await screen.findByText('Work in flight — delegated tasks')).closest('div.rounded-xl') as HTMLElement;
     const row = (await within(card).findByText('Prepare investor update email', undefined, { timeout: 4000 })).closest('li') as HTMLElement;
     await user.click(within(row).getByRole('button', { name: 'Pause' }));
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('blocked');
     }, { timeout: 5000 });
     expect(await within(row).findByRole('button', { name: 'Resume' }, { timeout: 4000 })).toBeInTheDocument();
@@ -171,6 +184,8 @@ describe('Schedule — dynamic work control + visibility', () => {
       ),
     });
     await refreshWork();
+    // This is the only Schedule test that asserts the health-polling UI.
+    __setAsyncPolling(true);
     render(
       <MemoryRouter>
         <Schedule />
@@ -198,7 +213,7 @@ describe('Schedule — dynamic work control + visibility', () => {
     expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('in_progress');
     // second click completes
     await user.click(confirm);
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')?.state).toBe('complete');
     }, { timeout: 5000 });
   });
@@ -231,7 +246,7 @@ describe('Schedule — dynamic work control + visibility', () => {
     const row = (await within(card).findByText('Prepare investor update email', undefined, { timeout: 4000 })).closest('li') as HTMLElement;
     await user.click(within(row).getByRole('button', { name: 'Delete' }));
     await user.click(await within(row).findByRole('button', { name: 'Confirm delete' }, { timeout: 4000 }));
-    await vi.waitFor(async () => {
+    await waitFor(async () => {
       expect((await hermes.listWorkItems()).find((w) => w.id === 'w-03')).toBeUndefined();
     }, { timeout: 5000 });
   });

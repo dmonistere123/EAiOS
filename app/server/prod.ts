@@ -43,6 +43,33 @@ import type { ApiContext } from './httpApi.ts';
 const APP_DIR = dirname(fileURLToPath(import.meta.url)); // <eaios>/app/server
 const APP_ROOT = resolve(APP_DIR, '..');
 
+/** Load `app/.env.local` into `process.env` without overriding existing vars.
+ * Vite dev does this automatically; the prod server must do it itself so
+ * server-side env vars like DUFFEL_API_KEY are available to `server/travel.ts`.
+ */
+function loadAppEnvLocal(): void {
+  try {
+    const text = readFileSync(join(APP_ROOT, '.env.local'), 'utf8');
+    for (const line of text.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let value = trimmed.slice(eq + 1).trim();
+      // Strip optional surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (key && process.env[key] === undefined) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // no .env.local — continue with existing environment
+  }
+}
+
 export interface ProdConfig {
   port: number;
   host: string;
@@ -56,6 +83,7 @@ export interface ProdConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProdConfig {
+  loadAppEnvLocal();
   const hermesHome = env.HERMES_HOME ?? join(homedir(), '.hermes');
   let token = env.EAIOS_HERMES_TOKEN ?? '';
   if (!token) {

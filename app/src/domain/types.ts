@@ -3,6 +3,7 @@
  * Mock adapters, live adapters, tests, and UI selectors all use these types.
  * Semantic objects are stable even if field details change when wired to Hermes.
  */
+import type { TravelSearchParams, TravelSearchResult } from '../adapters/interfaces.ts';
 
 // ---------- Agents (Staff = AI agents, never human users) ----------
 
@@ -390,6 +391,100 @@ export interface AgentChannel {
   delegations: WorkItem[];
   /** Ally↔agent chat (canonical per-profile "Bot Chat" session); null = none exists yet. */
   agentChat: ChatMessage[] | null;
+}
+
+// ---------- Travel (F31) ----------
+
+export type TravelBookingKind = 'flight' | 'hotel' | 'car' | 'restaurant';
+export type TravelBookingStatus = 'proposed' | 'confirmed' | 'cancelled';
+
+interface TravelBookingBase {
+  id: string;
+  tripId: string;
+  kind: TravelBookingKind;
+  status: TravelBookingStatus;
+  provider: string;
+  confirmationNumber?: string;
+  costUsd?: number;
+  externalUrl?: string;
+}
+
+export interface TravelFlight extends TravelBookingBase {
+  kind: 'flight';
+  airline: string;
+  flightNumber: string;
+  origin: string;
+  destination: string;
+  departureAt: string;
+  arrivalAt: string;
+  cabin: string;
+}
+
+export interface TravelHotel extends TravelBookingBase {
+  kind: 'hotel';
+  hotelName: string;
+  checkIn: string;
+  checkOut: string;
+  roomType: string;
+  address?: string;
+}
+
+export interface TravelCar extends TravelBookingBase {
+  kind: 'car';
+  company: string;
+  carType: string;
+  pickupLocation: string;
+  dropoffLocation: string;
+  pickupAt: string;
+  dropoffAt: string;
+}
+
+export interface TravelRestaurant extends TravelBookingBase {
+  kind: 'restaurant';
+  restaurantName: string;
+  cuisine?: string;
+  reservationAt: string;
+  partySize: number;
+  address?: string;
+}
+
+export type TravelBooking = TravelFlight | TravelHotel | TravelCar | TravelRestaurant;
+
+export interface TravelApproval {
+  id: string;
+  tripId: string;
+  bookingId?: string;
+  /** Original search result id, used to replay the offer during booking execution. */
+  resultId?: string;
+  actionType: 'book' | 'cancel' | 'other';
+  targetSystem: 'duffel' | 'browser-use-consumer' | 'opentable' | 'other';
+  targetObject?: string;
+  risk: RiskLevel;
+  status: 'pending' | 'approved' | 'rejected' | 'changes_requested';
+  submittedAt: string;
+  payload?: string;
+}
+
+export interface TravelTrip {
+  id: string;
+  name: string;
+  destination: string;
+  startsAt: string;
+  endsAt: string;
+  status: 'planning' | 'upcoming' | 'active' | 'past' | 'cancelled';
+  bookings: TravelBooking[];
+  approvals: TravelApproval[];
+}
+
+export interface TravelAgentResult {
+  /** Natural language summary of the search outcome. */
+  summary: string;
+  /** The search kind that was executed (null if the query wasn't a travel search). */
+  kind: TravelSearchParams['kind'] | null;
+  /** The parsed search parameters used. */
+  params: TravelSearchParams | null;
+  /** Search results matching the query. */
+  results: TravelSearchResult[];
 }
 
 // ---------- Environment files (spec §8.11) ----------

@@ -8,6 +8,7 @@ import type { AssistantSessionRef, ChatMessage, DelegatedRun } from '../domain/t
 import { hermes } from '../adapters';
 import type { AssistantAttachment } from '../adapters/interfaces';
 import { Card, Drawer, SectionTitle, StateBadge, AgentStatusBadge } from '../components/ui';
+import { useVoice } from '../hooks/useVoice';
 import { ChunkDrawer } from '../components/ChunkDrawer';
 import { AgentChannel } from '../components/AgentChannel';
 import { DelegatedRunDrawer } from '../components/DelegatedRunDrawer';
@@ -92,6 +93,10 @@ export default function Assistant() {
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const draftRef = useRef(draft);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
   const [sending, setSending] = useState(false);
   const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
@@ -99,6 +104,17 @@ export default function Assistant() {
   const [openSession, setOpenSession] = useState<AssistantSessionRef | null>(null);
   const [sessions, setSessions] = useState<AssistantSessionRef[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const voice = useVoice((text) => {
+    setDraft(text);
+    draftRef.current = text;
+    // Auto-send after a short delay so the user sees the transcribed text.
+    setTimeout(() => {
+      if (draftRef.current.trim()) {
+        void send();
+      }
+    }, 300);
+  });
 
   // Chat is ALWAYS Ally (D-B1): hydrate once, then ride streaming events.
   useEffect(() => {
@@ -259,10 +275,11 @@ export default function Assistant() {
   usePageRail(railSections);
 
   const send = async () => {
-    const text = draft.trim();
+    const text = draftRef.current.trim();
     if ((!text && attachments.length === 0) || sending || streaming !== null) return;
     setSending(true);
     setDraft('');
+    draftRef.current = '';
     const displayText = text || `[${attachments.length} attachment${attachments.length === 1 ? '' : 's'}]`;
     const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text: displayText, at: new Date().toISOString() };
     setThread((t) => [...t, optimistic]);
@@ -368,7 +385,20 @@ export default function Assistant() {
             )}
             {thread.map((m) => (
               <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
-                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</div>
+                <div className="mb-0.5 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</span>
+                  {m.role === 'ally' && voice.supported && (
+                    <button
+                      type="button"
+                      onClick={() => voice.speak(m.text)}
+                      title="Read aloud"
+                      aria-label="Read aloud"
+                      className="text-[10px] text-ink-faint hover:text-signal"
+                    >
+                      {voice.speaking ? '■' : '🔊'}
+                    </button>
+                  )}
+                </div>
                 <div className="whitespace-pre-wrap">{m.text}</div>
                 {m.role === 'ally' && <CitationChips text={m.text} onOpen={setOpenChunk} />}
               </div>
@@ -410,10 +440,19 @@ export default function Assistant() {
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={busy ? 'Ally is responding…' : 'Message Ally…'}
+                placeholder={busy ? 'Ally is responding…' : voice.listening ? 'Listening…' : 'Message Ally…'}
                 aria-label="Message Ally"
                 className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
+              <button
+                type="button"
+                onClick={() => (voice.listening ? voice.stopListening() : voice.startListening())}
+                disabled={busy || !voice.supported}
+                aria-label={voice.supported ? (voice.listening ? 'Stop listening' : 'Speak to Ally') : 'Voice not supported in this browser'}
+                className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-50 ${voice.listening ? 'border-risk/40 bg-risk/10 text-risk' : 'border-edge bg-canvas text-ink hover:bg-canvas-overlay'}`}
+              >
+                {voice.listening ? '⏹' : '🎤'}
+              </button>
               <label className="cursor-pointer rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink hover:bg-canvas-overlay disabled:opacity-50">
                 {attachBusy ? '…' : '📎'}
                 <input type="file" multiple className="hidden" onChange={(e) => void handleFiles(e.target.files)} disabled={busy || attachBusy} />
@@ -422,6 +461,7 @@ export default function Assistant() {
                 Send
               </button>
             </div>
+            {voice.error && <p className="text-[10px] text-risk">{voice.error}</p>}
             <p className="text-[10px] text-ink-faint">Text files are read inline; binary files are sent as base64 (2 MB max each).</p>
           </form>
         </Card>

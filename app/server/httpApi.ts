@@ -36,8 +36,12 @@ import {
   updateKanbanTaskBody,
   writeSettings,
 } from './apiCore.ts';
+import { TravelApiError, browserProviderStatus, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
+import { getVaultSite, listVaultSites, removeVaultSite, setVaultSite } from './travelBrowser/index.ts';
 import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring.ts';
 import type { PlaybookInput, SkillInput } from './authoring.ts';
+import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interfaces.ts';
+import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 
 export interface ApiContext {
@@ -380,6 +384,160 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         json(res, 503, JSON.stringify({ error: String(e) }));
       }
       return true;
+    }
+
+    /* travel (F31) — Duffel/browser-use/OpenTable proxy; 503 when no provider is configured */
+    if (path === '/api/travel/trips' && req.method === 'GET') {
+      try {
+        json(res, 200, JSON.stringify({ trips: await listTrips() }));
+      } catch (e) {
+        json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+      }
+      return true;
+    }
+    if (path.startsWith('/api/travel/trips/')) {
+      const tripMatch = path.match(/^\/api\/travel\/trips\/([^/]+)$/);
+      if (tripMatch && req.method === 'GET') {
+        try {
+          json(res, 200, JSON.stringify({ trip: await getTrip(tripMatch[1]) }));
+        } catch (e) {
+          json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+        }
+        return true;
+      }
+      const proposalMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/proposals$/);
+      if (proposalMatch && req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const result = await proposeBooking(proposalMatch[1], String(body.resultId ?? ''), String(body.note ?? ''));
+          json(res, result.ok ? 200 : 400, JSON.stringify(result));
+        } catch (e) {
+          json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+        }
+        return true;
+      }
+    }
+    if (path === '/api/travel/trips' && req.method === 'POST') {
+      try {
+        const body = (await readJsonBody(req)) as unknown as CreateTripInput;
+        const result = await createTrip(body);
+        json(res, result.ok ? 201 : 400, JSON.stringify(result));
+      } catch (e) {
+        json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+      }
+      return true;
+    }
+    if (path === '/api/travel/search' && req.method === 'GET') {
+      try {
+        const params: TravelSearchParams = {
+          kind: url.searchParams.get('kind') as TravelSearchParams['kind'],
+          origin: url.searchParams.get('origin') ?? undefined,
+          destination: url.searchParams.get('destination') ?? undefined,
+          checkIn: url.searchParams.get('checkIn') ?? undefined,
+          checkOut: url.searchParams.get('checkOut') ?? undefined,
+          departureDate: url.searchParams.get('departureDate') ?? undefined,
+          returnDate: url.searchParams.get('returnDate') ?? undefined,
+          date: url.searchParams.get('date') ?? undefined,
+          pickupLocation: url.searchParams.get('pickupLocation') ?? undefined,
+          dropoffLocation: url.searchParams.get('dropoffLocation') ?? undefined,
+          partySize: url.searchParams.has('partySize') ? Number(url.searchParams.get('partySize')) : undefined,
+        };
+        json(res, 200, JSON.stringify({ results: await searchTravel(params) }));
+      } catch (e) {
+        json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+      }
+      return true;
+    }
+    if (path.startsWith('/api/travel/approvals/')) {
+      const approvalMatch = path.match(/^\/api\/travel\/approvals\/([^/]+)$/);
+      if (approvalMatch && req.method === 'POST') {
+        try {
+          const body = (await readJsonBody(req)) as unknown as ApprovalDecision;
+          const result = await decideTravelApproval(approvalMatch[1], body);
+          json(res, result.ok ? 200 : 400, JSON.stringify(result));
+        } catch (e) {
+          json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+        }
+        return true;
+      }
+    }
+
+    /* travel agent — NL query → structured search */
+    if (path === '/api/travel/agent' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const query = String(body.query ?? '').trim();
+        if (!query) {
+          json(res, 400, JSON.stringify({ error: 'query is required' }));
+          return true;
+        }
+        const result = await travelAgent({ query }, ctx);
+        json(res, 200, JSON.stringify(result));
+      } catch (e) {
+        json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+      }
+      return true;
+    }
+
+    /* travel browser-use status + credential vault */
+    if (path === '/api/travel/browser-status' && req.method === 'GET') {
+      try {
+        json(res, 200, JSON.stringify(browserProviderStatus()));
+      } catch (e) {
+        json(res, 503, JSON.stringify({ error: String(e) }));
+      }
+      return true;
+    }
+    if (path === '/api/travel/browser-vault/sites' && req.method === 'GET') {
+      try {
+        json(res, 200, JSON.stringify({ sites: listVaultSites() }));
+      } catch (e) {
+        json(res, 503, JSON.stringify({ error: String(e) }));
+      }
+      return true;
+    }
+    if (path.startsWith('/api/travel/browser-vault/sites/')) {
+      const siteMatch = path.match(/^\/api\/travel\/browser-vault\/sites\/([^/]+)$/);
+      if (siteMatch) {
+        const site = decodeURIComponent(siteMatch[1]);
+        if (req.method === 'GET') {
+          try {
+            const summary = getVaultSite(site);
+            if (!summary) {
+              json(res, 404, JSON.stringify({ error: 'Site not found' }));
+              return true;
+            }
+            json(res, 200, JSON.stringify(summary));
+          } catch (e) {
+            json(res, 503, JSON.stringify({ error: String(e) }));
+          }
+          return true;
+        }
+        if (req.method === 'POST') {
+          try {
+            const body = await readJsonBody(req);
+            setVaultSite(site, {
+              username: body.username ? String(body.username) : undefined,
+              password: body.password ? String(body.password) : undefined,
+              totpSeed: body.totpSeed ? String(body.totpSeed) : undefined,
+              notes: body.notes ? String(body.notes) : undefined,
+            });
+            json(res, 200, JSON.stringify({ ok: true }));
+          } catch (e) {
+            json(res, 503, JSON.stringify({ error: String(e) }));
+          }
+          return true;
+        }
+        if (req.method === 'DELETE') {
+          try {
+            const removed = removeVaultSite(site);
+            json(res, removed ? 200 : 404, JSON.stringify({ ok: removed }));
+          } catch (e) {
+            json(res, 503, JSON.stringify({ error: String(e) }));
+          }
+          return true;
+        }
+      }
     }
   } catch (e) {
     json(res, 500, JSON.stringify({ error: String(e) }));

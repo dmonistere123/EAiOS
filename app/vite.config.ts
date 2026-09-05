@@ -659,7 +659,8 @@ function kanbanDelegateMiddleware() {
       // Mounted WITHOUT a path: connect strips mount prefixes from req.url,
       // so the shared router must see the full /api/kanban path itself.
       server.middlewares.use((req, res, next) => {
-        if (!(req.url ?? '').startsWith('/api/kanban') && !(req.url ?? '').startsWith('/api/usage/daily')) {
+        const url = req.url ?? ''
+        if (!url.startsWith('/api/kanban') && !url.startsWith('/api/usage/daily') && !url.startsWith('/api/travel')) {
           next()
           return
         }

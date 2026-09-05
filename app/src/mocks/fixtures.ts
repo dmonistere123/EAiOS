@@ -12,8 +12,9 @@ import type {
   UsageSummary,
   DailySpendReport,
   WorkItem,
+  TravelTrip,
 } from '../domain/types';
-import type { Connection, CalendarEvent } from '../adapters/interfaces';
+import type { Connection, CalendarEvent, TravelSearchResult } from '../adapters/interfaces';
 
 const now = Date.now();
 const min = (m: number) => new Date(now - m * 60_000).toISOString();
@@ -224,3 +225,94 @@ export const skillsAndPlaybooks = [
   { id: 'p-01', kind: 'playbook' as const, name: 'Weekly Investor Update', purpose: 'Metrics pull → draft → approval → send', version: '0.9.2', ownerAgentId: 'ally', lastRunAt: min(60 * 24 * 7), status: 'draft' as const },
   { id: 'p-02', kind: 'playbook' as const, name: 'Monthly Expense Audit', purpose: 'Ledger scans, anomalies → digest → archive', version: '1.2.0', ownerAgentId: 'ledger', lastRunAt: min(60 * 24 * 3), status: 'published' as const },
 ];
+
+// F31: travel fixtures — realistic enough to exercise the UI; live adapters
+// replace these with Duffel/browser-use/OpenTable results when keys are configured.
+const day = (offset: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+};
+const at = (baseIso: string, h: number, m = 0) => {
+  const d = new Date(baseIso);
+  d.setHours(h, m, 0, 0);
+  return d.toISOString();
+};
+
+export const travelTrips: TravelTrip[] = [
+  {
+    id: 'trip-01',
+    name: 'Baton Rouge quarterly visit',
+    destination: 'Baton Rouge, LA',
+    startsAt: day(12).slice(0, 10),
+    endsAt: day(14).slice(0, 10),
+    status: 'upcoming',
+    bookings: [
+      {
+        id: 'bk-01', tripId: 'trip-01', kind: 'flight', status: 'confirmed', provider: 'duffel',
+        airline: 'Delta', flightNumber: 'DL1456', origin: 'BHM', destination: 'BTR',
+        departureAt: at(day(12), 9, 30), arrivalAt: at(day(12), 11, 5), cabin: 'First',
+        costUsd: 420, confirmationNumber: 'ABC123',
+      },
+      {
+        id: 'bk-02', tripId: 'trip-01', kind: 'hotel', status: 'confirmed', provider: 'browser-use-consumer',
+        hotelName: 'Watermark Hotel', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10),
+        roomType: 'King Executive', address: '123 Main St, Baton Rouge, LA', costUsd: 380, confirmationNumber: 'XYZ789',
+      },
+      {
+        id: 'bk-03', tripId: 'trip-01', kind: 'car', status: 'proposed', provider: 'browser-use-consumer',
+        company: 'Enterprise', carType: 'Midsize', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport',
+        pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0), costUsd: 140,
+      },
+    ],
+    approvals: [
+      {
+        id: 'ta-01', tripId: 'trip-01', bookingId: 'bk-03', resultId: 'sr-c-1', actionType: 'book', targetSystem: 'browser-use-consumer',
+        targetObject: 'Enterprise Midsize BTR 12–14 Sep', risk: 'low', status: 'pending', submittedAt: min(60 * 24 * 2),
+        payload: 'Book Enterprise Midsize at BTR Airport, pickup 12 Sep 12:00, dropoff 14 Sep 16:00, ~$140.',
+      },
+    ],
+  },
+  {
+    id: 'trip-02',
+    name: 'Investor dinner — NYC',
+    destination: 'New York, NY',
+    startsAt: day(5).slice(0, 10),
+    endsAt: day(5).slice(0, 10),
+    status: 'upcoming',
+    bookings: [
+      {
+        id: 'bk-04', tripId: 'trip-02', kind: 'restaurant', status: 'proposed', provider: 'opentable',
+        restaurantName: 'Gramercy Tavern', cuisine: 'American', reservationAt: at(day(5), 19, 30), partySize: 4,
+        address: '42 E 20th St, New York, NY', costUsd: 0,
+      },
+    ],
+    approvals: [
+      {
+        id: 'ta-02', tripId: 'trip-02', bookingId: 'bk-04', actionType: 'book', targetSystem: 'opentable',
+        targetObject: 'Gramercy Tavern reservation for 4', risk: 'low', status: 'pending', submittedAt: min(60 * 5),
+        payload: 'Reserve Gramercy Tavern for 4 on 5 Sep at 7:30 PM.',
+      },
+    ],
+  },
+];
+
+export const travelSearchResults: Record<string, TravelSearchResult[]> = {
+  flights: [
+    { id: 'sr-f-1', kind: 'flight', title: 'Delta DL1456', subtitle: 'BHM → BTR · 09:30–11:05 · First', priceUsd: 420, provider: 'duffel', meta: { airline: 'Delta', flightNumber: 'DL1456', origin: 'BHM', destination: 'BTR', departureAt: at(day(12), 9, 30), arrivalAt: at(day(12), 11, 5), cabin: 'First' } },
+    { id: 'sr-f-2', kind: 'flight', title: 'Southwest WN204', subtitle: 'BHM → BTR · 13:10–14:35 · Business Select', priceUsd: 310, provider: 'duffel', meta: { airline: 'Southwest', flightNumber: 'WN204', origin: 'BHM', destination: 'BTR', departureAt: at(day(12), 13, 10), arrivalAt: at(day(12), 14, 35), cabin: 'Business Select' } },
+  ],
+  hotels: [
+    { id: 'sr-h-1', kind: 'hotel', title: 'Watermark Hotel', subtitle: 'King Executive · 12–14 Sep', priceUsd: 380, provider: 'browser-use-consumer', meta: { hotelName: 'Watermark Hotel', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'King Executive', address: '123 Main St, Baton Rouge, LA' } },
+    { id: 'sr-h-2', kind: 'hotel', title: 'Renaissance Baton Rouge', subtitle: 'Deluxe Queen · 12–14 Sep', priceUsd: 295, provider: 'browser-use-consumer', meta: { hotelName: 'Renaissance Baton Rouge', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'Deluxe Queen', address: '7000 Bluebonnet Blvd, Baton Rouge, LA' } },
+  ],
+  cars: [
+    { id: 'sr-c-1', kind: 'car', title: 'Enterprise Midsize', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 140, provider: 'browser-use-consumer', meta: { company: 'Enterprise', carType: 'Midsize', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
+    { id: 'sr-c-2', kind: 'car', title: 'Hertz Compact', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 115, provider: 'browser-use-consumer', meta: { company: 'Hertz', carType: 'Compact', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
+  ],
+  restaurants: [
+    { id: 'sr-r-1', kind: 'restaurant', title: 'Gramercy Tavern', subtitle: 'American · 5 Sep 19:30 · Party of 4', priceUsd: 0, provider: 'opentable', meta: { restaurantName: 'Gramercy Tavern', cuisine: 'American', reservationAt: at(day(5), 19, 30), partySize: '4', address: '42 E 20th St, New York, NY' } },
+    { id: 'sr-r-2', kind: 'restaurant', title: 'Lilia', subtitle: 'Italian · 5 Sep 19:45 · Party of 4', priceUsd: 0, provider: 'opentable', meta: { restaurantName: 'Lilia', cuisine: 'Italian', reservationAt: at(day(5), 19, 45), partySize: '4', address: '567 Union Ave, Brooklyn, NY' } },
+  ],
+};

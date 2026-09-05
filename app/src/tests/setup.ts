@@ -1,10 +1,15 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
 import { resetRailForTests } from '../state/rail';
 
 // Pages declare rail sections into a module-level store (W2); clear any
 // leaked declaration between tests so suites stay independent.
 afterEach(() => resetRailForTests());
+
+// Unmount React trees between tests so background runtime refreshes don't
+// trigger act(...) warnings on still-mounted components.
+afterEach(() => cleanup());
 
 // Node-environment suites (e.g. authoring-store) have no DOM — guards below.
 if (typeof window !== 'undefined') {

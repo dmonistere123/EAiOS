@@ -1,64 +1,80 @@
 # EAiOS — Session Handoff
 
-**Updated:** 2026-09-04 · **Repo:** `~/eaios` · **Branch:** `master` · **Head:** `b881578`
+**Updated:** 2026-09-05 · **Repo:** `~/eaios` · **Branch:** `master` · **Head:** `64f2f50`
 
 ## What just happened
 
-This session shipped **6 functional beta fixes** and deployed them to the local prod server on `http://127.0.0.1:5200`.
+This session built the **EAiOS one-command installer** (`install/install.sh`),
+updated the systemd unit templates (including the new `:5173` front-door
+service), added `app/.env.local.example`, created `scripts/verify-install.sh`,
+and updated `docs/clean-install-guide.md` Phase 8 to use the installer. The
+installer was exercised end-to-end on this box with all services passing
+verification.
 
-1. **Schedule → Completed last 3 days** (was 24h).
-2. **Knowledge upload → pick target agent** for source scope.
-3. **Approval inspector → edit the prepared payload**, save, then approve.
-4. **Schedule right rail → delete** for Calendar / Agent schedules / Cron jobs.
-5. **Assistant chat → attach a document** (text inline, binary as base64 note).
-6. **Skills & Playbooks → Disable/Enable + Delete** actions.
+Previous sessions pivoted the Travel page to **roadmap status** and shipped
+**voice I/O on My Assistant**.
 
-Also:
-- Updated Hermes Agent from `v0.20.5` → `v0.21.0` via `hermes update`.
-- Rebuilt the app and restarted `eaios-server.service` so the changes are live on `:5200`.
-- Added roadmap items **F31 (Travel)** and **F32 (Telephone voice access)** with UX direction.
+### Travel (F31) → roadmap demo state
+- Left nav label changed from **Travel** to **Travel (RM)** so Don can point out roadmap status in demos.
+- Live flight search via **Duffel** is configured and verified (`DUFFEL_API_KEY` in `app/.env.local`).
+- Hotels, cars, and restaurants remain **mock/demo only** until a live provider or browser-automation path is built.
+- The earlier browser-automation foundation (`server/travelBrowser/`, `docs/design-browser-booking-2026-09-05.md`) is preserved but its tests are skipped; the per-site IHG/Marriott/OpenTable/Resy playbook hardening is deferred.
+
+### My Assistant voice I/O
+- New `src/hooks/useVoice.ts` wrapping the browser Web Speech API.
+- Mic button in the Assistant composer: speech-to-text fills the draft and auto-sends.
+- Speaker button on every Ally message: text-to-speech playback.
+- Graceful fallback when the browser does not support voice.
+
+### Other fixes
+- `server/travel.ts` error messages now use `TravelApiError.message` instead of `String(e)` to avoid the literal "Error:" prefix.
+- `TravelAgent` propagates 503 when no live provider is configured so the live adapter falls back to mock fixtures.
 
 ## Current state
 
-- **Tests:** 243/243 vitest + 8/8 sidecar unittest green.
+- **Tests:** 304 passed, 10 skipped (37 test files). The 10 skipped tests are the deferred browser-automation travel vault/playbook tests.
 - **Build:** clean production build in `~/eaios/app/dist`.
 - **Services:** all four `eaios-*` systemd user services active:
   - `eaios-hermes-serve` :9119
   - `eaios-knowledge-sidecar` :9121
   - `eaios-server` :5200
-  - `eaios-server-5173` :5173 (vite dev proxy)
-- **Commits:** everything is committed locally. There is **no remote configured** — commits are on this box only.
-- **Uncommitted tree:** none.
+  - `eaios-server-5173` :5173 (front-door prod instance)
+- **Installer:** `install/install.sh` is the canonical one-command installer;
+  `scripts/verify-install.sh` passes all checks on this box.
+- **Commits:** some work is committed (`64f2f50` Travel RM label); substantial uncommitted work remains across F31, voice I/O, travel-browser foundation, and the installer.
+- **No remote configured.**
 
-## Git log (recent)
+## Env configuration
 
-```
-b881578 docs(roadmap): Travel page UX direction - cards + upcoming trips with tabs
-5194e23 docs(roadmap): F31 travel deserves dedicated left-nav page
-c7d1ac0 feat: 6 functional beta fixes
-423fe5d fix: use .ts extension for authoring import so prod server resolves at runtime
-```
+`~/eaios/app/.env.local` currently contains:
+- `VITE_HERMES_LIVE=1`
+- `VITE_HERMES_TOKEN=<redacted>`
+- `COMPOSIO_API_KEY=<redacted>`
+- `DUFFEL_API_KEY=<redacted>`
+
+`~/.hermes/.env` contains `OPENROUTER_API_KEY` (used by Ask Ally travel intent parser and Hermes crons).
 
 ## What to tell the next Ally
 
 Start the new session with:
 
-> "Continue EAiOS from the 2026-09-04 handoff. Read `~/eaios/docs/HANDOFF.md`, `~/eaios/docs/ROADMAP.md`, and `~/eaios/docs/TRANSITION-2026-09-04.md`. Verify services with `systemctl --user status 'eaios-*'` and run `cd ~/eaios/app && npm test` before making changes."
+> "Continue EAiOS from the 2026-09-05 handoff. Read `~/eaios/docs/HANDOFF.md`, `~/eaios/docs/ROADMAP.md`, and `~/eaios/docs/TRANSITION-2026-09-04.md`. Verify services with `systemctl --user status 'eaios-*'` and run `cd ~/eaios/app && npm test` before making changes."
 
 If the next task is one of these, include it explicitly:
 
-- **Travel page (F31):** build a left-nav "Travel" page mirroring Schedule — top cards for Flights / Hotels & Cars / Restaurants, Upcoming trips list below, tabs per trip (Itinerary / Confirmations / Approvals). Use Amadeus Self-Service API for flights/hotels/cars and OpenTable partner API for restaurants; wrap bookings as EAiOS approval envelopes.
-- **Telephone voice access (F32):** PSTN/SIP inbound voice via Twilio/Telnyx/Vonage + STT/TTS + messaging gateway integration.
+- **EAiOS installer is done:** `install/install.sh` and `scripts/verify-install.sh` are ready; the next step is to test on a truly fresh box (e.g. openclawserver) and set a real git remote/URL.
+- **Travel live providers:** add `TRAVEL_BROWSER_USE=1` + `CHROME_BIN` and a Booking.com single-provider playbook, or integrate a T&E platform (Navan/Spotnana/TravelPerk).
+- **Travel in-app credential manager:** build the UI for the encrypted vault when browser booking is revived.
 - **Push commits:** add a git remote and push `master`.
 - **New functional fix:** state the page and the exact behavior wanted.
 
 ## Open items for Don
 
-- Google Calendar OAuth (executive calendar live).
-- Composio app linking for Gmail/Outlook/LinkedIn (Connections page works; apps need auth configs in Composio).
+- Review the EAiOS installer (`install/install.sh`) and decide the public repo
+  URL / host for the one-command curl path.
+- Decide whether to revive browser-automation booking or pursue a T&E platform integration.
 - Decide whether to add a git remote and push.
-- Approve Telegram summary task `t_9090d2bf` if it hasn't been sent yet.
 
 ## Historical handoffs
 
-Older session state is preserved in `docs/HANDOFF-2026-08-30-archive.md` and `docs/TRANSITION-2026-09-04.md`.
+Older session state is preserved in `docs/HANDOFF-2026-09-05-archive.md` and `docs/TRANSITION-2026-09-04.md`.

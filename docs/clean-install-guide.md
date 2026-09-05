@@ -206,11 +206,43 @@ effect (same Group Privacy note as Phase 5).
 - [ ] Services survive reboot: `sudo reboot`, then
       `hermes gateway status` and `hermes -p research gateway status` (etc.)
 
-## Phase 8 — EAiOS dashboard (NOT YET — lands this week)
+## Phase 8 — EAiOS dashboard (one-command installer)
 
-The executive dashboard layer (the app you've been using with Ally) is being
-packaged right now as Phase 8. When it lands, Ally will run it with you on
-this box — do NOT attempt to install it manually.
+The EAiOS executive dashboard is installed with the automated installer in the
+`eaios` repo. It handles Node.js, Hermes setup, repo clone, dependency install,
+production build, systemd user units, first-run config, and service startup.
+
+### From a fresh box that already has Hermes and a model provider
+
+If you followed phases 1–7, you already have Hermes. Add the EAiOS repo and run
+the installer:
+
+```bash
+# One-command (replace with the real EAiOS repo URL):
+curl -fsSL https://<your-host>/eaios/install/install.sh | bash -s -- \
+  --repo-url=https://github.com/<org>/eaios.git
+```
+
+### Local usage (e.g. Ally developing on this box)
+
+```bash
+cd ~/eaios
+./install/install.sh
+```
+
+The installer is idempotent — safe to re-run after pulling updates. It will not
+overwrite an existing `app/.env.local`.
+
+### After install
+
+- Services run as systemd user units: `eaios-hermes-serve` (:9119),
+  `eaios-knowledge-sidecar` (:9121), `eaios-server` (:5200), and
+  `eaios-server-5173` (:5173).
+- Verify anytime: `~/eaios/scripts/verify-install.sh`
+- Add live API keys to `~/eaios/app/.env.local` if you want live providers
+  (Composio, Duffel, etc.).
+- For boot persistence without an interactive login:
+  `sudo loginctl enable-linger $USER`
 
 ---
 

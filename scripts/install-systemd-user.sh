@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Render + install EAiOS user-mode systemd units (Phase 8.2).
+# Render + install EAiOS user-mode systemd units (Phase 8.2/8.3).
 # Templates: install/systemd/*.tpl → ~/.config/systemd/user/*.service
-# Idempotent: safe to re-run (this is also the 8.3 installer's systemd step).
+# Idempotent: safe to re-run.
 #
-#   --start   also (re)start the units now (default: enable only — the caller
-#             swaps any already-running dev processes deliberately)
+# Usage:
+#   scripts/install-systemd-user.sh        # render + enable only
+#   scripts/install-systemd-user.sh --start  # render + enable + restart now
 set -euo pipefail
 
 EAIOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,25 +22,36 @@ if (( NODE_MAJOR < 24 )); then
   exit 1
 fi
 
+if [[ ! -x "$EAIOS_ROOT/sidecar/.venv/bin/python" ]]; then
+  echo "ERROR: sidecar .venv not found at $EAIOS_ROOT/sidecar/.venv" >&2
+  echo "       Run: cd $EAIOS_ROOT/sidecar && uv venv .venv && uv pip install --python .venv/bin/python pymupdf python-docx python-pptx" >&2
+  exit 1
+fi
+
 mkdir -p "$UNIT_DIR"
 for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
   name="$(basename "$tpl" .tpl)"
+  if [[ -f "$UNIT_DIR/$name" ]]; then
+    echo "rendering (overwrite) $UNIT_DIR/$name"
+  else
+    echo "rendering $UNIT_DIR/$name"
+  fi
   sed -e "s|@HOME@|$HOME|g" \
       -e "s|@EAIOS_ROOT@|$EAIOS_ROOT|g" \
       -e "s|@NODE_BIN@|$NODE_BIN|g" \
       "$tpl" > "$UNIT_DIR/$name"
-  echo "rendered $UNIT_DIR/$name"
 done
 
 systemctl --user daemon-reload
 for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
   name="$(basename "$tpl" .tpl)"
   systemctl --user enable "$name"
+  echo "enabled $name"
 done
 
 # Boot persistence without an interactive login session.
 if [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null || echo no)" != "yes" ]]; then
-  echo "NOTE: enabling linger so units start at boot (needs sudo once):"
+  echo "NOTE: enable linger so units start at boot without an interactive login:"
   echo "      sudo loginctl enable-linger $USER"
 fi
 
@@ -51,4 +63,4 @@ if [[ "${1:-}" == "--start" ]]; then
   done
 fi
 
-echo "done. Status: systemctl --user status 'eaios-*'"
+echo "done. Check status with: systemctl --user status 'eaios-*'"

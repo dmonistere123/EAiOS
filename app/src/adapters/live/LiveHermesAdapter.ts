@@ -11,13 +11,15 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun,
+  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
   CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
+  CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
+import { liveTravel } from './LiveTravelAdapter';
 
 // ---------- JSON-RPC over WebSocket client ----------
 
@@ -1620,6 +1622,64 @@ class LiveHermesAdapter implements HermesAdapter {
     } catch (e) {
       return { ok: false, auditEventId: `env-err-${Date.now()}`, error: { code: 'env_write_failed', safeMessage: e instanceof Error ? e.message : 'Save failed.', retryable: true } };
     }
+  }
+
+  // ---------- Travel (F31) ----------
+  listTrips(): Promise<TravelTrip[]> {
+    return liveTravel.listTrips();
+  }
+
+  getTrip(id: string): Promise<TravelTrip | null> {
+    return liveTravel.getTrip(id);
+  }
+
+  searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]> {
+    return liveTravel.searchTravel(params);
+  }
+
+  travelAgent(query: string): Promise<TravelAgentResult> {
+    return liveTravel.travelAgent(query);
+  }
+
+  createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>> {
+    return liveTravel.createTrip(input);
+  }
+
+  proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>> {
+    return liveTravel.proposeBooking(tripId, resultId, note);
+  }
+
+  decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
+    return liveTravel.decideTravelApproval(approvalId, decision);
+  }
+
+  getTravelBrowserStatus(): Promise<{
+    enabled: boolean;
+    chromeBin?: string;
+    vaultUnlocked: boolean;
+    configuredSites: string[];
+    sessionSites: string[];
+    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
+  }> {
+    return liveTravel.getTravelBrowserStatus();
+  }
+
+  // ---------- Browser vault credential manager ----------
+
+  listTravelVaultSites(): Promise<TravelVaultSite[]> {
+    return liveTravel.listTravelVaultSites();
+  }
+
+  getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
+    return liveTravel.getTravelVaultSite(site);
+  }
+
+  setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
+    return liveTravel.setTravelVaultSite(site, input);
+  }
+
+  removeTravelVaultSite(site: string): Promise<AuditResult> {
+    return liveTravel.removeTravelVaultSite(site);
   }
 }
 
