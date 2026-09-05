@@ -43,6 +43,7 @@ const NAV = [
   { to: '/connections', label: 'Connections', icon: '⬡' },
   { to: '/approvals', label: 'Approvals', icon: '✓' },
   { to: '/schedule', label: 'Schedule', icon: '▦' },
+  { to: '/travel', label: 'Travel (RM)', icon: '✈' },
   { to: '/knowledge', label: 'Knowledge', icon: '❖' },
   { to: '/skills', label: 'Skills & Playbooks', icon: '⚒' },
   { to: '/artifacts', label: 'Artifacts', icon: '▤' },
