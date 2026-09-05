@@ -13,6 +13,7 @@ import { ChunkDrawer } from '../components/ChunkDrawer';
 import { AgentChannel } from '../components/AgentChannel';
 import { DelegatedRunDrawer } from '../components/DelegatedRunDrawer';
 import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
+import { AGENT_NAME } from '../config';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 
@@ -59,7 +60,7 @@ function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onC
     <Drawer title={session.title} onClose={onClose} width={480}>
       <p className="mb-3 flex items-center gap-2 text-[11px] text-ink-faint">
         <span className="rounded-full border border-edge px-2 py-0.5 font-medium uppercase tracking-wider">read-only</span>
-        <span className="capitalize">{session.source}</span> · {session.messageCount} messages · Ally is the only agent you chat with
+        <span className="capitalize">{session.source}</span> · {session.messageCount} messages · {AGENT_NAME} is the only agent you chat with
       </p>
       {messages === null ? (
         <p className="text-xs text-ink-faint">Loading transcript…</p>
@@ -87,7 +88,7 @@ export default function Assistant() {
   const contextId = pickedAgentId && s.agents.some((a) => a.id === pickedAgentId) ? pickedAgentId : allyId;
   const contextIsAlly = contextId === allyId;
   const contextAgent = s.agents.find((a) => a.id === contextId);
-  const contextName = contextIsAlly ? 'Ally' : contextAgent?.name ?? contextId;
+  const contextName = contextIsAlly ? AGENT_NAME : contextAgent?.name ?? contextId;
 
   const approvals = selectPendingApprovals(s);
   const [thread, setThread] = useState<ChatMessage[]>([]);
@@ -349,7 +350,7 @@ export default function Assistant() {
       <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My Assistant</h1>
-          <p className="mt-1 text-sm text-ink-dim">Chat with Ally, your chief of staff. Pick an agent to see its channel — what Ally delegated and their Ally↔agent chat.</p>
+          <p className="mt-1 text-sm text-ink-dim">Chat with {AGENT_NAME}, your chief of staff. Pick an agent to see its channel — what {AGENT_NAME} delegated and their {AGENT_NAME}↔agent chat.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -378,15 +379,15 @@ export default function Assistant() {
       <div className="grid gap-4 xl:grid-cols-5">
         {/* conversation — always Ally */}
         <Card className="flex flex-col p-4 xl:col-span-3">
-          <SectionTitle>Conversation with Ally</SectionTitle>
+          <SectionTitle>Conversation with {AGENT_NAME}</SectionTitle>
           <div ref={scrollRef} className="max-h-[52vh] flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
-              <p className="text-xs text-ink-faint">Starting a conversation with Ally…</p>
+              <p className="text-xs text-ink-faint">Starting a conversation with {AGENT_NAME}…</p>
             )}
             {thread.map((m) => (
               <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
                 <div className="mb-0.5 flex items-center justify-between gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : 'Ally'}</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : AGENT_NAME}</span>
                   {m.role === 'ally' && voice.supported && (
                     <button
                       type="button"
@@ -405,12 +406,12 @@ export default function Assistant() {
             ))}
             {(streaming !== null || sending) && (
               <div className="max-w-[85%] rounded-xl bg-canvas-overlay px-4 py-2.5 text-sm text-ink">
-                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">Ally</div>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{AGENT_NAME}</div>
                 {streaming ? (
                   <div className="whitespace-pre-wrap">{streaming}</div>
                 ) : (
                   /* visible proof of life between send and first streamed token (dogfood ask 2026-08-29) */
-                  <div className="flex items-center gap-1.5 py-1" role="status" aria-label="Ally is working">
+                  <div className="flex items-center gap-1.5 py-1" role="status" aria-label={`${AGENT_NAME} is working`}>
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
@@ -440,15 +441,15 @@ export default function Assistant() {
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={busy ? 'Ally is responding…' : voice.listening ? 'Listening…' : 'Message Ally…'}
-                aria-label="Message Ally"
+                placeholder={busy ? `${AGENT_NAME} is responding…` : voice.listening ? 'Listening…' : `Message ${AGENT_NAME}…`}
+                aria-label={`Message ${AGENT_NAME}`}
                 className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
               <button
                 type="button"
                 onClick={() => (voice.listening ? voice.stopListening() : voice.startListening())}
                 disabled={busy || !voice.supported}
-                aria-label={voice.supported ? (voice.listening ? 'Stop listening' : 'Speak to Ally') : 'Voice not supported in this browser'}
+                aria-label={voice.supported ? (voice.listening ? 'Stop listening' : `Speak to ${AGENT_NAME}`) : 'Voice not supported in this browser'}
                 className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-50 ${voice.listening ? 'border-risk/40 bg-risk/10 text-risk' : 'border-edge bg-canvas text-ink hover:bg-canvas-overlay'}`}
               >
                 {voice.listening ? '⏹' : '🎤'}

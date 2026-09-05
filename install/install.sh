@@ -30,7 +30,8 @@
 #   SKIP_NODE           Set to 1 to skip Node installation check.
 #   SKIP_HERMES         Set to 1 to skip Hermes installation check.
 #   SKIP_TESTS          Set to 1 to skip the optional npm test run.
-#   NONINTERACTIVE      Set to 1 to never prompt (default: 1).
+#   NONINTERACTIVE      Set to 1 to never prompt (default: 0).
+#   EAIOS_AGENT_NAME    Display name for the orchestration agent (default: Ally).
 #
 # The script is idempotent: re-running it pulls the repo, rebuilds, and
 # restarts services without clobbering an existing .env.local.
@@ -43,7 +44,8 @@ EAIOS_BRANCH="${EAIOS_BRANCH:-master}"
 EAIOS_ROOT="${EAIOS_ROOT:-$HOME/eaios}"
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-24}"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh}"
-NONINTERACTIVE="${NONINTERACTIVE:-1}"
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+EAIOS_AGENT_NAME="${EAIOS_AGENT_NAME:-}"
 SKIP_NODE="${SKIP_NODE:-0}"
 SKIP_HERMES="${SKIP_HERMES:-0}"
 SKIP_TESTS="${SKIP_TESTS:-1}"
@@ -110,6 +112,14 @@ while [[ $# -gt 0 ]]; do
     --run-tests)
       SKIP_TESTS=0
       shift
+      ;;
+    --non-interactive)
+      NONINTERACTIVE=1
+      shift
+      ;;
+    --agent-name)
+      EAIOS_AGENT_NAME="$2"
+      shift 2
       ;;
     -h|--help)
       sed -n '2,40p' "$0"
@@ -340,15 +350,22 @@ ENV_LOCAL="$EAIOS_ROOT/app/.env.local"
 if [[ -f "$ENV_LOCAL" ]]; then
   log_info "Keeping existing $ENV_LOCAL (not overwritten)"
 else
-  log_info "Creating $ENV_LOCAL from template"
+  if [[ -z "$EAIOS_AGENT_NAME" && "$NONINTERACTIVE" != "1" ]]; then
+    echo -n "Name your orchestration agent [Ally]: "
+    read -r EAIOS_AGENT_NAME
+  fi
+  EAIOS_AGENT_NAME="${EAIOS_AGENT_NAME:-Ally}"
+  log_info "Creating $ENV_LOCAL from template (agent name: $EAIOS_AGENT_NAME)"
   if [[ -f "$EAIOS_ROOT/app/.env.local.example" ]]; then
     sed -e "s|^VITE_HERMES_TOKEN=.*|VITE_HERMES_TOKEN=$DEV_TOKEN|" \
+        -e "s|^VITE_AGENT_NAME=.*|VITE_AGENT_NAME=$EAIOS_AGENT_NAME|" \
         "$EAIOS_ROOT/app/.env.local.example" > "$ENV_LOCAL"
   else
     cat > "$ENV_LOCAL" <<EOF
 # EAiOS app environment. Fill in live provider keys as needed.
 VITE_HERMES_LIVE=1
 VITE_HERMES_TOKEN=$DEV_TOKEN
+VITE_AGENT_NAME=$EAIOS_AGENT_NAME
 COMPOSIO_API_KEY=
 DUFFEL_API_KEY=
 OPENTABLE_API_KEY=

@@ -1,37 +1,54 @@
 # EAiOS Installer
 
-One-command setup for a fresh CEO box that already has Hermes Agent installed.
+One-command setup for a fresh CEO box.
 
 ## Prerequisites
 
 - Linux (Ubuntu 24.04 / Debian 12 tested). macOS may work with minor path tweaks.
-- Node.js >= 24
-- `git`, `curl`
-- `uv` (for the Python knowledge sidecar venv)
-- Hermes Agent installed and on PATH (`hermes --version` works)
+- `git`, `curl`, `sudo`
+- Internet access to pull Node.js, Hermes, and the EAiOS repo
 
 ## Quick start
 
 ```bash
-# From inside the EAiOS repo on the source box / USB / mounted drive:
-./scripts/install-eaios.sh
+# Fresh box with nothing installed:
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/main/install/install.sh | bash -s -- \
+  --repo-url git@github.com:dmonistere123/EAiOS.git
 
-# Or clone from a git remote:
-./scripts/install-eaios.sh --git-url https://github.com/your-org/eaios.git
+# Or from a USB/local copy of the repo:
+./install/install.sh
 
-# Or install from a local source tree to a custom location:
-./scripts/install-eaios.sh --source-dir /path/to/eaios --install-dir /opt/eaios
+# Non-interactive (use defaults):
+./install/install.sh --non-interactive --agent-name "Ally"
 ```
 
-The default install directory is `~/eaios`. The installer:
+The installer:
 
-1. Validates Node >= 24 and Hermes.
-2. Places EAiOS source at the install directory.
-3. Runs `npm ci` and `npm run build`.
-4. Sets up the sidecar Python venv (`sidecar/.venv`).
-5. Creates `app/.env.local` from `app/.env.local.example` if missing.
-6. Renders and installs systemd user units.
-7. Starts services and verifies `:5200` responds.
+1. Checks OS and base tools.
+2. Ensures Node.js >= 24 is installed.
+3. Ensures Hermes Agent is installed.
+4. Clones or uses the EAiOS repo.
+5. Runs `npm ci` and `npm run build`.
+6. Sets up the sidecar Python venv (`sidecar/.venv`).
+7. Generates a dev token and creates `app/.env.local` from the template.
+8. Renders and installs systemd user units.
+9. Starts services and runs verification probes.
+
+## Agent name
+
+During install you will be prompted:
+
+```
+Name your orchestration agent [Ally]:
+```
+
+Whatever you enter becomes the display name throughout the EAiOS UI (chat header, placeholders, travel assistant, cron prompts, etc.). It is written to `app/.env.local` as `VITE_AGENT_NAME`.
+
+To skip the prompt in automation:
+
+```bash
+./install/install.sh --non-interactive --agent-name "Jarvis"
+```
 
 ## After install
 
@@ -56,11 +73,14 @@ The default install directory is `~/eaios`. The installer:
 
 | Flag | Description |
 |------|-------------|
-| `--source-dir <path>` | Copy from a local directory instead of the script's parent. |
-| `--git-url <url>` | Clone from a git remote instead of copying. |
-| `--install-dir <path>` | Install location (default: `~/eaios`). |
-| `--no-start` | Install units but do not start services. |
-| `--skip-systemd` | Skip systemd unit installation entirely (testing only). |
+| `--repo-url <url>` | Git URL to clone (required when curl-piped). |
+| `--branch <name>` | Branch to checkout (default: master). |
+| `--root <path>` | Install location (default: `~/eaios`). |
+| `--agent-name <name>` | Display name for the orchestration agent. |
+| `--non-interactive` | Never prompt; use defaults or flags. |
+| `--skip-node` | Skip Node installation check. |
+| `--skip-hermes` | Skip Hermes installation check. |
+| `--run-tests` | Run `npm test` after build. |
 
 ## Environment template
 
@@ -70,11 +90,11 @@ The default install directory is `~/eaios`. The installer:
 
 For distribution to a fresh box:
 
-1. Add a git remote and push `master`.
-2. On the fresh box, install Hermes Agent and Node.js >= 24.
-3. Run:
+1. Push updates to the GitHub repo.
+2. On the fresh box, run:
    ```bash
-   curl -fsSL https://your-org.github.io/eaios/install.sh | bash -s -- --git-url https://github.com/your-org/eaios.git
+   curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/main/install/install.sh | bash -s -- \
+     --repo-url git@github.com:dmonistere123/EAiOS.git
    ```
 
-Or ship a tarball/USB containing the repo and run `./scripts/install-eaios.sh --source-dir .` from it.
+Or ship a tarball/USB containing the repo and run `./install/install.sh` from it.

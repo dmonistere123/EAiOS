@@ -8,6 +8,7 @@ import { toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import type { TravelTrip, TravelBooking, TravelApproval, TravelAgentResult } from '../domain/types';
+import { AGENT_NAME } from '../config';
 import type { TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput } from '../adapters/interfaces.ts';
 import { Card, Drawer, EmptyState, SectionTitle, StateBadge, RiskBadge } from '../components/ui';
 
@@ -462,7 +463,7 @@ export default function Travel() {
       <div className="rounded-xl border border-signal/20 bg-signal/[0.04] p-4">
         <div className="mb-2 flex items-center gap-2">
           <span className="text-sm" aria-hidden>🤖</span>
-          <span className="text-xs font-semibold uppercase tracking-wider text-signal">Ask Ally</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-signal">Ask {AGENT_NAME}</span>
         </div>
         <div className="flex gap-2">
           <input

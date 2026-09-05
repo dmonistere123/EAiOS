@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { calendarEvents as fixtureCalendarEvents } from '../mocks/fixtures';
 import { hermes } from '../adapters';
-import { TELEGRAM_HOME_DELIVERY } from '../config';
+import { AGENT_NAME, TELEGRAM_HOME_DELIVERY } from '../config';
 import { useRuntime, refreshCron, refreshWork, toast, agentName, __getAsyncPolling } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
@@ -191,12 +191,12 @@ function NewCronForm({ onCreated }: { onCreated: () => void }) {
         )}
       </div>
       <div>
-        <label htmlFor="cron-prompt" className="text-xs font-medium uppercase tracking-wider text-ink-faint">What should Ally do?</label>
+        <label htmlFor="cron-prompt" className="text-xs font-medium uppercase tracking-wider text-ink-faint">What should {AGENT_NAME} do?</label>
         <textarea id="cron-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="Summarize overnight mentions and draft a digest…" className="mt-1 w-full rounded-lg border border-edge bg-canvas-raised px-3 py-2 text-sm text-ink placeholder:text-ink-faint" />
       </div>
       <label className="flex items-center gap-2 text-sm text-ink-dim">
         <input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} className="accent-[#32c5ff]" />
-        Deliver results to Telegram (Ally's Portal)
+        Deliver results to Telegram ({AGENT_NAME}'s Portal)
       </label>
       <div className="flex gap-2">
         <button onClick={submit} disabled={busy} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">

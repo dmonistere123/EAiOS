@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TodaySummary, WorkItem } from '../domain/types';
 import { hermes } from '../adapters';
+import { AGENT_NAME } from '../config';
 import { useRuntime, agentName, toast } from '../state/runtime';
 import { Card, Drawer, EmptyState, KpiCard, PriorityBadge, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
@@ -225,7 +226,7 @@ export default function Today() {
                       <StateBadge label="complete" tone="ok" />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{w.title}</span>
                       <span className="text-xs text-ink-faint">
-                        {w.ownerId ? agentName(s, w.ownerId) : 'Ally'} · <RelativeTime iso={w.updatedAt} />
+                        {w.ownerId ? agentName(s, w.ownerId) : AGENT_NAME} · <RelativeTime iso={w.updatedAt} />
                       </span>
                     </div>
                     {w.result && <p className="mt-1.5 line-clamp-2 text-xs text-ink-dim">{w.result}</p>}
