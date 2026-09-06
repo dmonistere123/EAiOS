@@ -117,7 +117,7 @@ function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () 
 type Source = 'executive' | 'agent' | 'cron' | 'team';
 const SOURCE_META: Record<Source, { label: string; dot: string }> = {
   executive: { label: 'My calendar', dot: 'bg-signal' },
-  agent: { label: 'Agent schedules', dot: 'bg-secondary' },
+  agent: { label: 'Agent calendar', dot: 'bg-secondary' },
   cron: { label: 'Cron jobs', dot: 'bg-warn' },
   team: { label: 'Team', dot: 'bg-ok' },
 };
@@ -368,7 +368,7 @@ export default function Schedule() {
       },
       {
         key: 'schedules-agent',
-        title: 'Agent schedules',
+        title: 'Work in flight',
         count: workInFlight.length,
         node: (
           <div className="space-y-2">
