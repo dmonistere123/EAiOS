@@ -328,39 +328,52 @@ export default function Schedule() {
 
   const agentsWithJobs = s.agents.filter((a) => (byAgent[a.id] ?? []).length > 0);
   const totalJobs = agentsWithJobs.reduce((n, a) => n + (byAgent[a.id] ?? []).length, 0);
+  const calendarSources: Source[] = ['executive', 'agent', 'team'];
+  const filteredCalendarEvents = useMemo(
+    () => localEvents.filter((e) => calendarSources.includes(e.source) && enabled[e.source]).sort((a, b) => a.startsAt.localeCompare(b.startsAt)),
+    [localEvents, enabled],
+  );
   const railSections = useMemo<RailSectionDef[]>(
     () => [
       {
         key: 'schedules-calendar',
-        title: 'My calendar',
-        count: localEvents.filter((e) => ['executive', 'team'].includes(e.source)).length,
+        title: 'Calendar',
+        count: filteredCalendarEvents.length,
         node: (
-          <div className="space-y-2">
-            {localEvents.filter((e) => ['executive', 'team'].includes(e.source)).length === 0 ? (
-              <p className="px-2 text-xs text-ink-faint">No calendar events.</p>
+          <div className="space-y-3">
+            {filteredCalendarEvents.length === 0 ? (
+              <p className="px-2 text-xs text-ink-faint">No calendar sources selected.</p>
             ) : (
-              localEvents
-                .filter((e) => ['executive', 'team'].includes(e.source))
-                .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
-                .map((e) => (
-                  <div key={e.id} className="rounded-lg px-2 py-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-xs font-medium text-ink">{e.title}</div>
-                      {confirmDeleteEvent === e.id ? (
-                        <button onClick={() => void deleteEvent(e.id)} className="shrink-0 rounded bg-risk px-1.5 py-0.5 text-[10px] font-semibold text-canvas hover:bg-risk/90">
-                          Confirm
-                        </button>
-                      ) : (
-                        <button onClick={() => setConfirmDeleteEvent(e.id)} className="shrink-0 rounded border border-risk/40 px-1.5 py-0.5 text-[10px] font-medium text-risk hover:bg-risk/10">
-                          Delete
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-ink-faint">
-                      {new Date(e.startsAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {new Date(e.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
-                    </div>
+              calendarSources.map((src) => {
+                const group = filteredCalendarEvents.filter((e) => e.source === src);
+                if (group.length === 0) return null;
+                return (
+                  <div key={src}>
+                    <div className="px-2 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">{SOURCE_META[src].label}</div>
+                    <ul className="mt-1 space-y-1">
+                      {group.map((e) => (
+                        <li key={e.id} className="rounded-lg px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-xs font-medium text-ink">{e.title}</div>
+                            {confirmDeleteEvent === e.id ? (
+                              <button onClick={() => void deleteEvent(e.id)} className="shrink-0 rounded bg-risk px-1.5 py-0.5 text-[10px] font-semibold text-canvas hover:bg-risk/90">
+                                Confirm
+                              </button>
+                            ) : (
+                              <button onClick={() => setConfirmDeleteEvent(e.id)} className="shrink-0 rounded border border-risk/40 px-1.5 py-0.5 text-[10px] font-medium text-risk hover:bg-risk/10">
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-ink-faint">
+                            {new Date(e.startsAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {new Date(e.startsAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                ))
+                );
+              })
             )}
             <p className="px-2 pt-1 text-[10px] leading-snug text-ink-faint">Live Google Calendar delete not yet wired — mock events are local-only.</p>
           </div>
@@ -446,7 +459,7 @@ export default function Schedule() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [byAgent, totalJobs, s.agents, localEvents, workInFlight, confirmDeleteEvent, confirmDeleteWork, confirmDeleteCron, busyAction],
+    [byAgent, totalJobs, s.agents, filteredCalendarEvents, workInFlight, confirmDeleteEvent, confirmDeleteWork, confirmDeleteCron, busyAction],
   );
   usePageRail(railSections);
 

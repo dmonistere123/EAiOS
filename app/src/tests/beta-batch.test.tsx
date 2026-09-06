@@ -37,7 +37,7 @@ function renderAt(route: string, element: React.ReactElement, path: string) {
 describe('W5 — Schedule ownership rail', () => {
   it('groups cron jobs by owning agent; creator gap noted honestly', async () => {
     renderAt('/schedule', <Schedule />, 'schedule');
-    expect(await screen.findByRole('heading', { name: 'My calendar' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Calendar' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Work in flight' })).toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Cron jobs' })).toBeInTheDocument();
     expect(screen.queryByText('Operational Watchtower')).not.toBeInTheDocument();

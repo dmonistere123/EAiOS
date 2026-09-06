@@ -50,7 +50,7 @@ describe('Schedule right-rail delete actions', () => {
     renderAtSchedule();
     const railEl = rail();
 
-    const calendarSection = within(railEl).getByText('My calendar').closest('section') as HTMLElement;
+    const calendarSection = within(railEl).getByText('Calendar').closest('section') as HTMLElement;
     expect(within(calendarSection).getAllByRole('button', { name: 'Delete' }).length).toBeGreaterThan(0);
 
     const agentSection = within(railEl).getByText('Work in flight').closest('section') as HTMLElement;
