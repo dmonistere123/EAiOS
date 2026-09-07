@@ -171,6 +171,11 @@ export function __setAsyncPolling(enabled: boolean) {
   asyncPollingEnabled = enabled;
 }
 
+/** Test hook: force gateway state (live-poll regression tests). */
+export function __setGateway(g: State['gateway']) {
+  set({ gateway: g });
+}
+
 export function __getAsyncPolling() {
   return asyncPollingEnabled;
 }
@@ -226,6 +231,7 @@ export function startLivePolling(intervalMs = 12_000) {
     void refreshWork();
     void refreshApprovals();
     void refreshAgents();
+    void refreshArtifacts(); // dogfood 2026-09-07: kanban attaches emit no gateway event, so Artifacts went stale until reload
   }, intervalMs);
 }
 

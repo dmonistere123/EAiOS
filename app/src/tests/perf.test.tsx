@@ -11,7 +11,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Today from '../pages/Today';
 import Artifacts from '../pages/Artifacts';
-import { startRuntime, refreshAll, startLivePolling, stopLivePolling } from '../state/runtime';
+import { startRuntime, refreshAll, startLivePolling, stopLivePolling, __setGateway } from '../state/runtime';
 import { hermes } from '../adapters';
 import * as fx from '../mocks/fixtures';
 import type { Agent, Approval, Artifact, CronJob, ActivityEvent, RuntimeEvent, WorkItem } from '../domain/types';
@@ -60,6 +60,18 @@ describe('§15 live kanban polling (dogfood 2026-08-29)', () => {
     await vi.advanceTimersByTimeAsync(1000);
     stopLivePolling();
     expect(listWork.mock.calls.length).toBe(0);
+  });
+
+  it('the live poll also refreshes artifacts (dogfood 2026-09-07: attaches emit no gateway event)', async () => {
+    vi.useFakeTimers();
+    __setGateway('live');
+    const listArtifacts = vi.spyOn(hermes, 'listArtifacts');
+    listArtifacts.mockClear();
+    startLivePolling(100);
+    await vi.advanceTimersByTimeAsync(350); // ~3 ticks
+    stopLivePolling();
+    __setGateway('mock');
+    expect(listArtifacts.mock.calls.length).toBeGreaterThan(0);
   });
 });
 
