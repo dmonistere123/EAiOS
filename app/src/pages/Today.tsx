@@ -73,7 +73,15 @@ export default function Today() {
   const s = useRuntime();
   const [summary, setSummary] = useState<TodaySummary | null>(null);
   const [delegating, setDelegating] = useState<WorkItem | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [dismissed, setDismissed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('eaios:today:dismissed');
+      if (raw) return new Set(JSON.parse(raw) as string[]);
+    } catch {
+      // ignore corrupt storage
+    }
+    return new Set<string>();
+  });
   const [queueShown, setQueueShown] = useState(QUEUE_PAGE);
   const [newDelegation, setNewDelegation] = useState(false);
 
@@ -81,15 +89,27 @@ export default function Today() {
     void hermes.getTodaySummary().then(setSummary);
   }, [s.work.length, s.approvals.length]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('eaios:today:dismissed', JSON.stringify([...dismissed]));
+    } catch {
+      // ignore storage errors
+    }
+  }, [dismissed]);
+
+  // Dismissed tasks are hidden from the Today operating queue (and therefore
+  // from the recommendations strip). They stay hidden across reloads because
+  // `dismissed` is persisted to localStorage. A newly-created task gets a new
+  // id, so it is not affected by an old dismissal and will reappear.
   const executiveQueue = useMemo(
     () =>
       s.work
-        .filter((w) => w.ownerType === 'executive' && !['complete', 'cancelled'].includes(w.state))
+        .filter((w) => w.ownerType === 'executive' && !['complete', 'cancelled'].includes(w.state) && !dismissed.has(w.id))
         .sort((a, b) => {
           const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
           return rank[a.priority] - rank[b.priority];
         }),
-    [s.work],
+    [s.work, dismissed],
   );
 
   const recommendations = useMemo(

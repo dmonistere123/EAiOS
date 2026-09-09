@@ -2,7 +2,7 @@
  * Interaction tests — the proof the executive loop works, executed headlessly.
  * Uses the mock adapter (VITE_HERMES_LIVE unset → mock mode).
  */
-import { describe, expect, it, beforeAll, vi } from 'vitest';
+import { describe, expect, it, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
@@ -15,6 +15,10 @@ beforeAll(() => {
 });
 
 describe('Today — delegation flow (spec §8.1)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('eaios:today:dismissed');
+  });
+
   it('opens the delegation dialog and delegates to an agent', async () => {
     const user = userEvent.setup();
     render(
@@ -44,6 +48,38 @@ describe('Today — delegation flow (spec §8.1)', () => {
     expect(calledId).toBeTruthy();
     expect((calledReq as { agentId?: string }).agentId).toBe('ally');
     await waitFor(() => expect(screen.queryByText('Delegate work')).not.toBeInTheDocument(), { timeout: 4000 });
+  });
+
+  it('persists dismissed tasks across reloads', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <MemoryRouter>
+        <Today />
+      </MemoryRouter>,
+    );
+
+    const recommendationsHeading = await screen.findByRole('heading', { name: 'Recommended to delegate' });
+    expect(recommendationsHeading).toBeInTheDocument();
+
+    let dismissButtons = screen.getAllByRole('button', { name: /Dismiss recommendation/i });
+    while (dismissButtons.length > 0) {
+      await user.click(dismissButtons[0]);
+      await waitFor(() => expect(screen.queryAllByRole('button', { name: /Dismiss recommendation/i }).length).toBeLessThan(dismissButtons.length), { timeout: 4000 });
+      dismissButtons = screen.queryAllByRole('button', { name: /Dismiss recommendation/i });
+    }
+
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Recommended to delegate' })).not.toBeInTheDocument(), { timeout: 4000 });
+    expect(localStorage.getItem('eaios:today:dismissed')).toBeTruthy();
+
+    unmount();
+
+    render(
+      <MemoryRouter>
+        <Today />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Recommended to delegate' })).not.toBeInTheDocument(), { timeout: 4000 });
   });
 });
 
