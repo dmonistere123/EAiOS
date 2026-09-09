@@ -9,7 +9,7 @@ import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import type { TravelTrip, TravelBooking, TravelApproval, TravelAgentResult } from '../domain/types';
 import { AGENT_NAME } from '../config';
-import type { TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput } from '../adapters/interfaces.ts';
+import type { TravelSearchParams, TravelSearchResult } from '../adapters/interfaces.ts';
 import { Card, Drawer, EmptyState, SectionTitle, StateBadge, RiskBadge } from '../components/ui';
 
 type SearchKind = 'flight' | 'hotel' | 'car' | 'restaurant';
@@ -80,32 +80,10 @@ function BookingIcon({ kind }: { kind: TravelBooking['kind'] }) {
   return <span className="text-sm" aria-hidden>{icon}</span>;
 }
 
-function BrowserStatusBanner({ status, onManageCredentials }: { status: Awaited<ReturnType<typeof hermes.getTravelBrowserStatus>> | null; onManageCredentials?: () => void }) {
-  if (!status) return null;
-  if (!status.enabled) {
-    return (
-      <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-3 text-xs text-warn">
-        <strong>Browser booking disabled.</strong> Set <code className="rounded bg-warn/20 px-1">TRAVEL_BROWSER_USE=1</code> and <code className="rounded bg-warn/20 px-1">CHROME_BIN</code> to enable live hotel/car/restaurant searches. Demo data is shown until then.
-      </div>
-    );
-  }
-  if (!status.vaultUnlocked) {
-    return (
-      <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-3 text-xs text-warn">
-        <strong>Browser booking locked.</strong> Set <code className="rounded bg-warn/20 px-1">TRAVEL_BROWSER_VAULT_KEY</code> so credentials and sessions can be stored encrypted. Demo data is shown until the vault is unlocked.
-      </div>
-    );
-  }
+function TravelScopeBanner() {
   return (
-    <div className="rounded-lg border border-ok/30 bg-ok/10 px-4 py-3 text-xs text-ok">
-      <strong>Browser booking ready.</strong> {status.playbooks.length} playbook{status.playbooks.length === 1 ? '' : 's'} registered.
-      {status.configuredSites.length > 0 && <> Authenticated sites: {status.configuredSites.join(', ')}.</>}
-      <> Searches stop at the review page and require your approval before any purchase.</>
-      {onManageCredentials && (
-        <button onClick={onManageCredentials} className="ml-3 rounded border border-ok/40 px-2 py-0.5 text-[10px] font-medium text-ok hover:bg-ok/10">
-          Manage credentials
-        </button>
-      )}
+    <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-3 text-xs text-warn">
+      <strong>Live hotel, car, and restaurant booking is post-beta.</strong> Demo data is shown for hotels, cars, and restaurants. Flights are live when Duffel is configured.
     </div>
   );
 }
@@ -347,14 +325,11 @@ export default function Travel() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentQuery, setAgentQuery] = useState('');
   const [agentProposing, setAgentProposing] = useState<string | null>(null);
-  const [browserStatus, setBrowserStatus] = useState<Awaited<ReturnType<typeof hermes.getTravelBrowserStatus>> | null>(null);
-  const [vaultOpen, setVaultOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
-    const [rows, status] = await Promise.all([hermes.listTrips(), hermes.getTravelBrowserStatus()]);
+    const rows = await hermes.listTrips();
     setTrips(rows);
-    setBrowserStatus(status);
     setOpenTrip((current) => (current ? rows.find((t) => t.id === current.id) ?? null : null));
     setLoading(false);
   };
@@ -523,7 +498,7 @@ export default function Travel() {
         )}
       </div>
 
-      <BrowserStatusBanner status={browserStatus} onManageCredentials={() => setVaultOpen(true)} />
+      <TravelScopeBanner />
 
       <div className="grid gap-4 md:grid-cols-3">
         <button onClick={() => setSearchKind('flight')} className="rounded-xl border border-edge bg-canvas-raised p-5 text-left hover:border-signal/40 hover:bg-canvas-overlay">
@@ -578,204 +553,7 @@ export default function Travel() {
       {searchKind && <SearchDrawer kind={searchKind} onClose={() => setSearchKind(null)} />}
       {openTrip && <TripDrawer trip={openTrip} onClose={() => setOpenTrip(null)} onRefresh={() => void load()} />}
       {newTripOpen && <NewTripDrawer onClose={() => setNewTripOpen(false)} onCreated={() => void load()} />}
-      {vaultOpen && <VaultDrawer onClose={() => { setVaultOpen(false); void load(); }} />}
     </div>
-  );
-}
-
-function VaultDrawer({ onClose }: { onClose: () => void }) {
-  const [sites, setSites] = useState<TravelVaultSite[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editingSite, setEditingSite] = useState<string | null>(null);
-  const [editUsername, setEditUsername] = useState('');
-  const [editPassword, setEditPassword] = useState('');
-  const [editTotp, setEditTotp] = useState('');
-  const [editNotes, setEditNotes] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [addNew, setAddNew] = useState(false);
-  const [newSite, setNewSite] = useState('');
-
-  const loadSites = async () => {
-    setLoading(true);
-    const rows = await hermes.listTravelVaultSites();
-    setSites(rows);
-    setLoading(false);
-  };
-
-  useEffect(() => { void loadSites(); }, []);
-
-  const startEdit = (site: TravelVaultSite) => {
-    setEditingSite(site.site);
-    setEditUsername('');
-    setEditPassword('');
-    setEditTotp('');
-    setEditNotes(site.notes ?? '');
-  };
-
-  const saveEdit = async () => {
-    if (!editingSite) return;
-    setBusy(true);
-    const input: TravelVaultSiteInput = {};
-    if (editUsername) input.username = editUsername;
-    if (editPassword) input.password = editPassword;
-    if (editTotp) input.totpSeed = editTotp;
-    if (editNotes !== undefined) input.notes = editNotes;
-    const res = await hermes.setTravelVaultSite(editingSite, input);
-    setBusy(false);
-    if (res.ok) {
-      toast('ok', `Updated credentials for ${editingSite}.`);
-      setEditingSite(null);
-      await loadSites();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Save failed.');
-    }
-  };
-
-  const addSite = async () => {
-    const site = newSite.trim().toLowerCase();
-    if (!site) { toast('error', 'Site name is required.'); return; }
-    setBusy(true);
-    const input: TravelVaultSiteInput = {};
-    if (editUsername) input.username = editUsername;
-    if (editPassword) input.password = editPassword;
-    if (editTotp) input.totpSeed = editTotp;
-    if (editNotes !== undefined) input.notes = editNotes;
-    const res = await hermes.setTravelVaultSite(site, input);
-    setBusy(false);
-    if (res.ok) {
-      toast('ok', `Added credentials for ${site}.`);
-      setAddNew(false);
-      setNewSite('');
-      setEditUsername('');
-      setEditPassword('');
-      setEditTotp('');
-      setEditNotes('');
-      await loadSites();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Add failed.');
-    }
-  };
-
-  const removeSite = async (site: string) => {
-    setBusy(true);
-    const res = await hermes.removeTravelVaultSite(site);
-    setBusy(false);
-    if (res.ok) {
-      toast('ok', `Removed credentials for ${site}.`);
-      if (editingSite === site) setEditingSite(null);
-      await loadSites();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Remove failed.');
-    }
-  };
-
-  return (
-    <Drawer title="Credential vault" onClose={onClose} width={500}>
-      <div className="space-y-4">
-        <p className="text-xs text-ink-dim">
-          Stored credentials for browser-automation sites. Passwords are encrypted and never displayed — only the presence of a credential is shown.
-        </p>
-
-        {loading ? (
-          <p className="text-xs text-ink-faint">Loading vault sites…</p>
-        ) : sites.length === 0 && !addNew ? (
-          <EmptyState title="No credentials stored" hint="Add credentials below so browser-use can log into booking sites automatically." />
-        ) : (
-          <div className="space-y-2">
-            {sites.map((s) => (
-              <div key={s.site} className="rounded-lg border border-edge bg-canvas p-3">
-                {editingSite === s.site ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-ink">{s.site}</span>
-                      <button onClick={() => setEditingSite(null)} className="text-xs text-ink-dim hover:text-ink">Cancel</button>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Username</label>
-                      <input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} placeholder={s.hasUsername ? 'Replace existing' : 'Add username'} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Password</label>
-                      <input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder={s.hasPassword ? 'Replace existing' : 'Add password'} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">TOTP seed</label>
-                      <input type="password" value={editTotp} onChange={(e) => setEditTotp(e.target.value)} placeholder={s.hasTotp ? 'Replace existing' : 'Add TOTP'} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Notes</label>
-                      <input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Optional notes" className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-                    </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => void saveEdit()} disabled={busy} className="rounded bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-                        {busy ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-ink">{s.site}</span>
-                        {s.hasPassword ? <span className="rounded bg-ok/10 px-1.5 py-0.5 text-[10px] text-ok">Password stored</span> : null}
-                        {s.hasUsername ? <span className="rounded bg-signal/10 px-1.5 py-0.5 text-[10px] text-signal">Username saved</span> : null}
-                        {s.hasTotp ? <span className="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] text-warn">TOTP set</span> : null}
-                      </div>
-                      {s.notes && <p className="mt-1 text-xs text-ink-dim">{s.notes}</p>}
-                      <div className="mt-0.5 text-[10px] text-ink-faint">Updated {new Date(s.updatedAt).toLocaleDateString()}</div>
-                    </div>
-                    <div className="flex shrink-0 gap-1.5">
-                      <button onClick={() => startEdit(s)} disabled={busy} className="rounded border border-edge px-2 py-1 text-[10px] font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50">
-                        Edit
-                      </button>
-                      <button onClick={() => void removeSite(s.site)} disabled={busy} className="rounded border border-risk/30 px-2 py-1 text-[10px] font-medium text-risk hover:bg-risk/10 disabled:opacity-50">
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {addNew ? (
-          <div className="space-y-3 rounded-lg border border-edge bg-canvas-raised p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-ink">Add site</span>
-              <button onClick={() => { setAddNew(false); setNewSite(''); }} className="text-xs text-ink-dim hover:text-ink">Cancel</button>
-            </div>
-            <div>
-              <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Site name</label>
-              <input value={newSite} onChange={(e) => setNewSite(e.target.value)} placeholder="kayak, opentable, ihg, marriott…" className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-            </div>
-            <div>
-              <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Username</label>
-              <input value={editUsername} onChange={(e) => setEditUsername(e.target.value)} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-            </div>
-            <div>
-              <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Password</label>
-              <input type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-            </div>
-            <div>
-              <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">TOTP seed</label>
-              <input type="password" value={editTotp} onChange={(e) => setEditTotp(e.target.value)} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-            </div>
-            <div>
-              <label className="text-[10px] font-medium uppercase tracking-wider text-ink-faint">Notes</label>
-              <input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} className="mt-1 w-full rounded border border-edge bg-canvas px-2 py-1.5 text-sm text-ink" />
-            </div>
-            <button onClick={() => void addSite()} disabled={busy} className="w-full rounded bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-              {busy ? 'Adding…' : 'Add site'}
-            </button>
-          </div>
-        ) : (
-          <button onClick={() => { setAddNew(true); setEditingSite(null); }} className="w-full rounded-lg border border-dashed border-edge px-4 py-2.5 text-xs font-medium text-ink-dim hover:border-signal/40 hover:text-signal">
-            + Add credentials
-          </button>
-        )}
-      </div>
-    </Drawer>
   );
 }
 

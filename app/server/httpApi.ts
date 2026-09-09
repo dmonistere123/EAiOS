@@ -36,8 +36,7 @@ import {
   updateKanbanTaskBody,
   writeSettings,
 } from './apiCore.ts';
-import { TravelApiError, browserProviderStatus, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
-import { getVaultSite, listVaultSites, removeVaultSite, setVaultSite } from './travelBrowser/index.ts';
+import { TravelApiError, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
 import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring.ts';
 import type { PlaybookInput, SkillInput } from './authoring.ts';
 import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interfaces.ts';
@@ -479,70 +478,21 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return true;
     }
 
-    /* travel browser-use status + credential vault */
+    /* travel browser-use status (archived post-beta; always disabled) */
     if (path === '/api/travel/browser-status' && req.method === 'GET') {
-      try {
-        json(res, 200, JSON.stringify(browserProviderStatus()));
-      } catch (e) {
-        json(res, 503, JSON.stringify({ error: String(e) }));
-      }
+      json(res, 200, JSON.stringify({
+        enabled: false,
+        vaultUnlocked: false,
+        configuredSites: [] as string[],
+        sessionSites: [] as string[],
+        playbooks: [],
+      }));
       return true;
     }
-    if (path === '/api/travel/browser-vault/sites' && req.method === 'GET') {
-      try {
-        json(res, 200, JSON.stringify({ sites: listVaultSites() }));
-      } catch (e) {
-        json(res, 503, JSON.stringify({ error: String(e) }));
-      }
-      return true;
-    }
-    if (path.startsWith('/api/travel/browser-vault/sites/')) {
-      const siteMatch = path.match(/^\/api\/travel\/browser-vault\/sites\/([^/]+)$/);
-      if (siteMatch) {
-        const site = decodeURIComponent(siteMatch[1]);
-        if (req.method === 'GET') {
-          try {
-            const summary = getVaultSite(site);
-            if (!summary) {
-              json(res, 404, JSON.stringify({ error: 'Site not found' }));
-              return true;
-            }
-            json(res, 200, JSON.stringify(summary));
-          } catch (e) {
-            json(res, 503, JSON.stringify({ error: String(e) }));
-          }
-          return true;
-        }
-        if (req.method === 'POST') {
-          try {
-            const body = await readJsonBody(req);
-            setVaultSite(site, {
-              username: body.username ? String(body.username) : undefined,
-              password: body.password ? String(body.password) : undefined,
-              totpSeed: body.totpSeed ? String(body.totpSeed) : undefined,
-              notes: body.notes ? String(body.notes) : undefined,
-            });
-            json(res, 200, JSON.stringify({ ok: true }));
-          } catch (e) {
-            json(res, 503, JSON.stringify({ error: String(e) }));
-          }
-          return true;
-        }
-        if (req.method === 'DELETE') {
-          try {
-            const removed = removeVaultSite(site);
-            json(res, removed ? 200 : 404, JSON.stringify({ ok: removed }));
-          } catch (e) {
-            json(res, 503, JSON.stringify({ error: String(e) }));
-          }
-          return true;
-        }
-      }
-    }
+
+    return false;
   } catch (e) {
     json(res, 500, JSON.stringify({ error: String(e) }));
     return true;
   }
-
-  return false;
 }

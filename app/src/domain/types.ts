@@ -457,7 +457,7 @@ export interface TravelApproval {
   /** Original search result id, used to replay the offer during booking execution. */
   resultId?: string;
   actionType: 'book' | 'cancel' | 'other';
-  targetSystem: 'duffel' | 'browser-use-consumer' | 'opentable' | 'other';
+  targetSystem: 'duffel' | 'opentable' | 'other';
   targetObject?: string;
   risk: RiskLevel;
   status: 'pending' | 'approved' | 'rejected' | 'changes_requested';

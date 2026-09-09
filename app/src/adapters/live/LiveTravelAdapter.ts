@@ -5,7 +5,7 @@
  * degradation). Note: Amadeus Self-Service was decommissioned July 2026.
  */
 import type { TravelTrip, TravelBooking, ApprovalDecision, AuditResult, TravelAgentResult } from '../../domain/types';
-import type { CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput } from '../interfaces';
+import type { CreateTripInput, TravelSearchParams, TravelSearchResult } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 
 class LiveTravelAdapter {
@@ -109,65 +109,6 @@ class LiveTravelAdapter {
     );
   }
 
-  getTravelBrowserStatus(): Promise<{
-    enabled: boolean;
-    chromeBin?: string;
-    vaultUnlocked: boolean;
-    configuredSites: string[];
-    sessionSites: string[];
-    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
-  }> {
-    return this.call(
-      async () => this.api('/browser-status'),
-      () => mock.getTravelBrowserStatus(),
-    );
-  }
-
-  // ---------- Vault credential manager ----------
-
-  listTravelVaultSites(): Promise<TravelVaultSite[]> {
-    return this.call(
-      async () => {
-        const r = await this.api<{ sites: TravelVaultSite[] }>('/browser-vault/sites');
-        return r.sites;
-      },
-      () => (mock as unknown as { travel?: { listTravelVaultSites: () => Promise<TravelVaultSite[]> } }).travel?.listTravelVaultSites?.() ?? Promise.resolve([]),
-    );
-  }
-
-  getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
-    return this.call(
-      async () => {
-        const r = await this.api<TravelVaultSite>(`/browser-vault/sites/${encodeURIComponent(site)}`);
-        return r;
-      },
-      () => (mock as unknown as { travel?: { getTravelVaultSite: (s: string) => Promise<TravelVaultSite | null> } }).travel?.getTravelVaultSite(site) ?? Promise.resolve(null),
-    );
-  }
-
-  setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
-    return this.call(
-      async () =>
-        this.api<AuditResult>(`/browser-vault/sites/${encodeURIComponent(site)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }),
-      () => (mock as unknown as { travel?: { setTravelVaultSite: (s: string, i: TravelVaultSiteInput) => Promise<AuditResult> } }).travel?.setTravelVaultSite(site, input) ?? Promise.resolve(auditFail()),
-    );
-  }
-
-  removeTravelVaultSite(site: string): Promise<AuditResult> {
-    return this.call(
-      async () =>
-        this.api<AuditResult>(`/browser-vault/sites/${encodeURIComponent(site)}`, {
-          method: 'DELETE',
-        }),
-      () => (mock as unknown as { travel?: { removeTravelVaultSite: (s: string) => Promise<AuditResult> } }).travel?.removeTravelVaultSite(site) ?? Promise.resolve(auditFail()),
-    );
-  }
 }
-
-const auditFail = (): AuditResult => ({ ok: false, auditEventId: 'aud-live-fallback', error: { code: 'fallback', safeMessage: 'Live unavailable, mock fallback also failed.', retryable: false } });
 
 export const liveTravel = new LiveTravelAdapter();

@@ -16,7 +16,7 @@ import type {
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
   CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
-  CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput,
+  CreateTripInput, TravelSearchParams, TravelSearchResult,
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 import { liveTravel } from './LiveTravelAdapter';
@@ -1698,34 +1698,6 @@ class LiveHermesAdapter implements HermesAdapter {
     return liveTravel.decideTravelApproval(approvalId, decision);
   }
 
-  getTravelBrowserStatus(): Promise<{
-    enabled: boolean;
-    chromeBin?: string;
-    vaultUnlocked: boolean;
-    configuredSites: string[];
-    sessionSites: string[];
-    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
-  }> {
-    return liveTravel.getTravelBrowserStatus();
-  }
-
-  // ---------- Browser vault credential manager ----------
-
-  listTravelVaultSites(): Promise<TravelVaultSite[]> {
-    return liveTravel.listTravelVaultSites();
-  }
-
-  getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
-    return liveTravel.getTravelVaultSite(site);
-  }
-
-  setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
-    return liveTravel.setTravelVaultSite(site, input);
-  }
-
-  removeTravelVaultSite(site: string): Promise<AuditResult> {
-    return liveTravel.removeTravelVaultSite(site);
-  }
 }
 
 export const live = new LiveHermesAdapter();

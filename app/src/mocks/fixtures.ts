@@ -256,19 +256,18 @@ export const travelTrips: TravelTrip[] = [
         costUsd: 420, confirmationNumber: 'ABC123',
       },
       {
-        id: 'bk-02', tripId: 'trip-01', kind: 'hotel', status: 'confirmed', provider: 'browser-use-consumer',
+        id: 'bk-02', tripId: 'trip-01', kind: 'hotel', status: 'confirmed', provider: 'other',
         hotelName: 'Watermark Hotel', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10),
         roomType: 'King Executive', address: '123 Main St, Baton Rouge, LA', costUsd: 380, confirmationNumber: 'XYZ789',
       },
       {
-        id: 'bk-03', tripId: 'trip-01', kind: 'car', status: 'proposed', provider: 'browser-use-consumer',
+        id: 'bk-03', tripId: 'trip-01', kind: 'car', status: 'proposed', provider: 'other',
         company: 'Enterprise', carType: 'Midsize', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport',
         pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0), costUsd: 140,
       },
     ],
     approvals: [
-      {
-        id: 'ta-01', tripId: 'trip-01', bookingId: 'bk-03', resultId: 'sr-c-1', actionType: 'book', targetSystem: 'browser-use-consumer',
+      { id: 'ta-01', tripId: 'trip-01', bookingId: 'bk-03', resultId: 'sr-c-1', actionType: 'book', targetSystem: 'other',
         targetObject: 'Enterprise Midsize BTR 12–14 Sep', risk: 'low', status: 'pending', submittedAt: min(60 * 24 * 2),
         payload: 'Book Enterprise Midsize at BTR Airport, pickup 12 Sep 12:00, dropoff 14 Sep 16:00, ~$140.',
       },
@@ -304,12 +303,12 @@ export const travelSearchResults: Record<string, TravelSearchResult[]> = {
     { id: 'sr-f-2', kind: 'flight', title: 'Southwest WN204', subtitle: 'BHM → BTR · 13:10–14:35 · Business Select', priceUsd: 310, provider: 'duffel', meta: { airline: 'Southwest', flightNumber: 'WN204', origin: 'BHM', destination: 'BTR', departureAt: at(day(12), 13, 10), arrivalAt: at(day(12), 14, 35), cabin: 'Business Select' } },
   ],
   hotels: [
-    { id: 'sr-h-1', kind: 'hotel', title: 'Watermark Hotel', subtitle: 'King Executive · 12–14 Sep', priceUsd: 380, provider: 'browser-use-consumer', meta: { hotelName: 'Watermark Hotel', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'King Executive', address: '123 Main St, Baton Rouge, LA' } },
-    { id: 'sr-h-2', kind: 'hotel', title: 'Renaissance Baton Rouge', subtitle: 'Deluxe Queen · 12–14 Sep', priceUsd: 295, provider: 'browser-use-consumer', meta: { hotelName: 'Renaissance Baton Rouge', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'Deluxe Queen', address: '7000 Bluebonnet Blvd, Baton Rouge, LA' } },
+    { id: 'sr-h-1', kind: 'hotel', title: 'Watermark Hotel', subtitle: 'King Executive · 12–14 Sep', priceUsd: 380, provider: 'other', meta: { hotelName: 'Watermark Hotel', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'King Executive', address: '123 Main St, Baton Rouge, LA' } },
+    { id: 'sr-h-2', kind: 'hotel', title: 'Renaissance Baton Rouge', subtitle: 'Deluxe Queen · 12–14 Sep', priceUsd: 295, provider: 'other', meta: { hotelName: 'Renaissance Baton Rouge', checkIn: day(12).slice(0, 10), checkOut: day(14).slice(0, 10), roomType: 'Deluxe Queen', address: '7000 Bluebonnet Blvd, Baton Rouge, LA' } },
   ],
   cars: [
-    { id: 'sr-c-1', kind: 'car', title: 'Enterprise Midsize', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 140, provider: 'browser-use-consumer', meta: { company: 'Enterprise', carType: 'Midsize', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
-    { id: 'sr-c-2', kind: 'car', title: 'Hertz Compact', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 115, provider: 'browser-use-consumer', meta: { company: 'Hertz', carType: 'Compact', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
+    { id: 'sr-c-1', kind: 'car', title: 'Enterprise Midsize', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 140, provider: 'other', meta: { company: 'Enterprise', carType: 'Midsize', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
+    { id: 'sr-c-2', kind: 'car', title: 'Hertz Compact', subtitle: 'BTR Airport · 12 Sep 12:00 → 14 Sep 16:00', priceUsd: 115, provider: 'other', meta: { company: 'Hertz', carType: 'Compact', pickupLocation: 'BTR Airport', dropoffLocation: 'BTR Airport', pickupAt: at(day(12), 12, 0), dropoffAt: at(day(14), 16, 0) } },
   ],
   restaurants: [
     { id: 'sr-r-1', kind: 'restaurant', title: 'Gramercy Tavern', subtitle: 'American · 5 Sep 19:30 · Party of 4', priceUsd: 0, provider: 'opentable', meta: { restaurantName: 'Gramercy Tavern', cuisine: 'American', reservationAt: at(day(5), 19, 30), partySize: '4', address: '42 E 20th St, New York, NY' } },

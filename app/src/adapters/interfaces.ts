@@ -258,37 +258,6 @@ export interface HermesAdapter {
   createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>>;
   proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>>;
   decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
-  /** Browser-use provider status + vault state. */
-  getTravelBrowserStatus(): Promise<{
-    enabled: boolean;
-    chromeBin?: string;
-    vaultUnlocked: boolean;
-    configuredSites: string[];
-    sessionSites: string[];
-    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
-  }>;
-
-  // ---------- Browser vault credential manager ----------
-  listTravelVaultSites(): Promise<TravelVaultSite[]>;
-  getTravelVaultSite(site: string): Promise<TravelVaultSite | null>;
-  setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult>;
-  removeTravelVaultSite(site: string): Promise<AuditResult>;
-}
-
-export interface TravelVaultSite {
-  site: string;
-  hasUsername: boolean;
-  hasPassword: boolean;
-  hasTotp: boolean;
-  notes?: string;
-  updatedAt: string;
-}
-
-export interface TravelVaultSiteInput {
-  username?: string;
-  password?: string;
-  totpSeed?: string;
-  notes?: string;
 }
 
 export interface CreateTripInput {

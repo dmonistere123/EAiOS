@@ -7,9 +7,9 @@
  * - Provider pivot (2026-09): Amadeus Self-Service API was decommissioned
  *   July 2026. The live path now prefers:
  *     - Duffel (https://duffel.com) for flights when DUFFEL_API_KEY is set.
- *     - Browser-use against consumer sites (Kayak/Booking.com/Expedia) for
- *       hotels/cars when TRAVEL_BROWSER_USE=1 and CHROME_BIN is available.
  *     - OpenTable partner API for restaurants when OPENTABLE_API_KEY is set.
+ *     - Hotel/car live search is intentionally out of beta scope; those
+ *       categories fall back to mock fixtures with an honest 503 notice.
  * - If no provider is configured for a search kind, the endpoint returns 503
  *   with an actionable message; the live adapter falls back to the mock fixture
  *   set (spec §2 honest degradation) and the UI shows a provider notice.
@@ -20,7 +20,6 @@ import type { TravelBooking, TravelTrip, TravelApproval, ApprovalDecision, Audit
 import type { TravelSearchParams, TravelSearchResult, CreateTripInput } from '../src/adapters/interfaces.ts';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getBrowserStatus, searchBrowserUse as runBrowserSearch, executeBooking } from './travelBrowser/index.ts';
 
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 8)}`;
 let auditSeq = 3000;
@@ -42,16 +41,11 @@ const trips = new Map<string, TravelTrip>();
  * proposeBooking can look up the offer details without re-fetching. */
 const searchCache = new Map<string, TravelSearchResult>();
 
-function providerStatus(): { duffel: boolean; browserUse: boolean; opentable: boolean } {
+function providerStatus(): { duffel: boolean; opentable: boolean } {
   return {
     duffel: !!process.env.DUFFEL_API_KEY,
-    browserUse: getBrowserStatus().enabled,
     opentable: !!process.env.OPENTABLE_API_KEY,
   };
-}
-
-export function browserProviderStatus() {
-  return getBrowserStatus();
 }
 
 function requiredEnv(name: string): string {
@@ -61,37 +55,8 @@ function requiredEnv(name: string): string {
 }
 
 function toApprovalTarget(provider: string): TravelApproval['targetSystem'] {
-  if (provider === 'duffel' || provider === 'browser-use-consumer' || provider === 'opentable') return provider;
+  if (provider === 'duffel' || provider === 'opentable') return provider;
   return 'other';
-}
-
-function inferParamsFromBooking(booking: TravelBooking): TravelSearchParams {
-  if (booking.kind === 'hotel') {
-    return {
-      kind: 'hotel',
-      destination: booking.hotelName,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-    };
-  }
-  if (booking.kind === 'car') {
-    return {
-      kind: 'car',
-      pickupLocation: booking.pickupLocation,
-      dropoffLocation: booking.dropoffLocation,
-      departureDate: booking.pickupAt.slice(0, 10),
-      returnDate: booking.dropoffAt.slice(0, 10),
-    };
-  }
-  if (booking.kind === 'restaurant') {
-    return {
-      kind: 'restaurant',
-      destination: booking.restaurantName,
-      date: booking.reservationAt.slice(0, 10),
-      partySize: booking.partySize,
-    };
-  }
-  return { kind: 'hotel' };
 }
 
 function assertParams(kind: TravelSearchParams['kind'], params: TravelSearchParams) {
@@ -203,26 +168,6 @@ async function searchDuffelFlights(params: TravelSearchParams): Promise<TravelSe
   });
 }
 
-// ---------- Browser-use consumer-site provider (hotels/cars) ----------
-
-async function searchBrowserUse(_kind: 'hotel' | 'car' | 'restaurant', params: TravelSearchParams): Promise<TravelSearchResult[]> {
-  const status = getBrowserStatus();
-  if (!status.enabled) {
-    throw new TravelApiError(503, 'Browser-use provider not configured: set TRAVEL_BROWSER_USE=1 and CHROME_BIN, or rely on mock fallback');
-  }
-  if (!status.vaultUnlocked) {
-    throw new TravelApiError(503, 'Browser-use vault locked: set TRAVEL_BROWSER_VAULT_KEY');
-  }
-  try {
-    const results = await runBrowserSearch({ params, chromeBin: process.env.CHROME_BIN });
-    results.forEach((r) => searchCache.set(r.id, r));
-    return results;
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    throw new TravelApiError(503, `Browser-use search failed: ${message}`);
-  }
-}
-
 // ---------- OpenTable restaurant provider ----------
 
 async function searchOpenTable(_params: TravelSearchParams): Promise<TravelSearchResult[]> {
@@ -240,19 +185,11 @@ async function fetchLiveResults(params: TravelSearchParams): Promise<TravelSearc
     return searchDuffelFlights(params);
   }
   if (params.kind === 'hotel' || params.kind === 'car') {
-    if (!status.browserUse) {
-      const need = params.kind === 'hotel' ? 'hotel' : 'car';
-      throw new TravelApiError(503, `${need} provider not configured: set TRAVEL_BROWSER_USE=1 and CHROME_BIN, or rely on mock fallback`);
-    }
-    return searchBrowserUse(params.kind, params);
+    const need = params.kind === 'hotel' ? 'Hotel' : 'Car';
+    throw new TravelApiError(503, `${need} live search is post-beta; demo data is shown until a provider is integrated.`);
   }
   if (params.kind === 'restaurant') {
-    if (status.browserUse) {
-      return searchBrowserUse('restaurant', params);
-    }
-    if (!status.opentable) {
-      throw new TravelApiError(503, 'Restaurant provider not configured: set TRAVEL_BROWSER_USE=1 and CHROME_BIN for browser-use, or set OPENTABLE_API_KEY for partner API');
-    }
+    if (!status.opentable) throw new TravelApiError(503, 'Restaurant live search is post-beta; demo data is shown until OpenTable or another provider is integrated.');
     return searchOpenTable(params);
   }
   throw new TravelApiError(400, `Unsupported travel search kind: ${params.kind}`);
@@ -378,29 +315,9 @@ export async function decideTravelApproval(approvalId: string, decision: Approva
       if (app.status === 'approved' && app.bookingId) {
         const booking = trip.bookings.find((b) => b.id === app.bookingId);
         if (booking) {
-          if (booking.provider === 'browser-use-consumer') {
-            // Execute the browser-automation booking up to the review page,
-            // then confirm locally. The runner stops before final checkout.
-            const result = app.resultId ? searchCache.get(app.resultId) : undefined;
-            if (result) {
-              const exec = await executeBooking({ params: inferParamsFromBooking(booking), result, chromeBin: process.env.CHROME_BIN });
-              if (exec.ok) {
-                booking.status = 'confirmed';
-                if (exec.confirmationNumber) booking.confirmationNumber = exec.confirmationNumber;
-                if (exec.finalUrl) booking.externalUrl = exec.finalUrl;
-              } else {
-                app.status = 'changes_requested';
-                app.payload = `${app.payload ?? ''}\n\nBooking execution failed: ${exec.error ?? 'unknown'}`;
-              }
-            } else {
-              app.status = 'changes_requested';
-              app.payload = `${app.payload ?? ''}\n\nSearch result expired; run the search again.`;
-            }
-          } else {
-            booking.status = 'confirmed';
-            // NOTE: a production implementation would call the provider order/
-            // booking endpoint here (e.g. Duffel orders) before confirming.
-          }
+          booking.status = 'confirmed';
+          // NOTE: a production implementation would call the provider order/
+          // booking endpoint here (e.g. Duffel orders) before confirming.
         }
       }
       return audit();

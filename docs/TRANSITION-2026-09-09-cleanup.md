@@ -10,18 +10,14 @@
 - **Services:** all four `eaios-*` units active, `:5200` responding
 - **Latest commit:** `96298b6` — approval decision persistence + kanban parent ids
 
-## What needs cleanup before beta
+## What has been done
 
-### 1. Deferred browser-automation booking code
-- `app/server/travelBrowser/` — 7 files of deferred Booking.com/IHG/Marriott/OpenTable/Resy playbook code
-- `app/src/tests/travelBrowser.test.ts` — skipped test suites
-- `app/src/tests/travel-vault.test.tsx` — skipped credential-vault UI tests
-- `docs/design-browser-booking-2026-09-05.md`
-- `docs/deliverable-opentable-harden-2026-09-05.md`
-
-**Decision needed:** Remove from beta branch, or keep as a documented roadmap spike behind a feature flag.
-
-**Recommendation:** Move browser-automation code to a separate branch or archive folder. It is not used at runtime and the skipped tests add noise.
+### 1. Deferred browser-automation booking code — DONE
+- `app/server/travelBrowser/` moved to `archive/server-travelBrowser-2026-09-09/travelBrowser/`
+- `app/src/tests/travelBrowser.test.ts` and `app/src/tests/travel-vault.test.tsx` moved to `archive/tests-2026-09-09/`
+- `docs/design-browser-booking-2026-09-05.md` and `docs/deliverable-opentable-harden-2026-09-05.md` moved to `docs/archive/`
+- All code references removed from adapters, server, Travel UI, fixtures, and domain types
+- 266 tests pass (no skips, no failures); build green
 
 ### 2. Travel page scope
 - Travel is currently `Travel (RM)` — roadmap demo with mock hotels/cars/restaurants and live Duffel flights only.

@@ -11,7 +11,7 @@ import type {
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
   CreateSkill, CreateWorkItem, CronJobPatch, DateRange, DelegationRequest, HermesAdapter, ModelOptionGroup, PlaybookInput, Unsubscribe, WorkFilter, WorkItemAction, AssistantAttachment,
-  CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput,
+  CreateTripInput, TravelSearchParams, TravelSearchResult,
 } from '../interfaces';
 import * as fx from '../../mocks/fixtures';
 import { MockTravelAdapter } from './MockTravelAdapter';
@@ -853,39 +853,6 @@ class MockHermesAdapter implements HermesAdapter {
     return this.travel.decideTravelApproval(approvalId, decision);
   }
 
-  async getTravelBrowserStatus(): Promise<{
-    enabled: boolean;
-    chromeBin?: string;
-    vaultUnlocked: boolean;
-    configuredSites: string[];
-    sessionSites: string[];
-    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
-  }> {
-    await delay(100);
-    return this.travel.getTravelBrowserStatus();
-  }
-
-  // ---------- Browser vault credential manager ----------
-
-  async listTravelVaultSites(): Promise<TravelVaultSite[]> {
-    await delay(100);
-    return this.travel.listTravelVaultSites();
-  }
-
-  async getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
-    await delay(80);
-    return this.travel.getTravelVaultSite(site);
-  }
-
-  async setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
-    await delay(200);
-    return this.travel.setTravelVaultSite(site, input);
-  }
-
-  async removeTravelVaultSite(site: string): Promise<AuditResult> {
-    await delay(150);
-    return this.travel.removeTravelVaultSite(site);
-  }
 }
 
 export const hermes = new MockHermesAdapter();

@@ -4,7 +4,7 @@
  * UI works identically against either.
  */
 import type { TravelTrip, TravelBooking, TravelApproval, ApprovalDecision, AuditResult, TravelAgentResult } from '../../domain/types';
-import type { CreateTripInput, TravelSearchParams, TravelSearchResult, TravelVaultSite, TravelVaultSiteInput } from '../interfaces';
+import type { CreateTripInput, TravelSearchParams, TravelSearchResult } from '../interfaces';
 import { travelTrips as fixtureTrips, travelSearchResults as fixtureSearch } from '../../mocks/fixtures';
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -150,71 +150,6 @@ export class MockTravelAdapter {
       }
     }
     return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Approval not found.', retryable: false } };
-  }
-
-  async getTravelBrowserStatus(): Promise<{
-    enabled: boolean;
-    chromeBin?: string;
-    vaultUnlocked: boolean;
-    configuredSites: string[];
-    sessionSites: string[];
-    playbooks: { id: string; site: string; kind: TravelSearchParams['kind']; displayName: string }[];
-  }> {
-    return {
-      enabled: true,
-      vaultUnlocked: true,
-      configuredSites: this.vaultSites.map((s) => s.site),
-      sessionSites: [],
-      playbooks: [
-        { id: 'kayak-hotels', site: 'kayak', kind: 'hotel', displayName: 'Kayak hotels (mock)' },
-        { id: 'kayak-cars', site: 'kayak', kind: 'car', displayName: 'Kayak cars (mock)' },
-        { id: 'opentable-restaurants', site: 'opentable', kind: 'restaurant', displayName: 'OpenTable (mock)' },
-      ],
-    };
-  }
-
-  // ---------- Vault credential manager (mock) ----------
-
-  private vaultSites: TravelVaultSite[] = [
-    { site: 'kayak', hasUsername: true, hasPassword: true, hasTotp: false, notes: 'Main travel account', updatedAt: new Date().toISOString() },
-    { site: 'opentable', hasUsername: true, hasPassword: true, hasTotp: false, notes: 'Restaurant booking', updatedAt: new Date(Date.now() - 86400000).toISOString() },
-    { site: 'ihg', hasUsername: true, hasPassword: false, hasTotp: false, updatedAt: new Date(Date.now() - 172800000).toISOString() },
-  ];
-
-  async listTravelVaultSites(): Promise<TravelVaultSite[]> {
-    return clone(this.vaultSites);
-  }
-
-  async getTravelVaultSite(site: string): Promise<TravelVaultSite | null> {
-    const s = this.vaultSites.find((v) => v.site === site);
-    return s ? clone(s) : null;
-  }
-
-  async setTravelVaultSite(site: string, input: TravelVaultSiteInput): Promise<AuditResult> {
-    const existing = this.vaultSites.findIndex((v) => v.site === site);
-    const entry: TravelVaultSite = {
-      site,
-      hasUsername: !!input.username || (existing >= 0 ? this.vaultSites[existing].hasUsername : false),
-      hasPassword: !!input.password || (existing >= 0 ? this.vaultSites[existing].hasPassword : false),
-      hasTotp: !!input.totpSeed || (existing >= 0 ? this.vaultSites[existing].hasTotp : false),
-      notes: input.notes !== undefined ? input.notes : (existing >= 0 ? this.vaultSites[existing].notes : undefined),
-      updatedAt: new Date().toISOString(),
-    };
-    if (existing >= 0) {
-      this.vaultSites[existing] = entry;
-    } else {
-      this.vaultSites.push(entry);
-    }
-    return audit();
-  }
-
-  async removeTravelVaultSite(site: string): Promise<AuditResult> {
-    const before = this.vaultSites.length;
-    this.vaultSites = this.vaultSites.filter((v) => v.site !== site);
-    if (this.vaultSites.length === before) {
-      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Site not found.', retryable: false } };
-    }
-    return audit();
   }
 
   /**
