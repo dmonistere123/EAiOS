@@ -183,6 +183,8 @@ interface KanbanTask {
   started_at?: number | null;
   completed_at?: number | null;
   result?: string | null;
+  /** Comma-separated parent ids from task_links (server-side GROUP_CONCAT). */
+  parents?: string | null;
 }
 
 /** Approval metadata rides in the task body as a JSON envelope (Phase 3). */
@@ -198,6 +200,9 @@ interface ApprovalEnvelope {
   rollbackPlan?: string;
   /** The fully-prepared action content (e.g. To/Subject/Body) — what the executor sends and what the executive reviews (2026-08-29). */
   payload?: string;
+  /** Recorded decision. When set, listApprovals treats the approval as decided even if the kanban task is still ready/running (approve-and-execute is async). */
+  decision?: Approval['status'];
+  decidedAt?: string;
 }
 
 const kanbanState: Record<KanbanTask['status'], WorkItem['state']> = {
@@ -241,6 +246,16 @@ function mapTask(t: KanbanTask): WorkItem {
 }
 
 function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
+  // The envelope decision is the source of truth: approve assigns the task and
+  // execution is async, so the kanban task may stay ready/running for a while.
+  // Without this, approved approvals kept showing in the pending list (dogfood
+  // 2026-09-08, t_b5ed136e).
+  const status: Approval['status'] = env.decision ?? (
+    t.status === 'done' ? 'approved' :
+    t.status === 'blocked' ? 'rejected' :
+    t.status === 'archived' ? 'expired' :
+    'pending'
+  );
   return {
     id: t.id,
     workItemId: t.id,
@@ -249,7 +264,7 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
     risk: env.risk,
-    status: t.status === 'done' ? 'approved' : t.status === 'blocked' ? 'rejected' : t.status === 'archived' ? 'expired' : 'pending',
+    status,
     submittedAt: epochToIso(t.created_at) ?? new Date().toISOString(),
     evidence: env.evidence ?? [],
     proposedDiff: env.proposedDiff,
@@ -837,28 +852,67 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  /** Persist an updated approval-envelope body. Shared by decideApproval and
+   *  updateApprovalPayload so the decision is recorded in the same place as
+   *  the payload. */
+  private async writeEnvelopeBody(approvalId: string, env: ApprovalEnvelope): Promise<void> {
+    const nextBody = JSON.stringify(env);
+    const res = await fetch('/api/kanban', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: approvalId, body: nextBody }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
+  }
+
   async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
     try {
-      if (decision.decision === 'approved') {
-        // DOGFOOD FIX (2026-08-29): approve must EXECUTE, not just close.
-        // Assign the envelope task to its requesting agent — the kanban
-        // dispatcher runs it, the agent executes via its tools (Composio
-        // MCP) and completes with the result. The old `complete` left the
-        // send/publish unexecuted (the "approved but never sent" bug).
-        let assignee = 'default';
-        try {
-          const task = (await this.kanbanTasks()).find((t) => t.id === approvalId);
-          const env = parseEnvelope(task?.body);
-          assignee = env?.requestedBy ?? task?.assignee ?? 'default';
-        } catch {
-          /* fall through with default */
-        }
-        await this.kanban<unknown>(['assign', approvalId, assignee]);
-      } else if (decision.decision === 'changes_requested') {
-        await this.kanban<unknown>(['request-changes', approvalId, decision.note ?? 'Changes requested by executive — see EAiOS approval thread.']);
-      } else {
-        await this.kanban<unknown>(['block', approvalId, decision.note ?? 'Rejected by executive']);
+      const task = (await this.kanbanTasks()).find((t) => t.id === approvalId);
+      const env = parseEnvelope(task?.body);
+      if (!task || !env) {
+        return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Approval task not found or not an envelope.', retryable: false } };
       }
+
+      // Record the decision in the envelope FIRST. This is what makes the
+      // approval disappear from the pending list immediately, even though the
+      // kanban task stays ready/running while the dispatcher executes the
+      // approved action (dogfood 2026-09-08: approved items kept showing).
+      await this.writeEnvelopeBody(approvalId, { ...env, decision: decision.decision, decidedAt: new Date().toISOString() });
+
+      // Approval envelopes must be standalone to change status. If an agent
+      // mistakenly created the envelope as a child of a blocked parent, it sits
+      // in 'todo' and kanban refuses to block/assign it (dogfood 2026-09-08:
+      // "cannot block t_238eac19"). Unlink, then promote out of parent-gated
+      // status so the lifecycle op can land.
+      const parents = (task.parents ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+      for (const parentId of parents) {
+        await this.kanban<unknown>(['unlink', parentId, approvalId]).catch(() => undefined);
+      }
+      if (parents.length) {
+        this.invalidateTasks();
+      }
+      if (['todo', 'blocked'].includes(task.status)) {
+        await this.kanban<unknown>(['promote', '--force', approvalId]).catch(() => undefined);
+      }
+
+      if (decision.decision === 'approved') {
+        // Approve means execute. Assign to the original requester.
+        const assignee = env.requestedBy ?? task.assignee ?? 'default';
+        await this.kanban<unknown>(['assign', approvalId, assignee]).catch(() => undefined);
+      } else {
+        // Rejected / changes requested: block the task. request-changes only
+        // works inside the review workflow, so we use block for both and keep
+        // the precise decision in the envelope. Already-terminal tasks are
+        // ignored gracefully (e.g. cannot block an archived task).
+        const note = decision.note ?? (decision.decision === 'rejected' ? 'Rejected by executive' : 'Changes requested by executive');
+        if (!['blocked', 'done', 'archived'].includes(task.status)) {
+          await this.kanban<unknown>(['block', approvalId, note]).catch(() => undefined);
+        }
+      }
+
       await this.kanban<unknown>(['comment', approvalId, `Executive decision recorded: ${decision.decision.replace('_', ' ')}`]).catch(() => undefined);
       this.invalidateTasks();
       return { ok: true, auditEventId: `kb-decision-${approvalId}` };
@@ -875,16 +929,7 @@ class LiveHermesAdapter implements HermesAdapter {
       if (!task || !env) {
         return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Approval task not found or not an envelope.', retryable: false } };
       }
-      const nextBody = JSON.stringify({ ...env, payload });
-      const res = await fetch('/api/kanban', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: approvalId, body: nextBody }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `HTTP ${res.status}`);
-      }
+      await this.writeEnvelopeBody(approvalId, { ...env, payload });
       this.invalidateTasks();
       return { ok: true, auditEventId: `kb-payload-edit-${approvalId}` };
     } catch (e) {

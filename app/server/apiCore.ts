@@ -486,15 +486,30 @@ export function writeSettings(file: string, patch: Record<string, unknown>): Rec
 export function listKanbanTasks(dbPath: string) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const rows = db
-      .prepare(
-        `SELECT id, title, body, assignee, status, priority, tenant, created_by,
-                created_at, started_at, completed_at, result
-         FROM tasks
-         ORDER BY created_at DESC`,
-      )
-      .all();
-    return { tasks: rows };
+    // Include parent ids when task_links exists. Hermetic tests and older
+    // kanban databases may lack the link table, so fall back gracefully.
+    try {
+      const rows = db
+        .prepare(
+          `SELECT t.id, t.title, t.body, t.assignee, t.status, t.priority, t.tenant, t.created_by,
+                  t.created_at, t.started_at, t.completed_at, t.result,
+                  (SELECT GROUP_CONCAT(l.parent_id) FROM task_links l WHERE l.child_id = t.id) AS parents
+           FROM tasks t
+           ORDER BY t.created_at DESC`,
+        )
+        .all();
+      return { tasks: rows };
+    } catch {
+      const rows = db
+        .prepare(
+          `SELECT id, title, body, assignee, status, priority, tenant, created_by,
+                  created_at, started_at, completed_at, result
+           FROM tasks
+           ORDER BY created_at DESC`,
+        )
+        .all();
+      return { tasks: rows };
+    }
   } finally {
     db.close();
   }

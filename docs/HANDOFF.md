@@ -1,80 +1,70 @@
 # EAiOS — Session Handoff
 
-**Updated:** 2026-09-05 · **Repo:** `~/eaios` · **Branch:** `master` · **Head:** `64f2f50`
+**Updated:** 2026-09-08 · **Repo:** `~/eaios` · **Branch:** `master` · **Head:** `cccbf50`
 
 ## What just happened
 
-This session built the **EAiOS one-command installer** (`install/install.sh`),
-updated the systemd unit templates (including the new `:5173` front-door
-service), added `app/.env.local.example`, created `scripts/verify-install.sh`,
-and updated `docs/clean-install-guide.md` Phase 8 to use the installer. The
-installer was exercised end-to-end on this box with all services passing
-verification.
+This session fixed two EAiOS **Approvals** bugs reported by Don:
 
-Previous sessions pivoted the Travel page to **roadmap status** and shipped
-**voice I/O on My Assistant**.
+1. **Approved items stayed in the Approvals list** (even after refresh).
+2. **Rejecting some approvals errored with `cannot block t_xxx`**.
 
-### Travel (F31) → roadmap demo state
-- Left nav label changed from **Travel** to **Travel (RM)** so Don can point out roadmap status in demos.
-- Live flight search via **Duffel** is configured and verified (`DUFFEL_API_KEY` in `app/.env.local`).
-- Hotels, cars, and restaurants remain **mock/demo only** until a live provider or browser-automation path is built.
-- The earlier browser-automation foundation (`server/travelBrowser/`, `docs/design-browser-booking-2026-09-05.md`) is preserved but its tests are skipped; the per-site IHG/Marriott/OpenTable/Resy playbook hardening is deferred.
+### Root cause
 
-### My Assistant voice I/O
-- New `src/hooks/useVoice.ts` wrapping the browser Web Speech API.
-- Mic button in the Assistant composer: speech-to-text fills the draft and auto-sends.
-- Speaker button on every Ally message: text-to-speech playback.
-- Graceful fallback when the browser does not support voice.
+Approval-envelope kanban tasks were being created as **children** of a blocked parent task (the daily-brief parent `t_8e860243`). Kanban dependency gating kept those children in `todo` status, and the kanban `block` command only works on `running`/`ready` tasks. Additionally, the `mapTaskToApproval` mapping used only the raw kanban task status, so an approved envelope that was still `ready`/`running` while the dispatcher executed it continued to appear as `pending`.
 
-### Other fixes
-- `server/travel.ts` error messages now use `TravelApiError.message` instead of `String(e)` to avoid the literal "Error:" prefix.
-- `TravelAgent` propagates 503 when no live provider is configured so the live adapter falls back to mock fixtures.
+### Fix
+
+- `server/apiCore.ts`: `listKanbanTasks` now includes `parents` (comma-separated parent ids from `task_links`) and falls back gracefully when the link table is absent (hermetic tests / older DBs).
+- `app/src/adapters/live/LiveHermesAdapter.ts`:
+  - `ApprovalEnvelope` now carries an authoritative `decision`/`decidedAt`.
+  - `mapTaskToApproval` uses the envelope decision as the source of truth for approval status, so decided approvals disappear from the pending list immediately.
+  - `decideApproval` records the decision in the envelope first, then unlinks any parent dependencies, promotes out of `todo`/`blocked`, and finally assigns (approve) or blocks (reject/changes_requested).
+- `app/src/tests/dogfood-fixes.test.tsx`: regression tests for envelope-decision mapping, parent-gated todo rejection, and already-terminal tasks.
+
+### Verification
+
+- `npm test`: 311 passed, 10 skipped.
+- `npm run build`: clean.
+- `systemctl --user restart eaios-server`; prod now serves `index-DegR3nO0.js`.
+
+### Existing approval tasks restored
+
+During investigation I accidentally archived/blocked three real pending approvals (`t_e1697cfa`, `t_e531380c`, `t_238eac19`). I restored all three to unassigned pending state:
+- `t_e1697cfa` is now unassigned/`ready` (unlinked from parent).
+- `t_e531380c` is now unassigned/`todo` (still a child of the blocked daily-brief parent; the new code will unlink on decision).
+- `t_238eac19` is now unassigned/`todo` (still a child of the blocked daily-brief parent; restored via direct SQLite fix of my mistaken archive).
+
+## Previous session state (2026-09-05)
+
+- EAiOS one-command installer shipped (`install/install.sh`, `scripts/verify-install.sh`).
+- Travel page marked roadmap (`Travel (RM)`); voice I/O on My Assistant shipped.
+- Tests: 304 passed, 10 skipped; build clean; all four `eaios-*` services active.
+- No git remote configured.
 
 ## Current state
 
-- **Tests:** 304 passed, 10 skipped (37 test files). The 10 skipped tests are the deferred browser-automation travel vault/playbook tests.
+- **Tests:** 311 passed, 10 skipped (37 test files).
 - **Build:** clean production build in `~/eaios/app/dist`.
-- **Services:** all four `eaios-*` systemd user services active:
-  - `eaios-hermes-serve` :9119
-  - `eaios-knowledge-sidecar` :9121
-  - `eaios-server` :5200
-  - `eaios-server-5173` :5173 (front-door prod instance)
-- **Installer:** `install/install.sh` is the canonical one-command installer;
-  `scripts/verify-install.sh` passes all checks on this box.
-- **Commits:** some work is committed (`64f2f50` Travel RM label); substantial uncommitted work remains across F31, voice I/O, travel-browser foundation, and the installer.
+- **Services:** all four `eaios-*` systemd user services active.
+- **Commits:** uncommitted work across installer, voice I/O, travel roadmap, and this approvals fix.
 - **No remote configured.**
 
 ## Env configuration
 
-`~/eaios/app/.env.local` currently contains:
-- `VITE_HERMES_LIVE=1`
-- `VITE_HERMES_TOKEN=<redacted>`
-- `COMPOSIO_API_KEY=<redacted>`
-- `DUFFEL_API_KEY=<redacted>`
-
-`~/.hermes/.env` contains `OPENROUTER_API_KEY` (used by Ask Ally travel intent parser and Hermes crons).
+`~/eaios/app/.env.local` contains `VITE_HERMES_LIVE=1`, `VITE_HERMES_TOKEN`, `COMPOSIO_API_KEY`, `DUFFEL_API_KEY`.
+`~/.hermes/.env` contains `OPENROUTER_API_KEY`.
 
 ## What to tell the next Ally
 
-Start the new session with:
-
-> "Continue EAiOS from the 2026-09-05 handoff. Read `~/eaios/docs/HANDOFF.md`, `~/eaios/docs/ROADMAP.md`, and `~/eaios/docs/TRANSITION-2026-09-04.md`. Verify services with `systemctl --user status 'eaios-*'` and run `cd ~/eaios/app && npm test` before making changes."
-
-If the next task is one of these, include it explicitly:
-
-- **EAiOS installer is done:** `install/install.sh` and `scripts/verify-install.sh` are ready; the next step is to test on a truly fresh box (e.g. openclawserver) and set a real git remote/URL.
-- **Travel live providers:** add `TRAVEL_BROWSER_USE=1` + `CHROME_BIN` and a Booking.com single-provider playbook, or integrate a T&E platform (Navan/Spotnana/TravelPerk).
-- **Travel in-app credential manager:** build the UI for the encrypted vault when browser booking is revived.
-- **Push commits:** add a git remote and push `master`.
-- **New functional fix:** state the page and the exact behavior wanted.
+> "Continue EAiOS from the 2026-09-08 handoff. Approvals bug (t_b5ed136e) is fixed and verified. Read `docs/HANDOFF.md`, `docs/ROADMAP.md`, and `docs/TRANSITION-2026-09-04.md`. Verify services and run `npm test` before making changes."
 
 ## Open items for Don
 
-- Review the EAiOS installer (`install/install.sh`) and decide the public repo
-  URL / host for the one-command curl path.
-- Decide whether to revive browser-automation booking or pursue a T&E platform integration.
+- Review the EAiOS installer and decide public repo URL.
+- Decide whether to revive browser-automation booking or pursue a T&E platform.
 - Decide whether to add a git remote and push.
 
 ## Historical handoffs
 
-Older session state is preserved in `docs/HANDOFF-2026-09-05-archive.md` and `docs/TRANSITION-2026-09-04.md`.
+Older session state is preserved in `docs/HANDOFF-2026-09-08-archive.md`, `docs/HANDOFF-2026-09-05-archive.md`, and `docs/TRANSITION-2026-09-04.md`.
