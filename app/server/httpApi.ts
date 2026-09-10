@@ -42,6 +42,7 @@ import type { PlaybookInput, SkillInput } from './authoring.ts';
 import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interfaces.ts';
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
+import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
 
 export interface ApiContext {
   /** Hermes home (default ~/.hermes) — skills/, profiles/, state.db, kanban.db. */
@@ -352,6 +353,40 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         return true;
       }
       json(res, 200, JSON.stringify(readSettings(settingsFile)));
+      return true;
+    }
+
+    /* dismissed work items — server-side so dismissal follows the user across browsers/machines */
+    if (path === '/api/dismissed') {
+      if (req.method === 'GET') {
+        json(res, 200, JSON.stringify({ ids: listDismissed(ctx.eaiosRoot) }));
+        return true;
+      }
+      if (req.method === 'POST') {
+        try {
+          const body = await readJsonBody(req);
+          const id = String(body.id ?? '');
+          if (!id) {
+            json(res, 400, JSON.stringify({ error: 'id is required' }));
+            return true;
+          }
+          json(res, 200, JSON.stringify({ ids: dismissWorkItem(ctx.eaiosRoot, id) }));
+        } catch (e) {
+          json(res, 500, JSON.stringify({ error: errMessage(e) }));
+        }
+        return true;
+      }
+      json(res, 405, JSON.stringify({ error: 'GET or POST only' }));
+      return true;
+    }
+    if (path.startsWith('/api/dismissed/')) {
+      const id = path.slice('/api/dismissed/'.length);
+      if (!id) return false;
+      if (req.method === 'DELETE') {
+        json(res, 200, JSON.stringify({ ids: undismissWorkItem(ctx.eaiosRoot, id) }));
+        return true;
+      }
+      json(res, 405, JSON.stringify({ error: 'DELETE only' }));
       return true;
     }
 

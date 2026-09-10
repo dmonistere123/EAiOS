@@ -134,8 +134,29 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
 
 // ---------- drawer ----------
 
-export function Drawer({ title, onClose, children, width = 420 }: { title: string; onClose: () => void; children: ReactNode; width?: number }) {
+export function Drawer({
+  title,
+  onClose,
+  children,
+  width: initialWidth = 420,
+  minWidth = 320,
+  maxWidth = 1200,
+  resizable = false,
+  headerRight,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  width?: number;
+  minWidth?: number;
+  maxWidth?: number;
+  resizable?: boolean;
+  headerRight?: ReactNode;
+}) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [width, setWidth] = useState(initialWidth);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -145,13 +166,51 @@ export function Drawer({ title, onClose, children, width = 420 }: { title: strin
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!resizable) return;
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = dragRef.current.startX - e.clientX;
+      setWidth(Math.max(minWidth, Math.min(maxWidth, dragRef.current.startWidth + delta)));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [resizable, minWidth, maxWidth]);
+
+  const startResize = (e: React.MouseEvent) => {
+    dragRef.current = { startX: e.clientX, startWidth: width };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="absolute right-0 top-0 flex h-full flex-col border-l border-edge bg-canvas-raised shadow-2xl" style={{ width }}>
+        {resizable && (
+          <div
+            onMouseDown={startResize}
+            className="absolute -left-2 top-0 h-full w-4 cursor-col-resize"
+            title="Drag to resize"
+            aria-label="Resize drawer"
+          />
+        )}
         <div className="flex items-center justify-between border-b border-edge px-5 py-4">
           <h3 className="text-sm font-semibold">{title}</h3>
-          <button ref={closeRef} onClick={onClose} className="rounded-md px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink" aria-label="Close">✕</button>
+          <div className="flex items-center gap-2">
+            {headerRight}
+            <button ref={closeRef} onClick={onClose} className="rounded-md px-2 py-1 text-ink-dim hover:bg-canvas-overlay hover:text-ink" aria-label="Close">✕</button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto p-5">{children}</div>
       </div>

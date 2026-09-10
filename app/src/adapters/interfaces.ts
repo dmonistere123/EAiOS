@@ -172,6 +172,11 @@ export interface HermesAdapter {
   /** Run health per task (zombie detection). 'stale' = host-flagged (dead worker/expired lock); drives the stale badge. */
   getWorkItemHealth?(workItemIds: string[]): Promise<Record<string, 'healthy' | 'stale' | 'unknown'>>;
 
+  /** Server-side dismissed work-item ids (Today page). Dismissing follows the user across browsers/machines. */
+  getDismissedWorkIds(): Promise<string[]>;
+  dismissWorkItem(id: string): Promise<AuditResult>;
+  undismissWorkItem(id: string): Promise<AuditResult>;
+
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
   /** Edit the prepared payload of a pending approval before deciding. */

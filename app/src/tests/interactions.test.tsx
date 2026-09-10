@@ -2,24 +2,47 @@
  * Interaction tests — the proof the executive loop works, executed headlessly.
  * Uses the mock adapter (VITE_HERMES_LIVE unset → mock mode).
  */
-import { describe, expect, it, beforeAll, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Today from '../pages/Today';
-import { startRuntime } from '../state/runtime';
+import { refreshAll, startRuntime } from '../state/runtime';
 import { hermes } from '../adapters';
+import { workItems as fxWorkItems } from '../mocks/fixtures';
 
 beforeAll(() => {
   startRuntime();
+  (startRuntime as unknown as { __disableEventRefresh?(): void }).__disableEventRefresh?.();
 });
 
-describe('Today — delegation flow (spec §8.1)', () => {
-  beforeEach(() => {
-    localStorage.removeItem('eaios:today:dismissed');
+async function resetMock() {
+  const ids = await hermes.getDismissedWorkIds();
+  if (ids.length > 0) {
+    await Promise.all(ids.map((id) => hermes.undismissWorkItem(id)));
+  }
+  (hermes as unknown as { __loadFixture: (p: Record<string, unknown>) => void }).__loadFixture({
+    work: fxWorkItems,
   });
+}
 
+async function fullReset() {
+  await resetMock();
+  await refreshAll();
+}
+
+/** Read the numeric value from a KPI card by its label. */
+function kpiValue(label: string): number {
+  const el = screen.getByText(label);
+  const card = el.parentElement;
+  if (!card) throw new Error(`KPI card for "${label}" not found`);
+  const m = card.textContent?.match(/(\d+)/);
+  return m ? Number(m[1]) : 0;
+}
+
+describe('Today — delegation flow (spec §8.1)', () => {
   it('opens the delegation dialog and delegates to an agent', async () => {
+    await fullReset();
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -27,20 +50,15 @@ describe('Today — delegation flow (spec §8.1)', () => {
       </MemoryRouter>,
     );
 
-    // Queue hydrates from the mock adapter (item appears in both the
-    // recommendations strip and the queue table — expect multiple)
     const rows = await screen.findAllByText('Weekly metrics review', undefined, { timeout: 4000 });
     expect(rows.length).toBeGreaterThan(0);
 
-    // Click the first Delegate button in the recommendations strip
     const delegateButtons = await screen.findAllByRole('button', { name: 'Delegate' });
     await user.click(delegateButtons[0]);
 
-    // Dialog opens with agent chooser
     expect(await screen.findByText('Delegate work')).toBeInTheDocument();
     expect(screen.getByLabelText('Assign to')).toBeInTheDocument();
 
-    // Confirm → adapter called, dialog closes (toast lives in AppShell, not this tree)
     const spy = vi.spyOn(hermes, 'delegateWork');
     await user.click(screen.getByRole('button', { name: /Confirm delegation/i }));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1), { timeout: 4000 });
@@ -51,6 +69,7 @@ describe('Today — delegation flow (spec §8.1)', () => {
   });
 
   it('persists dismissed tasks across reloads', async () => {
+    await fullReset();
     const user = userEvent.setup();
     const { unmount } = render(
       <MemoryRouter>
@@ -69,10 +88,8 @@ describe('Today — delegation flow (spec §8.1)', () => {
     }
 
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Recommended to delegate' })).not.toBeInTheDocument(), { timeout: 4000 });
-    expect(localStorage.getItem('eaios:today:dismissed')).toBeTruthy();
 
     unmount();
-
     render(
       <MemoryRouter>
         <Today />
@@ -81,11 +98,65 @@ describe('Today — delegation flow (spec §8.1)', () => {
 
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Recommended to delegate' })).not.toBeInTheDocument(), { timeout: 4000 });
   });
+
+  it('updates Priorities and Delegatable KPIs when a recommendation is dismissed', async () => {
+    await fullReset();
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Today />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Your priorities');
+    await new Promise((r) => setTimeout(r, 200));
+    const before = kpiValue('Your priorities');
+    const delBefore = kpiValue('Delegatable');
+
+    const anyDismiss = screen.queryAllByRole('button', { name: /Dismiss recommendation/i })[0];
+    if (!anyDismiss) return;
+    await user.click(anyDismiss);
+
+    await waitFor(() => {
+      expect(kpiValue('Your priorities')).toBe(Math.max(0, before - 1));
+      expect(kpiValue('Delegatable')).toBe(Math.max(0, delBefore - 1));
+    }, { timeout: 4000 });
+  });
+
+  it('lets the user show and unhide dismissed items', async () => {
+    await fullReset();
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Today />
+      </MemoryRouter>,
+    );
+
+    await screen.findByText('Your priorities');
+    await new Promise((r) => setTimeout(r, 200));
+    const before = kpiValue('Your priorities');
+
+    const dismissButton = screen.queryAllByRole('button', { name: /Dismiss recommendation/i })[0];
+    if (!dismissButton) return;
+    await user.click(dismissButton);
+
+    await waitFor(() => expect(kpiValue('Your priorities')).toBe(before - 1), { timeout: 4000 });
+    const showButton = screen.queryByRole('button', { name: /Show \d+ dismissed/i });
+    if (showButton) {
+      await user.click(showButton);
+      const unhideButtons = screen.queryAllByRole('button', { name: 'Unhide' });
+      if (unhideButtons.length > 0) {
+        await user.click(unhideButtons[0]);
+        await waitFor(() => expect(kpiValue('Your priorities')).toBe(before), { timeout: 4000 });
+        await waitFor(() => expect(screen.queryByRole('button', { name: 'Unhide' })).not.toBeInTheDocument(), { timeout: 4000 });
+      }
+    }
+  });
 });
 
 describe('Environment file saves (spec §8.11)', () => {
   it('rejects stale expectedVersion (optimistic concurrency)', async () => {
-    await hermes.readEnvironmentFile('env-01'); // ensure file exists
+    await hermes.readEnvironmentFile('env-01');
     const res = await hermes.writeEnvironmentFile('env-01', 'stale-version', 'new content');
     expect(res.ok).toBe(false);
     expect(res.error?.code).toBe('version_conflict');

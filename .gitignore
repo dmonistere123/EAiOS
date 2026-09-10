@@ -6,3 +6,6 @@ sidecar/__pycache__/
 settings.local.json
 settings.local.json.tmp
 notify-state.json
+# Server-side dismissed work-item ids (Today page cross-browser sync)
+dismissed.json
+dismissed.json.tmp

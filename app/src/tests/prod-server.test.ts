@@ -168,6 +168,34 @@ describe('api endpoints (hermetic roots)', () => {
     expect((await fetch(`${base}/api/nope`)).status).toBe(404);
     expect((await fetch(`${base}/api/ws`)).status).toBe(426);
   });
+
+  it('dismissed work items: GET/POST/DELETE round-trip to gitignored dismissed.json', async () => {
+    const getEmpty = await fetch(`${base}/api/dismissed`);
+    expect(getEmpty.status).toBe(200);
+    expect(await getEmpty.json()).toEqual({ ids: [] });
+
+    const post = await fetch(`${base}/api/dismissed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'w-04' }),
+    });
+    expect(post.status).toBe(200);
+    expect(await post.json()).toEqual({ ids: ['w-04'] });
+
+    const postAgain = await fetch(`${base}/api/dismissed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'w-06' }),
+    });
+    expect(await postAgain.json()).toEqual({ ids: ['w-04', 'w-06'] });
+
+    const del = await fetch(`${base}/api/dismissed/w-04`, { method: 'DELETE' });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ids: ['w-06'] });
+
+    // File is gitignored by repo convention; confirm it landed under the hermetic eaiosRoot.
+    expect(readFileSync(join(root, 'eaios', 'dismissed.json'), 'utf8')).toContain('w-06');
+  });
 });
 
 describe('proxies', () => {

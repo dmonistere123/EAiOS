@@ -73,15 +73,8 @@ export default function Today() {
   const s = useRuntime();
   const [summary, setSummary] = useState<TodaySummary | null>(null);
   const [delegating, setDelegating] = useState<WorkItem | null>(null);
-  const [dismissed, setDismissed] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem('eaios:today:dismissed');
-      if (raw) return new Set(JSON.parse(raw) as string[]);
-    } catch {
-      // ignore corrupt storage
-    }
-    return new Set<string>();
-  });
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const [showDismissed, setShowDismissed] = useState(false);
   const [queueShown, setQueueShown] = useState(QUEUE_PAGE);
   const [newDelegation, setNewDelegation] = useState(false);
 
@@ -89,33 +82,65 @@ export default function Today() {
     void hermes.getTodaySummary().then(setSummary);
   }, [s.work.length, s.approvals.length]);
 
+  // Dismissal is server-side so it follows the user across browsers/machines.
   useEffect(() => {
-    try {
-      localStorage.setItem('eaios:today:dismissed', JSON.stringify([...dismissed]));
-    } catch {
-      // ignore storage errors
-    }
-  }, [dismissed]);
+    void hermes.getDismissedWorkIds().then((ids) => setDismissed(new Set(ids)));
+  }, []);
 
   // Dismissed tasks are hidden from the Today operating queue (and therefore
-  // from the recommendations strip). They stay hidden across reloads because
-  // `dismissed` is persisted to localStorage. A newly-created task gets a new
-  // id, so it is not affected by an old dismissal and will reappear.
-  const executiveQueue = useMemo(
+  // from the recommendations strip). A newly-created task gets a new id, so it
+  // is not affected by an old dismissal and will reappear.
+  const executiveQueueAll = useMemo(
     () =>
       s.work
-        .filter((w) => w.ownerType === 'executive' && !['complete', 'cancelled'].includes(w.state) && !dismissed.has(w.id))
+        .filter((w) => w.ownerType === 'executive' && !['complete', 'cancelled'].includes(w.state))
         .sort((a, b) => {
           const rank = { critical: 0, high: 1, medium: 2, low: 3 } as const;
           return rank[a.priority] - rank[b.priority];
         }),
-    [s.work, dismissed],
+    [s.work],
+  );
+
+  const executiveQueue = useMemo(
+    () => executiveQueueAll.filter((w) => showDismissed || !dismissed.has(w.id)),
+    [executiveQueueAll, dismissed, showDismissed],
   );
 
   const recommendations = useMemo(
     () => executiveQueue.filter((w) => w.delegationCandidate && !dismissed.has(w.id)),
     [executiveQueue, dismissed],
   );
+
+  const dismissedCount = useMemo(
+    () => executiveQueueAll.filter((w) => dismissed.has(w.id)).length,
+    [executiveQueueAll, dismissed],
+  );
+
+  const handleDismiss = async (id: string) => {
+    setDismissed((d) => new Set(d).add(id));
+    const res = await hermes.dismissWorkItem(id);
+    if (!res.ok) {
+      toast('error', res.error?.safeMessage ?? 'Could not dismiss item.');
+      setDismissed((d) => {
+        const next = new Set(d);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
+  const handleUndismiss = async (id: string) => {
+    setDismissed((d) => {
+      const next = new Set(d);
+      next.delete(id);
+      return next;
+    });
+    const res = await hermes.undismissWorkItem(id);
+    if (!res.ok) {
+      toast('error', res.error?.safeMessage ?? 'Could not unhide item.');
+      setDismissed((d) => new Set(d).add(id));
+    }
+  };
 
   // Dogfood 2026-08-29: delegated work finished "invisibly" — the result went
   // to Telegram but the front screen said nothing. Delivered = completed in
@@ -147,9 +172,13 @@ export default function Today() {
         </button>
       </header>
 
+      {/* KPIs for executive-owned work are computed from the runtime work list
+          filtered by the server-side dismissed set. The fetched summary drives
+          greeting/date/headline/meeting/approvals, but its pre-computed counts
+          cannot know which items the user has dismissed (dogfood 2026-09-10). */}
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <KpiCard label="Your priorities" value={summary.executivePriorities} hint="owned by you" />
-        <KpiCard label="Delegatable" value={summary.delegatableCount} hint="AI can take these" tone="ok" />
+        <KpiCard label="Your priorities" value={executiveQueue.length} hint="owned by you" />
+        <KpiCard label="Delegatable" value={recommendations.length} hint="AI can take these" tone="ok" />
         <KpiCard label="Approvals waiting" value={summary.approvalsWaiting} hint="need your decision" tone={summary.approvalsWaiting > 0 ? 'warn' : 'ok'} />
         <KpiCard
           label="Next meeting"
@@ -170,7 +199,7 @@ export default function Today() {
                   Delegate
                 </button>
                 <button
-                  onClick={() => setDismissed((d) => new Set(d).add(w.id))}
+                  onClick={() => void handleDismiss(w.id)}
                   className="rounded-lg px-2 py-1.5 text-xs text-ink-faint hover:text-ink-dim"
                   aria-label={`Dismiss recommendation ${w.title}`}
                 >
@@ -183,7 +212,18 @@ export default function Today() {
       )}
 
       <section>
-        <SectionTitle>Operating queue</SectionTitle>
+        <div className="flex items-center justify-between">
+          <SectionTitle>Operating queue</SectionTitle>
+          {dismissedCount > 0 && (
+            <button
+              onClick={() => setShowDismissed((v) => !v)}
+              className="text-xs text-ink-dim hover:text-ink"
+              aria-label={showDismissed ? 'Hide dismissed items' : `Show ${dismissedCount} dismissed items`}
+            >
+              {showDismissed ? 'Hide dismissed' : `Show ${dismissedCount} dismissed`}
+            </button>
+          )}
+        </div>
         {executiveQueue.length === 0 ? (
           <EmptyState title="Nothing on your plate" hint="New work will appear here as it arrives." />
         ) : (
@@ -199,26 +239,36 @@ export default function Today() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-edge/60">
-                {executiveQueue.slice(0, queueShown).map((w) => (
-                  <tr key={w.id} className="hover:bg-canvas-overlay/50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-ink">{w.title}</div>
-                      {w.summary && <div className="mt-0.5 text-xs text-ink-faint">{w.summary}</div>}
-                    </td>
-                    <td className="px-4 py-3"><PriorityBadge priority={w.priority} /></td>
-                    <td className="px-4 py-3"><StateBadge label={w.state.replace('_', ' ')} tone={stateTone[w.state]} /></td>
-                    <td className="px-4 py-3 text-xs text-ink-dim">{w.dueAt ? <TimeUntil iso={w.dueAt} /> : <RelativeTime iso={w.updatedAt} />}</td>
-                    <td className="px-4 py-3 text-right">
-                      {w.delegationCandidate ? (
-                        <button onClick={() => setDelegating(w)} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">
-                          Delegate
-                        </button>
-                      ) : (
-                        <span className="text-xs text-ink-faint">Yours</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {executiveQueue.slice(0, queueShown).map((w) => {
+                  const isDismissed = dismissed.has(w.id);
+                  return (
+                    <tr key={w.id} className={`hover:bg-canvas-overlay/50 ${isDismissed ? 'opacity-60' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-ink">{w.title}</div>
+                        {w.summary && <div className="mt-0.5 text-xs text-ink-faint">{w.summary}</div>}
+                      </td>
+                      <td className="px-4 py-3"><PriorityBadge priority={w.priority} /></td>
+                      <td className="px-4 py-3"><StateBadge label={w.state.replace('_', ' ')} tone={stateTone[w.state]} /></td>
+                      <td className="px-4 py-3 text-xs text-ink-dim">{w.dueAt ? <TimeUntil iso={w.dueAt} /> : <RelativeTime iso={w.updatedAt} />}</td>
+                      <td className="px-4 py-3 text-right">
+                        {isDismissed ? (
+                          <button
+                            onClick={() => void handleUndismiss(w.id)}
+                            className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-dim hover:bg-canvas-overlay"
+                          >
+                            Unhide
+                          </button>
+                        ) : w.delegationCandidate ? (
+                          <button onClick={() => setDelegating(w)} className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10">
+                            Delegate
+                          </button>
+                        ) : (
+                          <span className="text-xs text-ink-faint">Yours</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {executiveQueue.length > queueShown && (

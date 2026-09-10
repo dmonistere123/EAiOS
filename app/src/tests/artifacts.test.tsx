@@ -182,4 +182,22 @@ describe('Artifacts page (mock mode)', () => {
     const iframe = await within(dialog).findByTitle('inbox-triage-report.html', undefined, { timeout: 4000 });
     expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin');
   });
+
+  it('HTML preview drawer is resizable and has a Pop-out control', async () => {
+    await waitFor(() => expect(getState().artifacts.length).toBeGreaterThan(0), { timeout: 4000 });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Artifacts />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('inbox-triage-report.html', undefined, { timeout: 4000 })).toBeInTheDocument();
+    const htmlRow = screen.getByText('inbox-triage-report.html').closest('div.rounded-xl') as HTMLElement;
+    await user.click(within(htmlRow).getByRole('button', { name: 'Preview' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('Resize drawer')).toBeInTheDocument();
+    // In mock mode Pop-out is an honest disabled button.
+    const popOut = within(dialog).getByRole('button', { name: 'Pop out' });
+    expect(popOut).toBeDisabled();
+  });
 });

@@ -806,6 +806,47 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  async getDismissedWorkIds(): Promise<string[]> {
+    try {
+      const res = await fetch('/api/dismissed');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { ids?: string[] };
+      this.degraded.delete('dismissed');
+      return data.ids ?? [];
+    } catch {
+      this.degraded.add('dismissed');
+      return this.fallback.getDismissedWorkIds();
+    }
+  }
+
+  async dismissWorkItem(id: string): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/dismissed', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.degraded.delete('dismissed');
+      return { ok: true, auditEventId: `dismiss-${id}` };
+    } catch (e) {
+      this.degraded.add('dismissed');
+      return { ok: false, auditEventId: `dismiss-err-${Date.now()}`, error: { code: 'dismiss_failed', safeMessage: e instanceof Error ? e.message : 'Dismiss failed.', retryable: true } };
+    }
+  }
+
+  async undismissWorkItem(id: string): Promise<AuditResult> {
+    try {
+      const res = await fetch(`/api/dismissed/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      this.degraded.delete('dismissed');
+      return { ok: true, auditEventId: `undismiss-${id}` };
+    } catch (e) {
+      this.degraded.add('dismissed');
+      return { ok: false, auditEventId: `undismiss-err-${Date.now()}`, error: { code: 'undismiss_failed', safeMessage: e instanceof Error ? e.message : 'Undismiss failed.', retryable: true } };
+    }
+  }
+
   async delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult> {
     try {
       const profile = request.agentId ?? 'default';

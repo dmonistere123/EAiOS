@@ -42,6 +42,7 @@ class MockHermesAdapter implements HermesAdapter {
   private handlers = new Set<Handler>();
   private tick?: ReturnType<typeof setInterval>;
   private travel = new MockTravelAdapter();
+  private dismissed = new Set<string>();
 
   // ----- event simulation -------------------------------------------------
   private emit(type: RuntimeEvent['type'], agentId: string | undefined, action: string, workItemId?: string) {
@@ -85,6 +86,11 @@ class MockHermesAdapter implements HermesAdapter {
       clearInterval(this.tick);
       this.tick = undefined;
     }
+  }
+
+  /** Test hook: clear the server-side-dismissed simulation. */
+  __clearDismissed() {
+    this.dismissed.clear();
   }
 
   /** §13 acceptance-fixture API: replace mock state wholesale (scenario tests only — never called by pages). */
@@ -206,6 +212,23 @@ class MockHermesAdapter implements HermesAdapter {
     if (filter?.ownerType) rows = rows.filter((w) => w.ownerType === filter.ownerType);
     if (filter?.delegationCandidate) rows = rows.filter((w) => w.delegationCandidate);
     return clone(rows);
+  }
+
+  async getDismissedWorkIds(): Promise<string[]> {
+    await delay(50);
+    return [...this.dismissed];
+  }
+
+  async dismissWorkItem(id: string): Promise<AuditResult> {
+    await delay(100);
+    this.dismissed.add(id);
+    return audit();
+  }
+
+  async undismissWorkItem(id: string): Promise<AuditResult> {
+    await delay(100);
+    this.dismissed.delete(id);
+    return audit();
   }
 
   async delegateWork(workItemId: string, request: DelegationRequest): Promise<AuditResult> {

@@ -33,6 +33,7 @@ function fmtSize(bytes?: number) {
 function PreviewDrawer({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   const [text, setText] = useState<string | null | undefined>(undefined); // undefined = loading
   const openable = canOpenInBrowser(artifact.mimeType);
+  const rawUrl = `/api/artifacts/${encodeURIComponent(artifact.id)}/raw`;
 
   useEffect(() => {
     let live = true;
@@ -44,8 +45,35 @@ function PreviewDrawer({ artifact, onClose }: { artifact: Artifact; onClose: () 
     };
   }, [artifact.id]);
 
+  const popOut =
+    adapterMode === 'live' ? (
+      <a
+        href={rawUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open in a new browser window"
+        className="rounded-md px-2 py-1 text-xs font-medium text-signal hover:bg-signal/10"
+      >
+        Pop out
+      </a>
+    ) : (
+      <button
+        disabled
+        title="Pop-out needs the live artifact store"
+        className="rounded-md px-2 py-1 text-xs font-medium text-signal opacity-40"
+      >
+        Pop out
+      </button>
+    );
+
   return (
-    <Drawer title={artifact.name} onClose={onClose} width={openable ? 720 : 560}>
+    <Drawer
+      title={artifact.name}
+      onClose={onClose}
+      width={openable ? 720 : 560}
+      resizable={openable}
+      headerRight={openable ? popOut : undefined}
+    >
       <div className={`flex-1 overflow-y-auto ${openable ? '' : 'p-5'}`}>
         {text === undefined ? (
           <p className="p-5 text-xs text-ink-dim">Loading preview…</p>
