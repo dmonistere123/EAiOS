@@ -145,6 +145,7 @@ export const artifacts: Artifact[] = [
   { id: 'f-02', name: 'AI_Ops_Tooling_Market_Scan.md', mimeType: 'text/markdown', sizeBytes: 61_880, createdAt: min(3), createdByAgentId: 'scout', workItemId: 'w-07', state: 'draft', previewAvailable: true },
   { id: 'f-03', name: 'Expense_Anomaly_Digest_Aug.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', sizeBytes: 44_102, createdAt: min(47), createdByAgentId: 'ledger', workItemId: 'w-09', state: 'ready', previewAvailable: false },
   { id: 'f-04', name: 'Partnership_Announcement_v3.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', sizeBytes: 92_400, createdAt: min(200), createdByAgentId: 'quill', workItemId: 'w-02', approvalId: 'a-01', state: 'ready', previewAvailable: true },
+  { id: 'f-05', name: 'inbox-triage-report.html', mimeType: 'text/html', sizeBytes: 34_120, createdAt: min(5), createdByAgentId: 'ally', workItemId: 'w-09', state: 'ready', previewAvailable: true },
 ];
 
 export const usageSummary: UsageSummary = {

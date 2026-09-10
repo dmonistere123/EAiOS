@@ -13,10 +13,16 @@ const stateTone = { draft: 'warn', ready: 'ok', approved: 'signal', shared: 'sig
 const PAGE = 50; // §15: paginate large lists (no virtualization dep)
 
 function iconFor(mime: string) {
+  if (mime === 'text/html') return '🌐';
   if (mime.includes('markdown') || mime.includes('text')) return '¶';
   if (mime.includes('sheet')) return '▦';
   if (mime.includes('word')) return '▤';
   return '⬡';
+}
+
+/** Browser-renderable artifacts that can be viewed inline instead of downloaded. */
+function canOpenInBrowser(mime: string) {
+  return mime === 'text/html';
 }
 
 function fmtSize(bytes?: number) {
@@ -26,6 +32,7 @@ function fmtSize(bytes?: number) {
 
 function PreviewDrawer({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   const [text, setText] = useState<string | null | undefined>(undefined); // undefined = loading
+  const openable = canOpenInBrowser(artifact.mimeType);
 
   useEffect(() => {
     let live = true;
@@ -38,12 +45,19 @@ function PreviewDrawer({ artifact, onClose }: { artifact: Artifact; onClose: () 
   }, [artifact.id]);
 
   return (
-    <Drawer title={artifact.name} onClose={onClose} width={560}>
-      <div className="flex-1 overflow-y-auto p-5">
+    <Drawer title={artifact.name} onClose={onClose} width={openable ? 720 : 560}>
+      <div className={`flex-1 overflow-y-auto ${openable ? '' : 'p-5'}`}>
         {text === undefined ? (
-          <p className="text-xs text-ink-dim">Loading preview…</p>
+          <p className="p-5 text-xs text-ink-dim">Loading preview…</p>
         ) : text === null ? (
-          <p className="text-xs text-ink-dim">Preview unavailable for this artifact. Download is still available where permitted (§8.9).</p>
+          <p className="p-5 text-xs text-ink-dim">Preview unavailable for this artifact. Download is still available where permitted (§8.9).</p>
+        ) : openable ? (
+          <iframe
+            title={artifact.name}
+            srcDoc={text}
+            sandbox="allow-same-origin"
+            className="h-[calc(100vh-6rem)] w-full bg-white"
+          />
         ) : (
           <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-dim">{text}</pre>
         )}
@@ -167,6 +181,26 @@ export default function Artifacts() {
                 >
                   Preview
                 </button>
+                {canOpenInBrowser(a.mimeType) &&
+                  (adapterMode === 'live' ? (
+                    <a
+                      href={`/api/artifacts/${encodeURIComponent(a.id)}/raw`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open in a new browser tab"
+                      className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal hover:bg-signal/10"
+                    >
+                      Open
+                    </a>
+                  ) : (
+                    <button
+                      disabled
+                      title="Open needs the live artifact store"
+                      className="rounded-lg border border-signal/40 px-3 py-1.5 text-xs font-medium text-signal opacity-40"
+                    >
+                      Open
+                    </button>
+                  ))}
                 {adapterMode === 'live' ? (
                   <a
                     href={`/api/artifacts/${encodeURIComponent(a.id)}/raw?download=1`}

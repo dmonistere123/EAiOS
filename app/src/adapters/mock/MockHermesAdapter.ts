@@ -366,6 +366,9 @@ class MockHermesAdapter implements HermesAdapter {
     await delay(120);
     const a = this.artifacts.find((x) => x.id === id);
     if (!a || !a.previewAvailable) return null;
+    if (a.mimeType === 'text/html') {
+      return `<!doctype html><html><head><meta charset="utf-8"><title>${a.name}</title><style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;line-height:1.6;color:#111}h1{border-bottom:2px solid #eee;padding-bottom:.5rem}</style></head><body><h1>${a.name}</h1><p>Mock preview content for an HTML report — created by ${a.createdByAgentId} for ${a.workItemId ?? 'no work item'}.</p><p>This is where the rendered HTML report appears in the preview drawer and in a new browser tab.</p></body></html>`;
+    }
     return `# ${a.name}\n\nMock preview content for ${a.name} — created by ${a.createdByAgentId} for ${a.workItemId ?? 'no work item'}.\n\n## Summary\nThis is where the rendered text of the artifact appears in the preview drawer.\n`;
   }
 

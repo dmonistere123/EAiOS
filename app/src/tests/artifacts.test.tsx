@@ -6,7 +6,7 @@
  * preview drawer and honest mock-mode download.
  */
 import { describe, expect, it, beforeAll, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Artifacts from '../pages/Artifacts';
@@ -151,5 +151,35 @@ describe('Artifacts page (mock mode)', () => {
     await user.keyboard('{Escape}');
     // mock mode: downloads are disabled buttons, not fake links
     for (const b of screen.getAllByRole('button', { name: 'Download' })) expect(b).toBeDisabled();
+  });
+
+  it('HTML artifacts get an Open control; non-HTML artifacts do not', async () => {
+    await waitFor(() => expect(getState().artifacts.length).toBeGreaterThan(0), { timeout: 4000 });
+    render(
+      <MemoryRouter>
+        <Artifacts />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('inbox-triage-report.html', undefined, { timeout: 4000 })).toBeInTheDocument();
+    // In mock mode Open is an honest disabled button (live artifact store is not present).
+    const openButton = screen.getByRole('button', { name: 'Open' });
+    expect(openButton).toBeDisabled();
+    expect(screen.getAllByRole('button', { name: 'Open' }).length).toBe(1);
+  });
+
+  it('Preview renders HTML artifacts in a sandboxed iframe', async () => {
+    await waitFor(() => expect(getState().artifacts.length).toBeGreaterThan(0), { timeout: 4000 });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <Artifacts />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('inbox-triage-report.html', undefined, { timeout: 4000 })).toBeInTheDocument();
+    const htmlRow = screen.getByText('inbox-triage-report.html').closest('div.rounded-xl') as HTMLElement;
+    await user.click(within(htmlRow).getByRole('button', { name: 'Preview' }));
+    const dialog = await screen.findByRole('dialog');
+    const iframe = await within(dialog).findByTitle('inbox-triage-report.html', undefined, { timeout: 4000 });
+    expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin');
   });
 });
