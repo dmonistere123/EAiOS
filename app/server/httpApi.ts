@@ -43,6 +43,7 @@ import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interf
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
+import { allyChat } from './allyGateway.ts';
 
 export interface ApiContext {
   /** Hermes home (default ~/.hermes) — skills/, profiles/, state.db, kanban.db. */
@@ -522,6 +523,23 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         sessionSites: [] as string[],
         playbooks: [],
       }));
+      return true;
+    }
+
+    /* ally chat — REST bridge to the Hermes gateway for My Assistant */
+    if (path === '/api/chat-ally' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const text = String(body.text ?? '').trim();
+        if (!text) {
+          json(res, 400, JSON.stringify({ error: 'text is required' }));
+          return true;
+        }
+        const result = await allyChat(text);
+        json(res, result.error ? 503 : 200, JSON.stringify(result));
+      } catch (e) {
+        json(res, 500, JSON.stringify({ error: errMessage(e) }));
+      }
       return true;
     }
 

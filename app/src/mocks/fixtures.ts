@@ -123,10 +123,10 @@ export const approvals: Approval[] = [
 ];
 
 export const cronJobs: CronJob[] = [
-  { id: 'c-01', name: 'Morning briefing → Ally\'s Portal', scheduleExpression: '0 7 * * *', nextRunAt: plus(60 * 19), ownerAgentId: 'ally', approvalPolicy: 'pre_approved', lastResult: 'success', enabled: true },
-  { id: 'c-02', name: 'Competitor news digest', scheduleExpression: '*/4h', nextRunAt: plus(75), ownerAgentId: 'scout', approvalPolicy: 'approval_on_result', lastResult: 'success', enabled: true },
-  { id: 'c-03', name: 'Expense anomaly scan', scheduleExpression: '0 18 * * 5', nextRunAt: plus(60 * 52), ownerAgentId: 'ledger', approvalPolicy: 'always_approve', lastResult: 'success', enabled: true },
-  { id: 'c-04', name: 'Uptime watchdog — allygnment.com', scheduleExpression: '*/15m', nextRunAt: plus(9), ownerAgentId: 'sentinel', approvalPolicy: 'pre_approved', lastResult: 'failed', enabled: true },
+  { id: 'c-01', name: 'Morning briefing → Ally\'s Portal', scheduleExpression: '0 7 * * *', nextRunAt: plus(60 * 19), ownerAgentId: 'ally', approvalPolicy: 'pre_approved', lastResult: 'success', enabled: true, prompt: 'Check Gmail for overnight emails, summarize key messages from executives and team leads, pull calendar events for today, and deliver a morning digest to the Ally Portal Telegram group.' },
+  { id: 'c-02', name: 'Competitor news digest', scheduleExpression: '*/4h', nextRunAt: plus(75), ownerAgentId: 'scout', approvalPolicy: 'approval_on_result', lastResult: 'success', enabled: true, prompt: 'Scan news feeds and industry blogs for mentions of our top 5 competitors (Threaded Fasteners, AutoBolt, etc.). Summarize notable announcements, pricing changes, and new product launches. Flag anything that needs a response.' },
+  { id: 'c-03', name: 'Expense anomaly scan', scheduleExpression: '0 18 * * 5', nextRunAt: plus(60 * 52), ownerAgentId: 'ledger', approvalPolicy: 'always_approve', lastResult: 'success', enabled: true, prompt: 'Review the week\'s expense reports and credit card transactions. Flag any entries outside normal patterns — duplicate charges, unusual merchant categories, amounts over $500 without prior approval. Produce a digest for the finance review.' },
+  { id: 'c-04', name: 'Uptime watchdog — allygnment.com', scheduleExpression: '*/15m', nextRunAt: plus(9), ownerAgentId: 'sentinel', approvalPolicy: 'pre_approved', lastResult: 'failed', enabled: true, prompt: 'Ping allygnment.com and key subdomains (app.allygnment.com, api.allygnment.com) every 15 minutes. If any endpoint returns non-200 or takes longer than 5 seconds, escalate to Don via Telegram with response time and HTTP status code.' },
 ];
 
 export const activity: ActivityEvent[] = [
@@ -212,9 +212,6 @@ export const connections: Connection[] = [
 ];
 
 export const calendarEvents: CalendarEvent[] = [
-  { id: 'cal-01', title: 'Board prep — final review', startsAt: plus(60 * 3), endsAt: plus(60 * 4), source: 'executive' },
-  { id: 'cal-02', title: '1:1 with Sarah (CRO)', startsAt: plus(60 * 7), endsAt: plus(60 * 7.5), source: 'executive' },
-  { id: 'cal-03', title: 'Focus block — no meetings', startsAt: plus(60 * 9), endsAt: plus(60 * 11), source: 'executive' },
   { id: 'cal-04', title: 'Cron: Morning briefing', startsAt: plus(60 * 19), endsAt: plus(60 * 19.25), source: 'cron', refId: 'c-01' },
   { id: 'cal-05', title: 'Cron: Competitor digest', startsAt: plus(75), endsAt: plus(90), source: 'cron', refId: 'c-02' },
   { id: 'cal-06', title: 'Agent: Investor email send window', startsAt: plus(60 * 20), endsAt: plus(60 * 21), source: 'agent', refId: 'w-03' },

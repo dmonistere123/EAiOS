@@ -1475,8 +1475,51 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
+    const agentId = opts.agentId ?? 'default';
+
+    // Default lane: use the REST gateway bridge instead of spawning a fresh
+    // gateway agent. POST to /api/chat-ally, get the response, emit events.
+    // Falls back to WS RPC when the endpoint is unreachable (tests, dev gaps).
+    if (agentId === 'default') {
+      try {
+        const lane = this.assistantLane('default');
+        const emit = (e: AssistantEvent) => lane.handlers.forEach((h) => h(e));
+        emit({ kind: 'start' });
+
+        const ac = new AbortController();
+        const timeout = setTimeout(() => ac.abort(), 10_000);
+        const res = await fetch('/api/chat-ally', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: ac.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          emit({ kind: 'error', message: err.error ?? `HTTP ${res.status}` });
+          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_failed', safeMessage: err.error ?? 'Gateway bridge failed.', retryable: true } };
+        }
+        const result = await res.json() as { text?: string; finishReason?: string; error?: string };
+        if (result.error) {
+          emit({ kind: 'error', message: result.error });
+          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: result.error, retryable: true } };
+        }
+        // Stream the response as delta events (simulated as one chunk)
+        const responseText = result.text ?? '';
+        emit({ kind: 'delta', text: responseText });
+        emit({ kind: 'complete', text: responseText });
+        return { ok: true, auditEventId: `chat-send-${Date.now()}` };
+      } catch (e) {
+        // Fall through to WS RPC path if the REST endpoint is unreachable
+        // (tests, dev server down, etc.)
+        // Intentionally not returning an error — let the WS path try.
+      }
+    }
+
+    // Non-default lanes (concierge, staff agent channels): use the existing WS RPC path.
     try {
-      const agentId = opts.agentId ?? 'default';
       const attachmentBlock = opts.attachments?.length
         ? '\n\n--- attached documents ---\n' + opts.attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
         : '';
