@@ -24,6 +24,7 @@ import type {
   DailySpendReport,
   WorkItem,
   KnowledgeSource,
+  Podcast,
   Skill,
   Playbook,
   PlaybookRun,
@@ -405,6 +406,16 @@ export interface KnowledgeAdapter {
   searchKnowledge(query: string, limit?: number): Promise<KnowledgeSearchResult[]>;
   getChunk(chunkId: string): Promise<KnowledgeChunk>;
   getRetrievalEvidence(answerId: string): Promise<import('../domain/types.ts').EvidenceRef[]>;
+}
+
+// ---------- Podcasts (Phase 8.3) ----------
+
+export interface PodcastAdapter {
+  listPodcasts(): Promise<Podcast[]>;
+  generateFromSource(sourceId: string): Promise<Podcast>;
+  uploadAndGenerate(file: File): Promise<Podcast>;
+  getAudioUrl(podcastId: string): string;
+  getTranscriptUrl(podcastId: string): string;
 }
 
 // ---------- Calendar (mock until Phase 4) ----------

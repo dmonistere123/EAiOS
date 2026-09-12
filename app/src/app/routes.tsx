@@ -8,6 +8,7 @@ import Approvals from '../pages/Approvals';
 import Schedule from '../pages/Schedule';
 import Travel from '../pages/Travel';
 import Knowledge from '../pages/Knowledge';
+import Podcasts from '../pages/Podcasts';
 import Skills from '../pages/Skills';
 import Artifacts from '../pages/Artifacts';
 import Usage from '../pages/Usage';
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
       { path: 'schedule', element: <Schedule /> },
       { path: 'travel', element: <Travel /> },
       { path: 'knowledge', element: <Knowledge /> },
+      { path: 'podcasts', element: <Podcasts /> },
       { path: 'skills', element: <Skills /> },
       { path: 'artifacts', element: <Artifacts /> },
       { path: 'usage', element: <Usage /> },

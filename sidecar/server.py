@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""EAiOS Knowledge sidecar — governed RAG source indexing on loopback.
+"""EAiOS Knowledge sidecar — governed RAG source indexing + document-to-podcast on loopback.
 
 Phase 5.2, path A: upload/URL -> extract -> chunk -> SQLite FTS5.
+Phase 8.3: document-to-podcast via Podcastfy (OpenRouter LLM + Edge TTS).
 Vectors later, behind the same HTTP surface. Loopback-only bind; the app
 reaches it through the vite /knowledge-api proxy, so the browser never
 talks to it directly (same trust pattern as the Composio proxy).
@@ -15,6 +16,10 @@ Endpoints (JSON in/out unless noted):
   DELETE /sources/<id>
   GET    /search?q=...&limit=8       -> {"results": [{sourceId, sourceName, chunkIndex, snippet, score}]}
   GET    /chunks/<chunk_id>          -> full chunk text + source metadata (drill-down)
+  GET    /podcasts                   -> {"podcasts": [...]}
+  POST   /podcasts/generate          {"sourceId"} or multipart file
+  GET    /podcasts/<id>/audio        -> audio/mpeg stream
+  GET    /podcasts/<id>/transcript   -> text/plain transcript
 
 Scope enforcement (spec: "scope is enforced by the runtime"): pass agent_id
 on /search and private sources are withheld; agent-scoped sources only
@@ -33,6 +38,9 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from html.parser import HTMLParser
 from pathlib import Path
+
+import google_podcasts
+import podcasts
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("EAIOS_KNOWLEDGE_DATA_DIR", ROOT / "data"))
@@ -61,6 +69,19 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks USING fts5(
   chunk_id UNINDEXED, source_id UNINDEXED, chunk_index UNINDEXED, text
+);
+CREATE TABLE IF NOT EXISTS podcasts (
+  id TEXT PRIMARY KEY,
+  source_id TEXT,
+  source_name TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'podcastfy',
+  status TEXT NOT NULL,
+  audio_path TEXT,
+  transcript_path TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
 );
 """
 
@@ -345,6 +366,41 @@ class Handler(BaseHTTPRequestHandler):
                     "text": r["text"],
                     "citationEnabled": bool(r["citation_enabled"]),
                 })
+            if self.path == "/podcasts":
+                return self._send(200, {"podcasts": podcasts.list_podcasts()})
+            if self.path == "/podcasts/google/status":
+                return self._send(200, google_podcasts.status())
+            m = re.fullmatch(r"/podcasts/([\w-]+)/audio", self.path)
+            if m:
+                audio_path = podcasts.get_audio_path(m.group(1))
+                if not audio_path:
+                    return self._send(404, {"error": "audio not found"})
+                try:
+                    data = audio_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("content-type", "audio/mpeg")
+                    self.send_header("content-length", str(len(data)))
+                    self.send_header("accept-ranges", "bytes")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+            m = re.fullmatch(r"/podcasts/([\w-]+)/transcript", self.path)
+            if m:
+                transcript_path = podcasts.get_transcript_path(m.group(1))
+                if not transcript_path:
+                    return self._send(404, {"error": "transcript not found"})
+                try:
+                    data = transcript_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("content-type", "text/plain; charset=utf-8")
+                    self.send_header("content-length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except (BrokenPipeError, ConnectionResetError):
+                    return
             return self._send(404, {"error": "not found"})
         except Exception as e:
             traceback.print_exc()
@@ -432,6 +488,59 @@ class Handler(BaseHTTPRequestHandler):
                 out = source_row(row)
                 out["chunkCount"] = count
                 return self._send(200, {"source": out})
+
+            if self.path == "/podcasts/generate":
+                ctype = self.headers.get("content-type", "")
+                if "multipart/form-data" in ctype:
+                    m = re.search(r"boundary=([^;]+)", ctype)
+                    if not m:
+                        return self._send(400, {"error": "multipart/form-data required"})
+                    parts = parse_multipart(self._read_body(), m.group(1).strip('"'))
+                    if "file" not in parts or not parts["file"][0]:
+                        return self._send(400, {"error": "file field required"})
+                    filename = str(parts["file"][0])
+                    content = parts["file"][1]
+                    podcast = podcasts.create_from_file(content, filename)
+                    return self._send(202, {"podcast": podcast})
+                payload = json.loads(self._read_body() or b"{}")
+                source_id = (payload.get("sourceId") or "").strip()
+                if not source_id:
+                    return self._send(400, {"error": "sourceId or file required"})
+                podcast = podcasts.create_from_knowledge_source(source_id)
+                return self._send(202, {"podcast": podcast})
+
+            if self.path == "/podcasts/google/generate":
+                # Return a clear error if Google credentials are not configured.
+                status = google_podcasts.status()
+                if not status["ready"]:
+                    return self._send(503, {"error": status["message"]})
+                ctype = self.headers.get("content-type", "")
+                if "multipart/form-data" in ctype:
+                    m = re.search(r"boundary=([^;]+)", ctype)
+                    if not m:
+                        return self._send(400, {"error": "multipart/form-data required"})
+                    parts = parse_multipart(self._read_body(), m.group(1).strip('"'))
+                    if "file" not in parts or not parts["file"][0]:
+                        return self._send(400, {"error": "file field required"})
+                    filename = str(parts["file"][0])
+                    content = parts["file"][1]
+                    podcast = podcasts.create_google_from_file(
+                        content,
+                        filename,
+                        focus=parts.get("focus", (None, b""))[1].decode(errors="replace").strip() or None,
+                        length=parts.get("length", (None, b"STANDARD"))[1].decode(errors="replace").strip() or "STANDARD",
+                    )
+                    return self._send(202, {"podcast": podcast})
+                payload = json.loads(self._read_body() or b"{}")
+                source_id = (payload.get("sourceId") or "").strip()
+                if not source_id:
+                    return self._send(400, {"error": "sourceId or file required"})
+                podcast = podcasts.create_google_from_knowledge_source(
+                    source_id,
+                    focus=payload.get("focus") or None,
+                    length=payload.get("length") or "STANDARD",
+                )
+                return self._send(202, {"podcast": podcast})
 
             return self._send(404, {"error": "not found"})
         except Exception as e:

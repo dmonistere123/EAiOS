@@ -163,6 +163,21 @@ export interface KnowledgeSource {
   citationEnabled: boolean;
 }
 
+// ---------- Podcasts ----------
+
+export interface Podcast {
+  id: string;
+  sourceId?: string;
+  sourceName: string;
+  sourceType: 'knowledge_source' | 'file';
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  audioPath?: string;
+  transcriptPath?: string;
+  error?: string;
+  createdAt: string;
+  finishedAt?: string;
+}
+
 // ---------- Skills ----------
 
 export interface Skill {

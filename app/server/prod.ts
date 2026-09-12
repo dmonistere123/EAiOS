@@ -232,6 +232,10 @@ export function createEaiosServer(config: ProdConfig) {
         await proxyHttp(req, res, config.knowledgeUrl, '/knowledge-api', {});
         return;
       }
+      if (path.startsWith('/podcasts-api')) {
+        await proxyHttp(req, res, config.knowledgeUrl, '/podcasts-api', {});
+        return;
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.statusCode = 405;
         res.end('method not allowed');

@@ -721,6 +721,14 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (p) => p.replace(/^\/knowledge-api/, ''),
         },
+        // Dev: podcast sidecar (Podcastfy generation + MP3 serving). Runs on
+        // :9122 during development because the production systemd service on
+        // :9121 must be restarted to pick up the new sidecar code.
+        '/podcasts-api': {
+          target: 'http://127.0.0.1:9122',
+          changeOrigin: true,
+          rewrite: (p) => p.replace(/^\/podcasts-api/, ''),
+        },
       },
     },
   }
