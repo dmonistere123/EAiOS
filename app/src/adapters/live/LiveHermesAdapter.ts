@@ -437,6 +437,14 @@ class LiveHermesAdapter implements HermesAdapter {
     this.rpc = new RpcClient(this.url);
     // NOTE: no auto-connect — call connect() explicitly (keeps tests and
     // mock mode from ever touching the real gateway).
+    // Restore any in-flight app-chat conversation from a prior page load;
+    // startNewAssistantChat() and resumeAssistantSession() clear it.
+    try {
+      const raw = localStorage.getItem(LiveHermesAdapter.BRIDGE_MESSAGES_KEY);
+      this._bridgeMessages = raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+    } catch {
+      this._bridgeMessages = [];
+    }
   }
 
   connect() {
@@ -1461,7 +1469,61 @@ class LiveHermesAdapter implements HermesAdapter {
       }));
   }
 
+  private static readonly BRIDGE_MESSAGES_KEY = 'eaios.assistant.bridgeMessages';
+  private _bridgeMessages: ChatMessage[] | null = null;
+
+  private loadBridgeMessages(): ChatMessage[] {
+    if (this._bridgeMessages) return this._bridgeMessages;
+    try {
+      const raw = localStorage.getItem(LiveHermesAdapter.BRIDGE_MESSAGES_KEY);
+      const parsed = raw ? (JSON.parse(raw) as ChatMessage[]) : [];
+      this._bridgeMessages = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      this._bridgeMessages = [];
+    }
+    return this._bridgeMessages;
+  }
+
+  private saveBridgeMessages(messages: ChatMessage[]): void {
+    this._bridgeMessages = messages;
+    try {
+      localStorage.setItem(LiveHermesAdapter.BRIDGE_MESSAGES_KEY, JSON.stringify(messages));
+    } catch {
+      // localStorage unavailable in some private modes — keep in-memory only.
+    }
+  }
+
+  private clearBridgeMessages(): void {
+    this._bridgeMessages = [];
+    try {
+      localStorage.removeItem(LiveHermesAdapter.BRIDGE_MESSAGES_KEY);
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Test-only hook to reset the bridge-message cache. */
+  __clearBridgeMessages(): void {
+    this.clearBridgeMessages();
+  }
+
   async getAssistantHistory(agentId = 'default'): Promise<ChatMessage[]> {
+    // Default lane: bridge messages are the primary source. When empty (first
+    // load, after new chat, or WS RPC fallback path), try WS session history.
+    if (agentId === 'default') {
+      const bridge = this.loadBridgeMessages();
+      if (bridge.length > 0) return bridge;
+      try {
+        const sid = await this.ensureAssistantSession(agentId);
+        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+          'session.history',
+          { session_id: sid },
+        );
+        return LiveHermesAdapter.mapHistoryMessages(h);
+      } catch {
+        return []; // No mock fallback for default lane — bridge is the source.
+      }
+    }
     try {
       const sid = await this.ensureAssistantSession(agentId);
       const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
@@ -1491,7 +1553,7 @@ class LiveHermesAdapter implements HermesAdapter {
         const res = await fetch('/api/chat-ally', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ text, attachments: opts.attachments }),
           signal: ac.signal,
         });
         clearTimeout(timeout);
@@ -1506,8 +1568,17 @@ class LiveHermesAdapter implements HermesAdapter {
           emit({ kind: 'error', message: result.error });
           return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: result.error, retryable: true } };
         }
-        // Stream the response as delta events (simulated as one chunk)
+        // Store the exchange locally so getAssistantHistory returns it
         const responseText = result.text ?? '';
+        const now = new Date().toISOString();
+        const bridge = this.loadBridgeMessages();
+        bridge.push(
+          { id: `user-bridge-${Date.now()}`, role: 'you' as const, text, at: now },
+          { id: `ally-bridge-${Date.now()}`, role: 'ally' as const, text: responseText, at: now },
+        );
+        this.saveBridgeMessages(bridge);
+        // Emit events so the UI shows typing + response, then history refresh
+        // picks up the stored messages instead of the empty WS session.
         emit({ kind: 'delta', text: responseText });
         emit({ kind: 'complete', text: responseText });
         return { ok: true, auditEventId: `chat-send-${Date.now()}` };
@@ -1673,11 +1744,21 @@ class LiveHermesAdapter implements HermesAdapter {
    * Resume one of Ally's stored sessions into the chat. The localStorage
    * stored id is overwritten ONLY after the gateway confirms the resume —
    * a failed resume leaves the previous conversation untouched.
+   *
+   * Default lane: loads the resumed session's history into the bridge store
+   * so `getAssistantHistory('default')` returns it (the REST bridge is the
+   * primary path; WS sessions provide history on demand via resume).
    */
   async resumeAssistantSession(storedId: string): Promise<AuditResult> {
     try {
       const r = await this.rpc.call<{ session_id?: string }>('session.resume', { session_id: storedId });
       if (!r.session_id) throw new Error('resume returned no session id');
+      // Load the resumed session's history into the bridge store for the default lane
+      const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
+        'session.history',
+        { session_id: r.session_id },
+      );
+      this.saveBridgeMessages(LiveHermesAdapter.mapHistoryMessages(h));
       this.bindAllyLane(r.session_id, storedId);
       return { ok: true, auditEventId: `chat-resume-${Date.now()}` };
     } catch (e) {
@@ -1687,6 +1768,17 @@ class LiveHermesAdapter implements HermesAdapter {
 
   /** Fresh chat in a lane: create a new session (bypassing the stored id) and rebind. 'concierge' is a lane on the default profile, not a profile (assistantProfileParams guards the RPC). */
   async startNewAssistantChat(agentId = 'default'): Promise<AuditResult> {
+    // Default lane is bridge-only: clear the local store and unbind any WS session.
+    if (agentId === 'default') {
+      this.clearBridgeMessages();
+      const lane = this.assistantLane('default');
+      if (lane.sid) {
+        this.assistantSidToAgent.delete(lane.sid);
+        lane.sid = undefined;
+      }
+      localStorage.removeItem(LiveHermesAdapter.assistantStoredKey('default'));
+      return { ok: true, auditEventId: `chat-new-${Date.now()}` };
+    }
     try {
       const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
         title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId === 'concierge' ? 'Concierge' : agentId}`,

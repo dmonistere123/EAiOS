@@ -47,6 +47,9 @@ beforeEach(() => {
   holder.assistantLanes?.clear();
   holder.assistantSidToAgent?.clear();
   holder.assistantWired = false;
+  (live as unknown as { __clearBridgeMessages?: () => void }).__clearBridgeMessages?.();
+  // Clear sticky RPC notify handlers from any prior test that wiredAssistant.
+  (holder.rpc as unknown as { notifyHandlers?: Set<unknown> }).notifyHandlers?.clear();
 });
 
 afterEach(() => {
@@ -68,22 +71,23 @@ describe('live assistant session lifecycle', () => {
       }
       throw new Error(`unexpected ${m}`);
     });
-    const history = await live.getAssistantHistory();
+    // concierge lane still uses WS RPC for history (unlike default lane which is bridge-only)
+    const history = await live.getAssistantHistory('concierge');
     expect(calls[0].method).toBe('session.create');
-    expect(calls[0].params.title).toBe('EAiOS — My Assistant');
-    expect(localStorage.getItem('eaios.assistant.storedSessionId')).toBe('stored-1');
+    expect(calls[0].params.title).toBe('EAiOS — Concierge');
+    expect(localStorage.getItem('eaios.assistant.storedSessionId.concierge')).toBe('stored-1');
     expect(history.map((m) => m.role)).toEqual(['you', 'ally']); // tool rows dropped
     expect(history[1].text).toBe('hello');
   });
 
   it('resumes by stored id when present', async () => {
-    localStorage.setItem('eaios.assistant.storedSessionId', 'stored-9');
+    localStorage.setItem('eaios.assistant.storedSessionId.concierge', 'stored-9');
     const { calls } = stubRpc(async (m) => {
       if (m === 'session.resume') return { session_id: 'rt-9' };
       if (m === 'session.history') return { messages: [] };
       throw new Error(`unexpected ${m}`);
     });
-    await live.getAssistantHistory();
+    await live.getAssistantHistory('concierge');
     expect(calls[0]).toEqual({ method: 'session.resume', params: { session_id: 'stored-9' } });
     expect(calls.some((c) => c.method === 'session.create')).toBe(false);
   });
@@ -130,6 +134,55 @@ describe('live assistant session lifecycle', () => {
     expect(localStorage.getItem('eaios.assistant.storedSessionId.quill')).toBe('stored-quill');
     expect(calls[1]).toEqual({ method: 'prompt.submit', params: { session_id: 'rt-quill', text: 'hello quill' } });
   });
+
+  it('default lane: REST bridge stores exchange, persists to localStorage, and clears on new chat', async () => {
+    const fetchCalls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+      fetchCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ text: `Bridge reply to ${(init?.body ? JSON.parse(String(init.body)) : {}).text}`, finishReason: 'complete' }),
+      } as Response;
+    });
+    // startNewAssistantChat still opens a fresh WS session for the lane, even
+    // though the default send path uses the REST bridge.
+    stubRpc(async (m) => {
+      if (m === 'session.create') return { session_id: 'rt-new', stored_session_id: 'stored-new' };
+      if (m === 'session.history') return { messages: [] };
+      throw new Error(`unexpected ${m}`);
+    });
+
+    const events: AssistantEvent[] = [];
+    // Skip wiring the real RPC onNotify — the bridge emits directly via
+    // lane handlers; we don't want a stale handler on the gateway socket.
+    holder.assistantWired = true;
+    const unsub = live.subscribeAssistant((e) => events.push(e));
+
+    const res = await live.sendAssistantMessage('hello bridge');
+    expect(res.ok).toBe(true);
+    expect(events.map((e) => e.kind)).toEqual(['start', 'delta', 'complete']);
+
+    // History must include both the user message and the bridge reply so the UI
+    // does not replace the exchange with an empty WS session.
+    const history = await live.getAssistantHistory();
+    expect(history.map((m) => ({ role: m.role, text: m.text }))).toEqual([
+      { role: 'you', text: 'hello bridge' },
+      { role: 'ally', text: 'Bridge reply to hello bridge' },
+    ]);
+
+    // Persistence: a fresh adapter instance would reload the same messages.
+    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toContain('hello bridge');
+
+    // New chat must wipe the bridge history.
+    const newChat = await live.startNewAssistantChat();
+    expect(newChat.ok).toBe(true);
+    expect((await live.getAssistantHistory()).length).toBe(0);
+    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toBeNull();
+
+    unsub();
+    vi.unstubAllGlobals();
+  });
 });
 
 describe('live assistant event filter (every session shares the socket)', () => {
@@ -139,9 +192,11 @@ describe('live assistant event filter (every session shares the socket)', () => 
       if (m === 'session.history') return { messages: [] };
       throw new Error(`unexpected ${m}`);
     });
-    await live.getAssistantHistory(); // assistantSid = rt-mine
+    // Non-default lanes (concierge) still use WS RPC for history, so
+    // getAssistantHistory sets up the SID→agent binding for event routing.
+    await live.getAssistantHistory('concierge'); // assistantSid = rt-mine, agentId = concierge
     const seen: AssistantEvent[] = [];
-    live.subscribeAssistant((e) => seen.push(e)); // first subscribe wires onNotify to this stub
+    live.subscribeAssistant((e) => seen.push(e), 'concierge'); // subscribe to concierge lane
     emit('event', { type: 'message.delta', session_id: 'rt-other', payload: { text: 'LEAK' } });
     emit('event', { type: 'message.delta', session_id: 'rt-mine', payload: { text: 'he' } });
     emit('event', { type: 'message.delta', session_id: 'rt-mine', payload: { text: 'llo' } });

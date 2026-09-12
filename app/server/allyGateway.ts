@@ -20,6 +20,15 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+// Local type mirroring AssistantAttachment from the UI adapter layer.
+// Defined here so this server module does not need a cross-layer import.
+interface BridgeAttachment {
+  name: string;
+  mimeType: string;
+  content: string;
+  encoding: 'text' | 'base64';
+}
+
 // ─── WS framing helpers (RFC 6455, text frames only) ──────────────────
 
 /** Decode a single WebSocket frame from a buffer. Returns { opcode, payload, consumed } or null. */
@@ -279,7 +288,7 @@ export interface AllyChatResult {
  * Send a prompt to the Ally gateway session and return the complete response.
  * Creates a new session on the default profile each call (no shared history).
  */
-export async function allyChat(text: string, timeoutMs = 120_000): Promise<AllyChatResult> {
+export async function allyChat(text: string, attachments?: BridgeAttachment[], timeoutMs = 120_000): Promise<AllyChatResult> {
   const client = getClient();
   if (!client) return { text: '', finishReason: 'error', error: 'gateway token not configured' };
 
@@ -318,8 +327,17 @@ export async function allyChat(text: string, timeoutMs = 120_000): Promise<AllyC
       }
     };
 
+    // Build prompt text from message + attachments (mirrors the WS RPC path).
+    const attachmentBlock = attachments?.length
+      ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
+      : '';
+    const fullText = text + attachmentBlock;
+    if (!fullText.trim()) {
+      return { text: '', finishReason: 'error', error: 'text or attachments are required' };
+    }
+
     // Submit the prompt
-    await client.call('prompt.submit', { session_id: sessionId, text }, timeoutMs);
+    await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
 
     // Wait for completion
     const deadline = Date.now() + timeoutMs;

@@ -211,6 +211,7 @@ describe('live sessions + channel (stubbed RPC)', () => {
     localStorage.setItem('eaios.assistant.storedSessionId', 'old-stored');
     const { calls } = stubRpc(async (m) => {
       if (m === 'session.resume') return { session_id: 'rt-resumed' };
+      if (m === 'session.history') return { messages: [] };
       throw new Error(`unexpected ${m}`);
     });
     const res = await live.resumeAssistantSession('sess-new');
@@ -229,15 +230,22 @@ describe('live sessions + channel (stubbed RPC)', () => {
     expect(localStorage.getItem('eaios.assistant.storedSessionId')).toBe('old-stored');
   });
 
-  it('startNewAssistantChat creates a fresh default-profile session and replaces the stored id', async () => {
-    localStorage.setItem('eaios.assistant.storedSessionId', 'old-stored');
+  it('startNewAssistantChat for default lane clears bridge store and unbinds, no WS session', async () => {
+    // Set some bridge messages to confirm they are cleared
+    localStorage.setItem('eaios.assistant.bridgeMessages', JSON.stringify([{ id: 'old', role: 'you', text: 'old msg', at: '2026-01-01' }]));
+    const res = await live.startNewAssistantChat();
+    expect(res.ok).toBe(true);
+    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toBeNull();
+    expect(localStorage.getItem('eaios.assistant.storedSessionId')).toBeNull();
+  });
+
+  it('startNewAssistantChat for non-default lane creates a WS session', async () => {
     const { calls } = stubRpc(async (m) => {
       if (m === 'session.create') return { session_id: 'rt-new', stored_session_id: 'st-new' };
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.startNewAssistantChat();
+    const res = await live.startNewAssistantChat('concierge');
     expect(res.ok).toBe(true);
-    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — My Assistant' } });
-    expect(localStorage.getItem('eaios.assistant.storedSessionId')).toBe('st-new');
+    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — Concierge' } });
   });
 });

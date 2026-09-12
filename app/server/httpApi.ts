@@ -531,11 +531,12 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       try {
         const body = await readJsonBody(req);
         const text = String(body.text ?? '').trim();
-        if (!text) {
-          json(res, 400, JSON.stringify({ error: 'text is required' }));
+        const attachments = Array.isArray(body.attachments) ? body.attachments : undefined;
+        if (!text && !attachments?.length) {
+          json(res, 400, JSON.stringify({ error: 'text or attachments are required' }));
           return true;
         }
-        const result = await allyChat(text);
+        const result = await allyChat(text, attachments);
         json(res, result.error ? 503 : 200, JSON.stringify(result));
       } catch (e) {
         json(res, 500, JSON.stringify({ error: errMessage(e) }));
