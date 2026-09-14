@@ -111,6 +111,19 @@ else
   warn "Hermes gateway connection check inconclusive (may need a token)"
 fi
 
+# Podcasts module endpoints
+if curl -fsS http://127.0.0.1:9121/podcasts >/dev/null 2>&1; then
+  ok "podcasts list endpoint (127.0.0.1:9121/podcasts)"
+else
+  fail "podcasts list endpoint unreachable"
+fi
+
+if curl -fsS http://127.0.0.1:9121/podcasts/tts-status >/dev/null 2>&1; then
+  ok "podcasts TTS status endpoint (127.0.0.1:9121/podcasts/tts-status)"
+else
+  fail "podcasts TTS status endpoint unreachable"
+fi
+
 # ---------------------------------------------------------------------------
 # Files / config
 # ---------------------------------------------------------------------------
@@ -137,6 +150,12 @@ if [[ -x "$EAIOS_ROOT/sidecar/.venv/bin/python" ]]; then
   ok "sidecar .venv exists"
 else
   fail "sidecar .venv missing"
+fi
+
+if [[ -f "$EAIOS_ROOT/sidecar/.env" ]]; then
+  ok "sidecar/.env exists"
+else
+  warn "sidecar/.env missing (Podcasts live providers will be unavailable)"
 fi
 
 # ---------------------------------------------------------------------------
