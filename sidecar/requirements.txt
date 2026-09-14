@@ -1,0 +1,27 @@
+# EAiOS knowledge sidecar Python dependencies.
+# Install with: uv pip install --python .venv/bin/python -r requirements.txt
+
+# Document extraction
+pymupdf
+python-docx
+python-pptx
+
+# Podcast generation (document -> audio)
+podcastfy
+edge-tts
+
+# Optional TTS providers (populate sidecar/.env with the matching API keys)
+elevenlabs
+openai
+
+# Google Podcast API credentials / ADC
+# (blocked for new GCP projects without Gemini Notebook Enterprise entitlement)
+google-auth
+requests
+
+# Podcastfy extras
+pypdf
+python-dotenv
+
+# Browser automation used by Podcastfy for URL-based content
+playwright

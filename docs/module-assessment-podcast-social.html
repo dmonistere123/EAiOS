@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EAiOS Module Assessment: Podcast + Social Scheduling</title>
+  <style>
+    :root {
+      --bg: #0b0c10;
+      --card: #1f2833;
+      --text: #c5c6c7;
+      --heading: #66fcf1;
+      --accent: #45a29e;
+      --warn: #f7b731;
+      --danger: #ff6b6b;
+      --success: #2ecc71;
+      --border: #2c3e50;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+    h1 { color: var(--heading); border-bottom: 2px solid var(--accent); padding-bottom: .5rem; }
+    h2 { color: var(--heading); margin-top: 2rem; }
+    h3 { color: var(--accent); margin-top: 1.5rem; }
+    .summary { background: var(--card); padding: 1.25rem; border-radius: 8px; border-left: 4px solid var(--accent); margin: 1.5rem 0; }
+    .callout { background: var(--card); padding: 1rem; border-radius: 8px; margin: 1rem 0; border-left: 4px solid var(--warn); }
+    .callout.danger { border-left-color: var(--danger); }
+    .callout.success { border-left-color: var(--success); }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; background: var(--card); border-radius: 8px; overflow: hidden; }
+    th, td { padding: .75rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: #2c3e50; color: var(--heading); font-weight: 600; }
+    tr:last-child td { border-bottom: none; }
+    .tag { display: inline-block; padding: .2rem .6rem; border-radius: 12px; font-size: .8rem; font-weight: 600; }
+    .tag-low { background: rgba(46, 204, 113, .15); color: var(--success); }
+    .tag-med { background: rgba(247, 183, 49, .15); color: var(--warn); }
+    .tag-high { background: rgba(255, 107, 107, .15); color: var(--danger); }
+    ul li { margin: .4rem 0; }
+    .estimate { font-size: 1.1rem; font-weight: 600; color: var(--heading); }
+    code { background: #2c3e50; padding: .15rem .4rem; border-radius: 4px; font-family: 'SF Mono', Monaco, monospace; font-size: .9em; }
+  </style>
+</head>
+<body>
+  <h1>EAiOS Module Assessment</h1>
+  <p><strong>Proposed modules:</strong> Document-to-Podcast generator (Notebook LM-style) and Social Media Scheduler.</p>
+  <p><em>Prepared: 12 Sep 2026</em></p>
+
+  <div class="summary">
+    <strong>Bottom line up front:</strong>
+    <ul>
+      <li><strong>Podcast module:</strong> Very doable. Google has an official Podcast API, and a solid open-source Python package (Podcastfy) already does exactly this. I recommend a spike that compares Google API quality/cost vs. self-hosted Podcastfy.</li>
+      <li><strong>Social scheduler:</strong> Doable for LinkedIn, Facebook, X, and YouTube. <strong>Snapchat is the problem</strong> — Snap has no public API for organic posts (Stories, Snaps, Spotlight). You will need a unified API provider or build direct integrations. Direct integrations are high-complexity; a unified API is the pragmatic path.</li>
+    </ul>
+  </div>
+
+  <h2>1. Document-to-Podcast Module</h2>
+  <p>Upload a DOCX or PDF; get back a conversational two-host MP3 podcast.</p>
+
+  <h3>Option A: Google Gemini Notebook Enterprise Podcast API</h3>
+  <ul>
+    <li><strong>What it is:</strong> Official Google API that replicates Notebook LM's "Audio Overview" output.</li>
+    <li><strong>Endpoint:</strong> <code>discoveryengine.googleapis.com/v1/projects/PROJECT_ID/locations/global/podcasts</code></li>
+    <li><strong>Input:</strong> Text, images, audio, video; total context &lt;100k tokens.</li>
+    <li><strong>Output:</strong> MP3; <code>SHORT</code> = ~4-5 min, <code>STANDARD</code> = ~10 min.</li>
+    <li><strong>Requirements:</strong> GCP project, Discovery Engine API enabled, <code>roles/discoveryengine.podcastApiUser</code> IAM role.</li>
+    <li><strong>Pros:</strong> Produces the exact Notebook LM quality Don wants; managed, no ML ops.</li>
+    <li><strong>Cons:</strong> Pricing is not published separately; likely billed via Gemini Enterprise/Discovery Engine. Long-running async job (poll operation, then download).</li>
+  </ul>
+
+  <h3>Option B: Podcastfy (open source)</h3>
+  <ul>
+    <li><strong>What it is:</strong> 6.5k-star Apache-2.0 Python package purpose-built as an open-source alternative to Notebook LM's podcast feature.</li>
+    <li><strong>Inputs:</strong> PDFs, websites, images, YouTube videos, plain text, or just a topic.</li>
+    <li><strong>Models:</strong> Plugs into 100+ LLMs (OpenAI, Anthropic, Google, OpenRouter, local via Ollama).</li>
+    <li><strong>Voices:</strong> OpenAI, Google, ElevenLabs, Microsoft Edge TTS.</li>
+    <li><strong>Pros:</strong> No lock-in, predictable per-API-call cost, can use existing OpenRouter key, runs in EAiOS sidecar.</li>
+    <li><strong>Cons:</strong> Quality may trail Google's own model; requires prompt tuning to match the natural back-and-forth of Notebook LM.</li>
+  </ul>
+
+  <h3>Podcast Module: Risk / Complexity / Estimate</h3>
+  <table>
+    <tr><th>Dimension</th><th>Rating</th><th>Notes</th></tr>
+    <tr><td>Technical complexity</td><td><span class="tag tag-med">Medium</span></td><td>File extraction (PDF/DOCX → text), async job queue, audio storage, player UI.</td></tr>
+    <tr><td>External dependency risk</td><td><span class="tag tag-med">Medium</span></td><td>Google API pricing/availability is unclear; Podcastfy depends on LLM + TTS providers.</td></tr>
+    <tr><td>Cost predictability</td><td><span class="tag tag-med">Medium</span></td><td>Google: unknown metered cost. Podcastfy: TTS + LLM tokens, roughly $0.05–$0.50 per 10-min episode with OpenRouter/Edge TTS.</td></tr>
+    <tr><td>Build effort</td><td colspan="2" class="estimate">Spike: 1–2 days. MVP: 1–1.5 weeks.</td></tr>
+  </table>
+
+  <div class="callout success">
+    <strong>Recommendation:</strong> Run a 1-day spike generating the same document through both Google Podcast API and Podcastfy. Compare audio quality, latency, and cost. Then pick one and build the upload → queue → listen UI in EAiOS.
+  </div>
+
+  <h2>2. Social Media Scheduling Module</h2>
+  <p>Compose once, schedule posts to LinkedIn, Facebook, X, YouTube — and Snapchat.</p>
+
+  <table>
+    <tr><th>Platform</th><th>API Status</th><th>Notes</th></tr>
+    <tr><td>LinkedIn</td><td><span class="tag tag-med">Available</span></td><td>Community Management API for org pages; requires app review/MDP partnership for full publishing. "Share on LinkedIn" works for user posts.</td></tr>
+    <tr><td>Facebook</td><td><span class="tag tag-med">Available</span></td><td>Graph API for Pages; Meta app review required for production. Instagram publishing is easier through the same Meta platform.</td></tr>
+    <tr><td>X / Twitter</td><td><span class="tag tag-high">Expensive</span></td><td>Pay-per-use API since Feb 2026 (~$0.20/post with URL). No free tier for new devs. Existing Basic/Pro tiers grandfathered.</td></tr>
+    <tr><td>YouTube</td><td><span class="tag tag-med">Available</span></td><td>YouTube Data API v3; strict quota system. Video uploads only, not text posts/Community posts easily.</td></tr>
+    <tr><td>Snapchat</td><td><span class="tag tag-high">Blocker</span></td><td><strong>No public API for organic Stories, Snaps, or Spotlight posts.</strong> Only Snap Marketing API for ads.</td></tr>
+  </table>
+
+  <h3>Option A: Build direct platform integrations</h3>
+  <ul>
+    <li>Implement 4–5 different OAuth flows, token refreshers, rate-limit handlers, and content validators.</li>
+    <li>LinkedIn and Meta require app review/MDP partnership; review times 1–4 weeks.</li>
+    <li>X pay-per-use makes cost unpredictable.</li>
+    <li>Snapchat organic posting is effectively impossible.</li>
+  </ul>
+
+  <h3>Option B: Use a unified social-media API</h3>
+  <table>
+    <tr><th>Provider</th><th>Platforms</th><th>Starting price (2026)</th><th>Notes</th></tr>
+    <tr><td><strong>Ayrshare</strong></td><td>13 incl. LI, FB, X, YT, Snap*</td><td>$149/mo (1 profile)</td><td>Mature, analytics, comments, webhooks. *Snapchat support is likely ads/analytics, not organic posts.</td></tr>
+    <tr><td><strong>Zernio</strong></td><td>12 social + messaging + ads</td><td>Free 1–2 accounts, then ~$6/account/mo</td><td>Developer-first; per-account pricing scales better than Ayrshare.</td></tr>
+    <tr><td><strong>Bundle.social</strong></td><td>15+ incl. all 5 targets</td><td>Free plan</td><td>Full API access on free plan; check Snapchat limits.</td></tr>
+    <tr><td><strong>Postproxy</strong></td><td>11 platforms</td><td>$0 free tier</td><td>Flat plan pricing, native n8n + MCP.</td></tr>
+    <tr><td><strong>Blotato</strong></td><td>9 platforms</td><td>$29/mo</td><td>One API key, no per-call billing.</td></tr>
+  </table>
+
+  <div class="callout danger">
+    <strong>Snapchat reality check:</strong> Even unified APIs cannot post organic Snapchat Stories/Snaps because Snap does not expose that capability. If Snapchat is non-negotiable, the only realistic path is a mobile-automation/browser workflow, which is fragile and approval-gated.
+  </div>
+
+  <h3>Social Scheduler: Risk / Complexity / Estimate</h3>
+  <table>
+    <tr><th>Dimension</th><th>Rating</th><th>Notes</th></tr>
+    <tr><td>Technical complexity (unified API)</td><td><span class="tag tag-med">Medium</span></td><td>Single OAuth, single POST schema, webhook status handling.</td></tr>
+    <tr><td>Technical complexity (direct APIs)</td><td><span class="tag tag-high">High</span></td><td>4 different auth flows, rate limits, review queues, error handling.</td></tr>
+    <tr><td>External dependency risk</td><td><span class="tag tag-high">High</span></td><td>Platform policy changes (especially X pricing) can break economics overnight.</td></tr>
+    <tr><td>Cost predictability</td><td><span class="tag tag-med">Medium</span></td><td>Unified API: flat monthly. Direct: X per-post, YouTube quota, Meta/LinkedIn review overhead.</td></tr>
+    <tr><td>Build effort</td><td colspan="2" class="estimate">Unified API MVP: 1.5–2 weeks. Direct integrations MVP: 4–6 weeks.</td></tr>
+  </table>
+
+  <div class="callout">
+    <strong>Recommendation:</strong> Start with a unified API (my pick: <strong>Zernio</strong> for per-account pricing, or <strong>Ayrshare</strong> if you want the most mature option). Build the composer + schedule queue + status dashboard. Treat Snapchat as a manual exception until Snap opens organic publishing.
+  </div>
+
+  <h2>Final Recommendation</h2>
+  <ol>
+    <li><strong>Podcast module:</strong> Green-light the spike. It is the lower-risk, higher-delight feature and fits EAiOS's document-heavy knowledge workflow.</li>
+    <li><strong>Social scheduler:</strong> Green-light only if Don accepts that Snapchat cannot be automated cleanly. If Snapchat is mandatory, scope the first version to LI/FB/X/YT and flag Snapchat as a separate, high-risk automation spike.</li>
+    <li><strong>Order of attack:</strong> Podcast first (1–1.5 weeks), then social scheduler (1.5–2 weeks with unified API).</li>
+  </ol>
+</body>
+</html>

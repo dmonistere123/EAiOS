@@ -14,5 +14,14 @@ if [[ -f "$HERMES_ENV" ]]; then
   set +a
 fi
 
+# EAiOS-sidecar-specific env (e.g. Google Podcast API credentials).
+SIDECAR_ENV="$(dirname "$0")/../sidecar/.env"
+if [[ -f "$SIDECAR_ENV" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$SIDECAR_ENV"
+  set +a
+fi
+
 cd "$(dirname "$0")/../sidecar"
 exec .venv/bin/python server.py

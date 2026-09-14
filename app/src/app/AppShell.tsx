@@ -322,7 +322,7 @@ export default function AppShell() {
 
         {/* center */}
         <main className="min-w-0 flex-1 overflow-y-auto" id="main">
-          <div className="mx-auto max-w-6xl px-6 py-6">
+          <div className="mx-auto h-full max-w-6xl px-6 py-6">
             <Outlet />
           </div>
         </main>

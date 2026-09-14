@@ -96,7 +96,7 @@ export interface Approval {
   targetSystem: string;
   targetObject?: string;
   risk: RiskLevel;
-  status: 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'expired';
+  status: 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'expired' | 'blocked';
   submittedAt: string;
   evidence: EvidenceRef[];
   proposedDiff?: string;
@@ -165,12 +165,21 @@ export interface KnowledgeSource {
 
 // ---------- Podcasts ----------
 
+export type TtsProvider = 'edge' | 'elevenlabs' | 'openai';
+
+export interface PodcastVoiceMap {
+  host: string;
+  guest: string;
+}
+
 export interface Podcast {
   id: string;
   sourceId?: string;
   sourceName: string;
   sourceType: 'knowledge_source' | 'file';
   status: 'pending' | 'processing' | 'ready' | 'failed';
+  ttsModel?: TtsProvider;
+  voiceMap?: PodcastVoiceMap;
   audioPath?: string;
   transcriptPath?: string;
   error?: string;
@@ -515,4 +524,32 @@ export interface EnvironmentFile {
   ref: EnvironmentFileRef;
   content: string;
   version: string; // content hash — used as expectedVersion on save
+}
+
+// ---------- Version / update path ----------
+
+export interface BuildVersion {
+  version: string;
+  gitSha: string;
+  gitBranch: string;
+  gitTag?: string;
+  releaseChannel?: 'stable' | 'rc' | 'dev';
+  builtAt: string;
+}
+
+export interface UpdateLogEntry {
+  id: number;
+  startedAt: string;
+  finishedAt?: string;
+  oldGitSha?: string;
+  newGitSha?: string;
+  oldVersion?: string;
+  newVersion?: string;
+  success: boolean;
+  errorMessage?: string;
+}
+
+export interface VersionInfo {
+  current: BuildVersion;
+  log: UpdateLogEntry[];
 }

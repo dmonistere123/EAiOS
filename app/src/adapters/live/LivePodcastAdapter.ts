@@ -3,8 +3,8 @@
  * The sidecar runs Podcastfy (OpenRouter LLM + Edge TTS) asynchronously
  * and serves MP3 + transcript from disk.
  */
-import type { Podcast } from '../../domain/types';
-import type { PodcastAdapter } from '../interfaces';
+import type { Podcast, TtsProvider } from '../../domain/types';
+import type { PodcastAdapter, PodcastTtsConfig, TtsProviderInfo } from '../interfaces';
 import { podcasts as mock } from '../mock/MockPodcastAdapter';
 
 class LivePodcastAdapter implements PodcastAdapter {
@@ -36,25 +36,53 @@ class LivePodcastAdapter implements PodcastAdapter {
     );
   }
 
-  async generateFromSource(sourceId: string): Promise<Podcast> {
+  async generateFromSource(sourceId: string, tts?: PodcastTtsConfig): Promise<Podcast> {
     return this.call(
       async () => (await this.api<{ podcast: Podcast }>('/podcasts/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceId }),
+        body: JSON.stringify({ sourceId, ttsProvider: tts?.provider, voiceHost: tts?.voiceHost, voiceGuest: tts?.voiceGuest }),
       })).podcast,
-      () => mock.generateFromSource(sourceId),
+      () => mock.generateFromSource(sourceId, tts),
     );
   }
 
-  async uploadAndGenerate(file: File): Promise<Podcast> {
+  async uploadAndGenerate(file: File, tts?: PodcastTtsConfig): Promise<Podcast> {
     return this.call(
       async () => {
         const form = new FormData();
         form.append('file', file);
+        if (tts?.provider) form.append('ttsProvider', tts.provider);
+        if (tts?.voiceHost) form.append('voiceHost', tts.voiceHost);
+        if (tts?.voiceGuest) form.append('voiceGuest', tts.voiceGuest);
         return (await this.api<{ podcast: Podcast }>('/podcasts/generate', { method: 'POST', body: form })).podcast;
       },
-      () => mock.uploadAndGenerate(file),
+      () => mock.uploadAndGenerate(file, tts),
+    );
+  }
+
+  async getTtsStatus(): Promise<TtsProviderInfo[]> {
+    return this.call(
+      async () => (await this.api<{ providers: TtsProviderInfo[] }>('/podcasts/tts-status')).providers,
+      () => mock.getTtsStatus(),
+    );
+  }
+
+  async sampleTts(provider: TtsProvider, voice: string): Promise<Blob> {
+    return this.call(
+      async () => {
+        const res = await fetch(`/podcasts-api/podcasts/sample-tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider, voice }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `sidecar HTTP ${res.status}`);
+        }
+        return await res.blob();
+      },
+      () => mock.sampleTts(provider, voice),
     );
   }
 

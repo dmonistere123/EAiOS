@@ -22,6 +22,7 @@ import type {
   TodaySummary,
   UsageSummary,
   DailySpendReport,
+  VersionInfo,
   WorkItem,
   KnowledgeSource,
   Podcast,
@@ -204,7 +205,10 @@ export interface HermesAdapter {
   getDailySpend(days?: number): Promise<DailySpendReport>;
   /** Set (or clear, with null) the daily spend alert threshold shared with the watchdog cron (F29). */
   setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult>;
+  /** Current build version + update history for the EAiOS Settings page. */
+  getVersionInfo(): Promise<VersionInfo>;
   listSkills(): Promise<Skill[]>;
+
   /** Enable or disable a skill (rewrites SKILL.md frontmatter). */
   updateSkillStatus(slug: string, category: string, status: 'enabled' | 'disabled'): Promise<AuditResult>;
   /** Delete a user-local skill directory. */
@@ -232,6 +236,9 @@ export interface HermesAdapter {
   listEditableEnvironmentFiles(): Promise<EnvironmentFileRef[]>;
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;
   writeEnvironmentFile(id: string, expectedVersion: string, content: string): Promise<AuditResult>;
+
+  /** Current build version + update history. */
+  getVersionInfo(): Promise<import('../domain/types.ts').VersionInfo>;
 
   // ---------- Assistant chat (Phase 6.4a) ----------
   /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */
@@ -410,12 +417,30 @@ export interface KnowledgeAdapter {
 
 // ---------- Podcasts (Phase 8.3) ----------
 
+export type TtsProvider = import('../domain/types.ts').TtsProvider;
+export type PodcastVoiceMap = import('../domain/types.ts').PodcastVoiceMap;
+
+export interface PodcastTtsConfig {
+  provider?: TtsProvider;
+  voiceHost?: string;
+  voiceGuest?: string;
+}
+
+export interface TtsProviderInfo {
+  id: TtsProvider;
+  name: string;
+  available: boolean;
+  voices: string[];
+}
+
 export interface PodcastAdapter {
   listPodcasts(): Promise<Podcast[]>;
-  generateFromSource(sourceId: string): Promise<Podcast>;
-  uploadAndGenerate(file: File): Promise<Podcast>;
+  generateFromSource(sourceId: string, tts?: PodcastTtsConfig): Promise<Podcast>;
+  uploadAndGenerate(file: File, tts?: PodcastTtsConfig): Promise<Podcast>;
   getAudioUrl(podcastId: string): string;
   getTranscriptUrl(podcastId: string): string;
+  getTtsStatus(): Promise<TtsProviderInfo[]>;
+  sampleTts(provider: TtsProvider, voice: string): Promise<Blob>;
 }
 
 // ---------- Calendar (mock until Phase 4) ----------

@@ -1,36 +1,55 @@
 # EAiOS — Session Handoff
 
-**Updated:** 2026-09-09 · **Repo:** `~/eaios` · **Branch:** `main` · **Head:** `940e6ff`
+**Updated:** 2026-09-14 (CDT) · **Repo:** `~/eaios` · **Branch:** `main` · **Head:** `b04d532`
 
 ## What just happened
 
-This session **finished the browser-automation cleanup** started by a prior session:
+Implemented the EAiOS release updater, rollback path, and in-app version visibility (kanban t_51c5cf5e):
 
-1. **All remaining browser/vault code references removed.** Cleaned adapter interface (`interfaces.ts`), mock and live adapters (`MockTravelAdapter`, `MockHermesAdapter`, `LiveTravelAdapter`, `LiveHermesAdapter`), `Travel.tsx` (replaced `BrowserStatusBanner` with static `TravelScopeBanner`, removed credential-vault drawer), `fixtures.ts` (changed `browser-use-consumer` provider to `other`), `domain/types.ts` (removed `browser-use-consumer` from union), `server/travel.ts` (removed all stubs and dead code), and `server/httpApi.ts` (removed browser-status endpoint).
+**Release/version infrastructure:**
+- `scripts/release.sh v0.2.0` — validates, bumps `app/package.json`, commits, tags, and pushes.
+- `scripts/generate-version.mjs` — build-time generator for `app/public/version.json` (version, git SHA/branch/tag, release channel, built-at).
+- `scripts/run-migrations.mjs` + `migrations/` — numbered SQL migrations tracked in `~/.hermes/state.db._eaios_migrations`.
 
-2. **Server no longer depends on travelBrowser import.** The `server/travelBrowser/` directory was already archived; this session removed every reference to it.
+**Update/rollback scripts:**
+- `scripts/eaios-update.sh` — deliberate, one-command update for shipped boxes:
+  - Default mode pulls the current branch and rebuilds.
+  - `--to <tag|branch|sha>` checks out a specific release.
+  - `--rollback` rolls back to the last successful update recorded in `eaios_update_log`.
+  - Runs migrations before and after checkout, refreshes the sidecar venv, re-renders systemd units, restarts services, and runs `verify-install.sh`.
+  - Writes every attempt to `eaios_update_log` in `~/.hermes/state.db`.
+- `scripts/eaios-rollback.sh` — thin wrapper that calls `eaios-update.sh --rollback`.
 
-3. **Tests and build verified.** 266 passed, 0 failed, 0 skipped. Build green (`index-CAf_yw6n.js`).
+**API + UI:**
+- `GET /api/version` in `server/apiCore.ts`/`httpApi.ts` returns the running build manifest + tail of `eaios_update_log`.
+- Settings page "Version & updates" panel shows current version, release channel badge, git SHA/branch, built-at, update history, and copyable update/rollback commands.
+- `vite.config.ts` already routes `/api/version` through the shared `httpApi` router.
+
+**Design doc:** `docs/design-update-path-2026-09-14.md` updated with what shipped and what remains (Fleet page is a follow-on).
 
 ## Current state
 
-- **Tests:** 35 files, 266 passed (no failures, no skips).
-- **Build:** clean — `dist/assets/index-CAf_yw6n.js`.
-- **Services:** all four `eaios-*` systemd user services active (prod server still serving previous build; restart needed to pick up `httpApi.ts` changes).
-- **Archived cleanly:** `archive/server-travelBrowser-2026-09-09/`, `archive/tests-2026-09-09/`, `docs/archive/` — no code references to browser-automation remain in the active tree.
-- **Commits:** HEAD `940e6ff` (Today fix + initial archiving). Uncommitted working tree changes: the final reference cleanup in ~15 files.
+- **Tests:** 37 files, 286 tests run, 285 passed, 1 pre-existing flaky failure in `interactions.test.tsx` (timeout on "show/unhide dismissed items").
+- **Sidecar tests:** 11/11 pass.
+- **Build:** clean — `dist/assets/index-PF9PGWZZ.js` (596 kB).
+- **Services:** all four EAiOS units active but still running the previous build:
+  - `eaios-hermes-serve.service` (:9119)
+  - `eaios-knowledge-sidecar.service` (:9121)
+  - `eaios-server.service` (:5200)
+  - `eaios-server-5173.service` (:5173, front door for Tailscale)
+- **Verification:** Started a temporary prod server on :5300 against the fresh build; `/api/version` returned the generated manifest correctly. The running :5200/:5173 services need a restart to serve the new bundle.
+- **Uncommitted:** Release/update/rollback scripts, migration files, Settings.tsx version panel, settings test additions, generate-version integration, HANDOFF update, design doc update.
 
 ## Env configuration
 
-`~/eaios/app/.env.local` contains `VITE_HERMES_LIVE=1`, `VITE_HERMES_TOKEN`, `COMPOSIO_API_KEY`, `DUFFEL_API_KEY`.
-`~/.hermes/.env` contains `OPENROUTER_API_KEY`.
+No env changes required for this feature. The update scripts preserve `app/.env.local`, `sidecar/.env`, `~/.hermes/`, and runtime data.
 
 ## What to tell the next Ally
 
-> "EAiOS cleanup from the 2026-09-09 transition is complete. Browser-automation is fully archived with zero remaining references. 266 tests pass (no skips, no failures), build green (`index-CAf_yw6n.js`). Read `docs/HANDOFF.md` and `docs/ROADMAP.md` (F31 updated). Uncommitted cleanup changes in working tree — check `git status` before starting new work. Prod server needs restart to pick up `httpApi.ts` changes (systemctl --user restart eaios-server)."
+> "Release/update path is in: `scripts/release.sh`, `scripts/eaios-update.sh` (with `--to` and `--rollback`), `scripts/eaios-rollback.sh`, `scripts/run-migrations.mjs`, and `migrations/`. Build-time `version.json` is generated by `scripts/generate-version.mjs` and surfaced in Settings via `getVersionInfo()` / `/api/version`. Tests and build are green; only the pre-existing `interactions.test.tsx` flaky timeout fails. The running prod services still need a restart (`systemctl --user restart eaios-server eaios-server-5173`) to serve the new bundle — that step was blocked by the single-query safety policy."
 
-## Open items for Don
+## Open items
 
-- Review archived browser-automation decision.
-- Decide whether to add a git commit + push (push needs EAiOS approval).
-- Continue installer hardening / beta secrets on fresh box if beta prep resumes.
+- Pre-existing flaky `interactions.test.tsx` dismissed-items timeout.
+- Restart the running prod services so the new Settings version panel is live on Tailscale.
+- Fleet page (Phase 8 follow-on) for multi-box version visibility.

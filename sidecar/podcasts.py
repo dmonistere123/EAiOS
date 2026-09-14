@@ -5,6 +5,7 @@ asynchronously: POST /podcasts/generate returns immediately with a pending
 podcast id; a background thread runs Podcastfy (OpenRouter LLM + Edge TTS)
 and updates the DB to ready/failed.
 """
+import io
 import json
 import os
 import sqlite3
@@ -46,6 +47,18 @@ DEFAULT_LLM = os.environ.get("EAIOS_PODCAST_LLM", "openrouter/deepseek-v4-flash"
 DEFAULT_TTS = os.environ.get("EAIOS_PODCAST_TTS", "edge")
 API_KEY_LABEL = os.environ.get("EAIOS_PODCAST_API_KEY_LABEL", "OPENROUTER_API_KEY")
 
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+TTS_PROVIDERS = {"edge", "elevenlabs", "openai", "gemini", "geminimulti"}
+DEFAULT_VOICES = {
+    "edge": {"question": "en-US-JennyNeural", "answer": "en-US-EricNeural"},
+    "elevenlabs": {"question": "Chris", "answer": "Jessica"},
+    "openai": {"question": "echo", "answer": "shimmer"},
+    "gemini": {"question": "en-US-Journey-D", "answer": "en-US-Journey-O"},
+    "geminimulti": {"question": "R", "answer": "S"},
+}
+
 PODCAST_SCHEMA = """
 CREATE TABLE IF NOT EXISTS podcasts (
   id TEXT PRIMARY KEY,
@@ -53,6 +66,8 @@ CREATE TABLE IF NOT EXISTS podcasts (
   source_name TEXT NOT NULL,
   source_type TEXT NOT NULL,        -- knowledge_source | file
   provider TEXT NOT NULL DEFAULT 'podcastfy',  -- podcastfy | google
+  tts_model TEXT NOT NULL DEFAULT 'edge',      -- edge | elevenlabs | openai
+  voice_map TEXT,                              -- JSON {host, guest}
   status TEXT NOT NULL,             -- pending | processing | ready | failed
   audio_path TEXT,
   transcript_path TEXT,
@@ -62,9 +77,15 @@ CREATE TABLE IF NOT EXISTS podcasts (
 );
 """
 
-# One-time migration: add the provider column to podcasts created before this schema.
+# One-time migrations for podcasts created before these columns existed.
 _MIGRATE_PROVIDER = """
 ALTER TABLE podcasts ADD COLUMN provider TEXT NOT NULL DEFAULT 'podcastfy';
+"""
+_MIGRATE_TTS_MODEL = """
+ALTER TABLE podcasts ADD COLUMN tts_model TEXT NOT NULL DEFAULT 'edge';
+"""
+_MIGRATE_VOICE_MAP = """
+ALTER TABLE podcasts ADD COLUMN voice_map TEXT;
 """
 
 
@@ -72,16 +93,22 @@ def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    conn.executescript(PODCAST_SCHEMA)
+def _migrate(conn: sqlite3.Connection, sql: str):
     try:
-        conn.execute(_MIGRATE_PROVIDER)
+        conn.execute(sql)
         conn.commit()
     except sqlite3.OperationalError:
         # Column already exists — safe to ignore.
         conn.rollback()
+
+
+def db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(PODCAST_SCHEMA)
+    _migrate(conn, _MIGRATE_PROVIDER)
+    _migrate(conn, _MIGRATE_TTS_MODEL)
+    _migrate(conn, _MIGRATE_VOICE_MAP)
     return conn
 
 
@@ -93,12 +120,13 @@ def ensure_dirs():
 
 
 def podcast_row(r: sqlite3.Row) -> dict:
-    return {
+    row = {
         "id": r["id"],
         "sourceId": r["source_id"],
         "sourceName": r["source_name"],
         "sourceType": r["source_type"],
         "provider": r["provider"],
+        "ttsModel": r["tts_model"],
         "status": r["status"],
         "audioPath": r["audio_path"],
         "transcriptPath": r["transcript_path"],
@@ -106,6 +134,49 @@ def podcast_row(r: sqlite3.Row) -> dict:
         "createdAt": r["created_at"],
         "finishedAt": r["finished_at"],
     }
+    if r["voice_map"]:
+        try:
+            row["voiceMap"] = json.loads(r["voice_map"])
+        except json.JSONDecodeError:
+            pass
+    return row
+
+
+def tts_status() -> list[dict]:
+    """Return available TTS providers and a sample of known voices."""
+    elevenlabs_available = bool(ELEVENLABS_API_KEY)
+    openai_available = bool(OPENAI_API_KEY)
+    return [
+        {
+            "id": "edge",
+            "name": "Edge TTS",
+            "available": True,
+            "voices": [
+                "en-US-JennyNeural",
+                "en-US-EricNeural",
+                "en-US-AriaNeural",
+                "en-US-GuyNeural",
+                "en-US-SaraNeural",
+                "en-GB-SoniaNeural",
+            ],
+        },
+        {
+            "id": "elevenlabs",
+            "name": "ElevenLabs",
+            "available": elevenlabs_available,
+            "voices": [
+                "Adam", "Antoni", "Bella", "Callum", "Charlie", "Charlotte",
+                "Chris", "Daniel", "Eric", "George", "Jessica", "Josh", "Liam",
+                "Matilda", "Rachel", "Will",
+            ],
+        },
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "available": openai_available,
+            "voices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+        },
+    ]
 
 
 def list_podcasts() -> list[dict]:
@@ -136,6 +207,84 @@ def update_status(
         (status, audio_path, transcript_path, error, finished, podcast_id),
     )
     conn.commit()
+
+
+def _resolve_elevenlabs_voices(voices: dict[str, str]) -> dict[str, str]:
+    """Map ElevenLabs voice names/prefixes to voice IDs. Falls back to input if no match."""
+    try:
+        from elevenlabs import client as elevenlabs_client
+
+        client = elevenlabs_client.ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        available = [(v.voice_id, v.name) for v in client.voices.get_all().voices]
+    except Exception:
+        return voices
+
+    def resolve(name_or_id: str) -> str:
+        needle = name_or_id.strip().lower()
+        # Exact voice ID match.
+        for vid, vname in available:
+            if vid.lower() == needle:
+                return vid
+        # Exact name match (ElevenLabs names now include descriptions).
+        for vid, vname in available:
+            if vname.strip().lower() == needle:
+                return vid
+        # Prefix match on the first token of the name.
+        for vid, vname in available:
+            first_token = vname.split("-")[0].strip().lower()
+            if first_token == needle:
+                return vid
+        return name_or_id
+
+    return {role: resolve(v) for role, v in voices.items()}
+
+
+def _resolve_elevenlabs_voice_id(name_or_id: str) -> str:
+    """Resolve a single ElevenLabs voice name/prefix to its voice ID."""
+    resolved = _resolve_elevenlabs_voices({"v": name_or_id}).get("v", name_or_id)
+    return resolved
+
+
+def sample_tts(provider: str, voice: str, text: str | None = None) -> bytes:
+    """Generate a short audio sample for the given TTS provider + voice."""
+    sample_text = text or "Hi, this is a quick voice sample for EAiOS podcasts."
+    if provider == "edge":
+        import asyncio
+        import edge_tts
+
+        edge_voice = voice or "en-US-JennyNeural"
+        communicate = edge_tts.Communicate(sample_text, edge_voice)
+
+        async def _collect() -> bytes:
+            output = io.BytesIO()
+            async for chunk in communicate.stream():
+                if chunk.get("type") == "audio":
+                    output.write(chunk.get("data", b""))
+            return output.getvalue()
+
+        return asyncio.run(_collect())
+    if provider == "elevenlabs":
+        if not ELEVENLABS_API_KEY:
+            raise ValueError("ELEVENLABS_API_KEY not configured")
+        from elevenlabs import client as elevenlabs_client
+
+        client = elevenlabs_client.ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        resolved_voice = _resolve_elevenlabs_voice_id(voice or "Chris")
+        audio = client.generate(text=sample_text, voice=resolved_voice, model="eleven_multilingual_v2")
+        return b"".join(chunk for chunk in audio if chunk)
+    if provider == "openai":
+        if not OPENAI_API_KEY:
+            raise ValueError("OPENAI_API_KEY not configured")
+        import openai
+
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = client.audio.speech.create(
+            model="tts-1-hd",
+            voice=(voice or "echo").lower()[:6] if (voice or "echo").lower() in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] else "echo",
+            input=sample_text,
+        )
+        return response.read()
+    raise ValueError(f"unsupported TTS provider for sampling: {provider}")
 
 
 def extract_text(path: Path) -> str:
@@ -170,6 +319,7 @@ def _generate_worker(
     podcast_id: str,
     source_path: Path,
     source_name: str,
+    tts_config: dict | None = None,
 ):
     """Background generation: extract text -> Podcastfy -> update DB."""
     try:
@@ -184,6 +334,24 @@ def _generate_worker(
         if len(text) > MAX_CHARS:
             text = text[:MAX_CHARS]
 
+        tts_config = tts_config or {}
+        tts_provider = tts_config.get("provider", DEFAULT_TTS)
+        if tts_provider not in TTS_PROVIDERS:
+            raise ValueError(f"unsupported tts provider: {tts_provider}")
+
+        voices = DEFAULT_VOICES.get(tts_provider, DEFAULT_VOICES["edge"]).copy()
+        if tts_config.get("voiceHost"):
+            voices["question"] = tts_config["voiceHost"]
+        if tts_config.get("voiceGuest"):
+            voices["answer"] = tts_config["voiceGuest"]
+
+        # ElevenLabs accepts voice IDs; its default names like "Chris" are now
+        # suffixed with descriptions ("Chris - Charming, Down-to-Earth"), so a
+        # plain name lookup fails. Resolve a prefix/name to a voice ID when we
+        # have the key.
+        if tts_provider == "elevenlabs" and ELEVENLABS_API_KEY:
+            voices = _resolve_elevenlabs_voices(voices)
+
         audio_path = AUDIO_DIR / f"{podcast_id}.mp3"
         transcript_path = TRANSCRIPT_DIR / f"{podcast_id}.txt"
 
@@ -191,12 +359,15 @@ def _generate_worker(
         # then we copy/rename to our deterministic paths.
         result_path = generate_podcast(
             text=text,
-            tts_model=DEFAULT_TTS,
+            tts_model=tts_provider,
             llm_model_name=DEFAULT_LLM,
             api_key_label=API_KEY_LABEL,
             conversation_config={
                 "text_to_speech": {
-                    "default_tts_model": DEFAULT_TTS,
+                    "default_tts_model": tts_provider,
+                    tts_provider: {
+                        "default_voices": voices,
+                    },
                     "output_directories": {
                         "transcripts": str(TRANSCRIPT_DIR),
                         "audio": str(AUDIO_DIR),
@@ -238,7 +409,7 @@ def _generate_worker(
         update_status(podcast_id, "failed", error=f"{type(e).__name__}: {e}"[:500])
 
 
-def create_from_knowledge_source(source_id: str) -> dict:
+def create_from_knowledge_source(source_id: str, tts_config: dict | None = None) -> dict:
     conn = db()
     row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
     if not row:
@@ -246,34 +417,45 @@ def create_from_knowledge_source(source_id: str) -> dict:
     source_path = Path(row["stored_path"])
     if not source_path.exists():
         raise ValueError("source file missing")
-    return _create(source_path, row["name"], "knowledge_source", source_id, provider="podcastfy")
+    return _create(source_path, row["name"], "knowledge_source", source_id, provider="podcastfy", tts_config=tts_config)
 
 
-def create_from_file(file_bytes: bytes, filename: str) -> dict:
+def create_from_file(file_bytes: bytes, filename: str, tts_config: dict | None = None) -> dict:
     ensure_dirs()
     ext = Path(filename).suffix.lower()[:12] or ".pdf"
     pid = f"p-{uuid.uuid4().hex[:8]}"
     stored = PODCAST_FILES / f"{pid}{ext}"
     stored.write_bytes(file_bytes)
-    return _create(stored, filename, "file", None, provider="podcastfy")
+    return _create(stored, filename, "file", None, provider="podcastfy", tts_config=tts_config)
 
 
-def _create(source_path: Path, source_name: str, source_type: str, source_id: str | None, provider: str = "podcastfy") -> dict:
+def _create(source_path: Path, source_name: str, source_type: str, source_id: str | None, provider: str = "podcastfy", tts_config: dict | None = None) -> dict:
     ensure_dirs()
     pid = f"p-{uuid.uuid4().hex[:8]}"
     created = now_iso()
+    tts_config = tts_config or {}
+    tts_model = tts_config.get("provider", DEFAULT_TTS)
+    if tts_model not in TTS_PROVIDERS:
+        raise ValueError(f"unsupported tts provider: {tts_model}")
+    voice_map = None
+    if tts_config.get("voiceHost") or tts_config.get("voiceGuest"):
+        voice_map = json.dumps({
+            "host": tts_config.get("voiceHost") or DEFAULT_VOICES.get(tts_model, DEFAULT_VOICES["edge"])["question"],
+            "guest": tts_config.get("voiceGuest") or DEFAULT_VOICES.get(tts_model, DEFAULT_VOICES["edge"])["answer"],
+        })
     conn = db()
     conn.execute(
-        """INSERT INTO podcasts (id, source_id, source_name, source_type, provider, status,
+        """INSERT INTO podcasts (id, source_id, source_name, source_type, provider, tts_model, voice_map, status,
                                 audio_path, transcript_path, error, created_at, finished_at)
-           VALUES (?,?,?,?,?, 'pending', NULL, NULL, NULL, ?, NULL)""",
-        (pid, source_id, source_name, source_type, provider, created),
+           VALUES (?,?,?,?,?,?,?, 'pending', NULL, NULL, NULL, ?, NULL)""",
+        (pid, source_id, source_name, source_type, provider, tts_model, voice_map, created),
     )
     conn.commit()
 
     thread = threading.Thread(
         target=_generate_worker,
         args=(pid, source_path, source_name),
+        kwargs={"tts_config": tts_config},
         daemon=True,
     )
     thread.start()

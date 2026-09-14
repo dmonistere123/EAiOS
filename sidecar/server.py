@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS podcasts (
   source_name TEXT NOT NULL,
   source_type TEXT NOT NULL,
   provider TEXT NOT NULL DEFAULT 'podcastfy',
+  tts_model TEXT NOT NULL DEFAULT 'edge',
+  voice_map TEXT,
   status TEXT NOT NULL,
   audio_path TEXT,
   transcript_path TEXT,
@@ -270,6 +272,26 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # quiet-ish: one line per request to stderr
         sys.stderr.write("sidecar %s - %s\n" % (self.address_string(), format % args))
 
+    def _extract_tts_config(self, parts: dict[str, tuple[str | None, bytes]]) -> dict:
+        """Parse TTS provider/voice fields from a multipart upload."""
+        cfg: dict[str, str] = {}
+        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest")):
+            if key in parts and field not in cfg:
+                val = parts[key][1].decode(errors="replace").strip()
+                if val:
+                    cfg[field] = val
+        return cfg
+
+    def _extract_tts_config_json(self, payload: dict) -> dict:
+        """Parse TTS provider/voice fields from a JSON body."""
+        cfg: dict[str, str] = {}
+        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest")):
+            if field not in cfg:
+                val = (payload.get(key) or "").strip()
+                if val:
+                    cfg[field] = val
+        return cfg
+
     def _send(self, code: int, payload: dict):
         body = json.dumps(payload).encode()
         try:
@@ -368,6 +390,8 @@ class Handler(BaseHTTPRequestHandler):
                 })
             if self.path == "/podcasts":
                 return self._send(200, {"podcasts": podcasts.list_podcasts()})
+            if self.path == "/podcasts/tts-status":
+                return self._send(200, {"providers": podcasts.tts_status()})
             if self.path == "/podcasts/google/status":
                 return self._send(200, google_podcasts.status())
             m = re.fullmatch(r"/podcasts/([\w-]+)/audio", self.path)
@@ -500,14 +524,35 @@ class Handler(BaseHTTPRequestHandler):
                         return self._send(400, {"error": "file field required"})
                     filename = str(parts["file"][0])
                     content = parts["file"][1]
-                    podcast = podcasts.create_from_file(content, filename)
+                    tts_config = self._extract_tts_config(parts)
+                    podcast = podcasts.create_from_file(content, filename, tts_config=tts_config)
                     return self._send(202, {"podcast": podcast})
                 payload = json.loads(self._read_body() or b"{}")
                 source_id = (payload.get("sourceId") or "").strip()
                 if not source_id:
                     return self._send(400, {"error": "sourceId or file required"})
-                podcast = podcasts.create_from_knowledge_source(source_id)
+                tts_config = self._extract_tts_config_json(payload)
+                podcast = podcasts.create_from_knowledge_source(source_id, tts_config=tts_config)
                 return self._send(202, {"podcast": podcast})
+
+            if self.path == "/podcasts/sample-tts":
+                payload = json.loads(self._read_body() or b"{}")
+                provider = (payload.get("provider") or "").strip()
+                voice = (payload.get("voice") or "").strip()
+                text = (payload.get("text") or "").strip() or None
+                if not provider or not voice:
+                    return self._send(400, {"error": "provider and voice required"})
+                try:
+                    data = podcasts.sample_tts(provider, voice, text)
+                    self.send_response(200)
+                    self.send_header("content-type", "audio/mpeg")
+                    self.send_header("content-length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                except Exception as e:
+                    traceback.print_exc()
+                    return self._send(500, {"error": str(e)})
 
             if self.path == "/podcasts/google/generate":
                 # Return a clear error if Google credentials are not configured.
