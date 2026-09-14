@@ -44,7 +44,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-EAIOS_BRANCH="${EAIOS_BRANCH:-master}"
+EAIOS_BRANCH="${EAIOS_BRANCH:-main}"
 EAIOS_ROOT="${EAIOS_ROOT:-$HOME/eaios}"
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-24}"
 HERMES_INSTALL_URL="${HERMES_INSTALL_URL:-https://hermes-agent.nousresearch.com/install.sh}"
@@ -54,7 +54,7 @@ SKIP_HERMES="${SKIP_HERMES:-0}"
 SKIP_TESTS="${SKIP_TESTS:-1}"
 SKIP_DESKTOP="${SKIP_DESKTOP:-0}"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,17 +96,21 @@ prompt_yes_no() {
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --repo-url)     EAIOS_REPO_URL="$2"; shift 2 ;;
-    --branch)       EAIOS_BRANCH="$2"; shift 2 ;;
-    --root)         EAIOS_ROOT="$2"; shift 2 ;;
-    --skip-node)    SKIP_NODE=1; shift ;;
-    --skip-hermes)  SKIP_HERMES=1; shift ;;
-    --run-tests)    SKIP_TESTS=0; shift ;;
-    --skip-desktop) SKIP_DESKTOP=1; shift ;;
-    --non-interactive) NONINTERACTIVE=1; shift ;;
-    --agent-name)   EAIOS_AGENT_NAME="$2"; shift 2 ;;
-    -h|--help)     sed -n '2,45p' "$0"; exit 0 ;;
-    *)             fail "Unknown argument: $1" ;;
+    --repo-url)              EAIOS_REPO_URL="$2"; shift 2 ;;
+    --repo-url=*)            EAIOS_REPO_URL="${1#*=}"; shift ;;
+    --branch)                EAIOS_BRANCH="$2"; shift 2 ;;
+    --branch=*)              EAIOS_BRANCH="${1#*=}"; shift ;;
+    --root)                  EAIOS_ROOT="$2"; shift 2 ;;
+    --root=*)                EAIOS_ROOT="${1#*=}"; shift ;;
+    --skip-node)             SKIP_NODE=1; shift ;;
+    --skip-hermes)           SKIP_HERMES=1; shift ;;
+    --run-tests)             SKIP_TESTS=0; shift ;;
+    --skip-desktop)          SKIP_DESKTOP=1; shift ;;
+    --non-interactive)       NONINTERACTIVE=1; shift ;;
+    --agent-name)            EAIOS_AGENT_NAME="$2"; shift 2 ;;
+    --agent-name=*)          EAIOS_AGENT_NAME="${1#*=}"; shift ;;
+    -h|--help)               sed -n '2,45p' "$0"; exit 0 ;;
+    *)                       fail "Unknown argument: $1" ;;
   esac
 done
 
