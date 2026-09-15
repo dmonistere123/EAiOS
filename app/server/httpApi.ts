@@ -29,7 +29,9 @@ import {
   queryDailySpend,
   queryUsage,
   rawArtifact,
+  readBuildVersion,
   readSettings,
+  readUpdateLog,
   rootExists,
   scanPlaybooks,
   scanSkills,
@@ -43,7 +45,7 @@ import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interf
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
-import { allyChat } from './allyGateway.ts';
+import { allyChat, allyChatStream } from './allyGateway.ts';
 
 export interface ApiContext {
   /** Hermes home (default ~/.hermes) — skills/, profiles/, state.db, kanban.db. */
@@ -103,6 +105,18 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   const settingsFile = join(ctx.eaiosRoot, 'settings.local.json');
 
   try {
+    /* version + update history */
+    if (path === '/api/version' && req.method === 'GET') {
+      try {
+        const current = readBuildVersion(ctx.eaiosRoot);
+        const log = readUpdateLog(join(ctx.hermesHome, 'state.db'));
+        json(res, 200, JSON.stringify({ current, log }));
+      } catch (e) {
+        json(res, 503, JSON.stringify({ error: String(e) }));
+      }
+      return true;
+    }
+
     /* skills index */
     if (path === '/api/skills-index' && req.method === 'GET') {
       if (!skillsCache || Date.now() - skillsCache.at > CACHE_TTL) {
@@ -540,6 +554,44 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         json(res, result.error ? 503 : 200, JSON.stringify(result));
       } catch (e) {
         json(res, 500, JSON.stringify({ error: errMessage(e) }));
+      }
+      return true;
+    }
+
+    /* ally chat streaming — SSE spike */
+    if (path === '/api/chat-ally/stream' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const text = String(body.text ?? '').trim();
+        const attachments = Array.isArray(body.attachments) ? body.attachments : undefined;
+        if (!text && !attachments?.length) {
+          res.statusCode = 400;
+          res.setHeader('content-type', 'text/event-stream');
+          res.setHeader('cache-control', 'no-cache');
+          res.end(`event: error\ndata: ${JSON.stringify({ error: 'text or attachments are required' })}\n\n`);
+          return true;
+        }
+        res.statusCode = 200;
+        res.setHeader('content-type', 'text/event-stream');
+        res.setHeader('cache-control', 'no-cache');
+        res.setHeader('connection', 'keep-alive');
+        res.write('event: start\ndata: {}\n\n');
+        await allyChatStream(text, {
+          onDelta: (delta) => res.write(`event: delta\ndata: ${JSON.stringify({ text: delta })}\n\n`),
+          onComplete: (result) => {
+            res.write(`event: complete\ndata: ${JSON.stringify(result)}\n\n`);
+            res.end();
+          },
+          onError: (error) => {
+            res.write(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
+            res.end();
+          },
+        }, attachments);
+      } catch (e) {
+        res.statusCode = 500;
+        res.setHeader('content-type', 'text/event-stream');
+        res.setHeader('cache-control', 'no-cache');
+        res.end(`event: error\ndata: ${JSON.stringify({ error: errMessage(e) })}\n\n`);
       }
       return true;
     }

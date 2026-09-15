@@ -284,6 +284,13 @@ export interface AllyChatResult {
   error?: string;
 }
 
+export interface AllyChatStreamCallbacks {
+  onStart?: () => void;
+  onDelta?: (text: string) => void;
+  onComplete?: (result: AllyChatResult) => void;
+  onError?: (error: string) => void;
+}
+
 /**
  * Send a prompt to the Ally gateway session and return the complete response.
  * Creates a new session on the default profile each call (no shared history).
@@ -363,5 +370,96 @@ export async function allyChat(text: string, attachments?: BridgeAttachment[], t
   } catch (e) {
     client.disconnect();
     return { text: '', finishReason: 'error', error: `gateway RPC failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * Streaming variant of allyChat: invokes callbacks as tokens arrive from the
+ * gateway. Useful for spiking/prototyping SSE streaming in the UI without
+ * changing the legacy full-response path.
+ */
+export async function allyChatStream(
+  text: string,
+  callbacks: AllyChatStreamCallbacks,
+  attachments?: BridgeAttachment[],
+  timeoutMs = 120_000,
+): Promise<void> {
+  const client = getClient();
+  if (!client) {
+    callbacks.onError?.('gateway token not configured');
+    return;
+  }
+
+  try {
+    await client.connect(5_000);
+  } catch (e) {
+    callbacks.onError?.(`gateway connect failed: ${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+
+  try {
+    const createResult = (await client.call('session.create', {
+      title: 'EAiOS — My Assistant',
+    })) as { session_id?: string };
+    if (!createResult?.session_id) {
+      callbacks.onError?.('failed to create gateway session');
+      return;
+    }
+    const sessionId = createResult.session_id;
+
+    let responseText = '';
+    let complete = false;
+    let finishReason: AllyChatResult['finishReason'] = 'complete';
+
+    client.onEvent = (params) => {
+      const type = String(params.type ?? '');
+      const payload = (params.payload ?? {}) as Record<string, unknown>;
+      if (type === 'message.delta') {
+        const delta = String(payload.text ?? '');
+        responseText += delta;
+        callbacks.onDelta?.(delta);
+      } else if (type === 'message.complete') {
+        responseText = String(payload.text ?? responseText);
+        complete = true;
+      } else if (type === 'turn.error') {
+        finishReason = 'error';
+        complete = true;
+      }
+    };
+
+    const attachmentBlock = attachments?.length
+      ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
+      : '';
+    const fullText = text + attachmentBlock;
+    if (!fullText.trim()) {
+      callbacks.onError?.('text or attachments are required');
+      return;
+    }
+
+    callbacks.onStart?.();
+    await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
+
+    const deadline = Date.now() + timeoutMs;
+    while (!complete && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+
+    try {
+      await client.call('session.close', { session_id: sessionId }, 5_000);
+    } catch {
+      // best-effort close
+    }
+
+    client.onEvent = null;
+    client.disconnect();
+
+    callbacks.onComplete?.({
+      text: responseText,
+      finishReason: complete ? finishReason : 'timeout',
+      sessionId,
+    });
+  } catch (e) {
+    client.disconnect();
+    callbacks.onError?.(`gateway RPC failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }

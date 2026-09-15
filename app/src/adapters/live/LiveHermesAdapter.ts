@@ -1550,7 +1550,7 @@ class LiveHermesAdapter implements HermesAdapter {
 
         const ac = new AbortController();
         const timeout = setTimeout(() => ac.abort(), 120_000);
-        const res = await fetch('/api/chat-ally', {
+        const res = await fetch('/api/chat-ally/stream', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ text, attachments: opts.attachments }),
@@ -1558,18 +1558,76 @@ class LiveHermesAdapter implements HermesAdapter {
         });
         clearTimeout(timeout);
 
-        if (!res.ok) {
+        if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
           emit({ kind: 'error', message: err.error ?? `HTTP ${res.status}` });
-          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_failed', safeMessage: err.error ?? 'Gateway bridge failed.', retryable: true } };
+          throw new Error('stream request failed');
         }
-        const result = await res.json() as { text?: string; finishReason?: string; error?: string };
-        if (result.error) {
-          emit({ kind: 'error', message: result.error });
-          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: result.error, retryable: true } };
+
+        // Parse the SSE stream and emit tokens as they arrive.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let responseText = '';
+        let finished = false;
+        let errorMsg: string | undefined;
+        let currentEvent: string | null = null;
+
+        while (!finished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7);
+            } else if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (currentEvent === 'delta') {
+                try {
+                  const parsed = JSON.parse(data) as { text?: string };
+                  const delta = parsed.text ?? '';
+                  responseText += delta;
+                  emit({ kind: 'delta', text: delta });
+                } catch {
+                  // ignore malformed delta
+                }
+              } else if (currentEvent === 'complete') {
+                try {
+                  const parsed = JSON.parse(data) as { text?: string; finishReason?: string };
+                  responseText = parsed.text ?? responseText;
+                  finished = true;
+                } catch {
+                  // ignore malformed complete
+                }
+              } else if (currentEvent === 'error') {
+                try {
+                  const parsed = JSON.parse(data) as { error?: string };
+                  errorMsg = parsed.error ?? 'stream error';
+                  finished = true;
+                } catch {
+                  errorMsg = 'stream error';
+                  finished = true;
+                }
+              }
+            } else if (line === '') {
+              currentEvent = null;
+            }
+          }
         }
-        // Store the exchange locally so getAssistantHistory returns it
-        const responseText = result.text ?? '';
+
+        if (errorMsg) {
+          emit({ kind: 'error', message: errorMsg });
+          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: errorMsg, retryable: true } };
+        }
+
+        if (!finished) {
+          emit({ kind: 'error', message: 'stream ended without completion' });
+          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_stream_incomplete', safeMessage: 'Stream ended without completion.', retryable: true } };
+        }
+
+        // Store the exchange locally so getAssistantHistory returns it.
         const now = new Date().toISOString();
         const bridge = this.loadBridgeMessages();
         bridge.push(
@@ -1577,9 +1635,6 @@ class LiveHermesAdapter implements HermesAdapter {
           { id: `ally-bridge-${Date.now()}`, role: 'ally' as const, text: responseText, at: now },
         );
         this.saveBridgeMessages(bridge);
-        // Emit events so the UI shows typing + response, then history refresh
-        // picks up the stored messages instead of the empty WS session.
-        emit({ kind: 'delta', text: responseText });
         emit({ kind: 'complete', text: responseText });
         return { ok: true, auditEventId: `chat-send-${Date.now()}` };
       } catch (e) {
