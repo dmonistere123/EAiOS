@@ -1549,7 +1549,7 @@ class LiveHermesAdapter implements HermesAdapter {
         emit({ kind: 'start' });
 
         const ac = new AbortController();
-        const timeout = setTimeout(() => ac.abort(), 10_000);
+        const timeout = setTimeout(() => ac.abort(), 120_000);
         const res = await fetch('/api/chat-ally', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
