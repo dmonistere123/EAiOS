@@ -311,13 +311,21 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
             className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink"
           >
             {catalog ? (
-              catalog.map((g) => (
-                <optgroup key={g.slug} label={g.name}>
-                  {g.models.map((m) => (
-                    <option key={`${g.slug}/${m}`} value={`${g.slug}/${m}`}>{m}</option>
-                  ))}
-                </optgroup>
-              ))
+              <>
+                {catalog.map((g) => (
+                  <optgroup key={g.slug} label={g.name}>
+                    {g.models.map((m) => (
+                      <option key={`${g.slug}/${m}`} value={`${g.slug}/${m}`}>{m}</option>
+                    ))}
+                  </optgroup>
+                ))}
+                {/* If the agent's current model is not in the live catalog (legacy config,
+                    direct CLI set, or provider slug changed), keep it selectable so the
+                    picker honestly reflects the active model and the user can move away. */}
+                {!catalog.some((g) => `${g.slug}/` === `${model.split('/')[0]}/` && g.models.includes(model.split('/').slice(1).join('/'))) && (
+                  <option value={model}>{model} (current, not in catalog)</option>
+                )}
+              </>
             ) : (
               agent.availableModels.map((m) => (
                 <option key={`${m.provider}/${m.model}`} value={`${m.provider}/${m.model}`}>{m.provider} / {m.model}</option>
