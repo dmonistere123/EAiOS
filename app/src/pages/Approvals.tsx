@@ -6,6 +6,23 @@ import { hermes } from '../adapters';
 import { useRuntime, selectPendingApprovals, agentName, toast, refreshApprovals } from '../state/runtime';
 import { Card, Drawer, EmptyState, RelativeTime, RiskBadge, StateBadge } from '../components/ui';
 
+function PostSource({ approval }: { approval: Approval }) {
+  const source = approval.linkedinComment;
+  if (!source) return null;
+  let url: string | undefined;
+  try {
+    const parsed = new URL(source.postUrl);
+    if (parsed.protocol === 'https:' && parsed.hostname === 'www.linkedin.com') url = parsed.href;
+  } catch { /* Legacy suggestions may lack a usable source link. */ }
+  return (
+    <div className="mt-2 space-y-1 text-xs text-ink-dim">
+      <div>Post by <span className="font-medium text-ink">{source.authorName?.trim() || 'Author not verified'}</span></div>
+      {source.postSummary && <div><span className="font-medium text-ink">Post summary: </span>{source.postSummary}</div>}
+      {url && <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-block text-signal underline">View original post</a>}
+    </div>
+  );
+}
+
 function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
   const [busy, setBusy] = useState(false);
@@ -49,6 +66,7 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
       <div className="space-y-5">
         <div>
           <div className="text-lg font-semibold text-ink">{approval.targetObject ?? approval.targetSystem}</div>
+          <PostSource approval={approval} />
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
             <RiskBadge risk={approval.risk} />
             <StateBadge label={approval.actionType} tone="signal" />
@@ -175,6 +193,7 @@ export default function Approvals() {
                 <tr key={a.id} onClick={() => setSelectedId(a.id)} className="cursor-pointer hover:bg-canvas-overlay/50">
                   <td className="px-4 py-3">
                     <div className="font-medium text-ink">{a.targetObject ?? a.targetSystem}</div>
+                    <PostSource approval={a} />
                     <div className="mt-0.5 text-xs text-ink-faint">{a.actionType} · {a.targetSystem}</div>
                   </td>
                   <td className="px-4 py-3"><RiskBadge risk={a.risk} /></td>

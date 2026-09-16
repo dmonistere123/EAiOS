@@ -10,12 +10,12 @@ Don's rule: suggest → Approvals → approve and publish, or reject and do not 
 
 ## Comment suggestions
 
-1. Retrieve the source and verify the precise LinkedIn post and its actual content. Gmail notifications may discover candidates, but sender/title alone is insufficient. Do not fabricate article content or substitute a different article's draft.
+1. Retrieve the source and verify the precise LinkedIn post and its actual content. Record the original author or publishing organization exactly as identified by the source; never confuse it with the requesting agent or a person mentioned in the article. Gmail notifications may discover candidates, but sender/title alone is insufficient. Do not fabricate article content or substitute a different article's draft.
 2. Resolve a real `urn:li:share:<id>` or `urn:li:ugcPost:<id>` from source metadata. Composio's comment tool does not accept activity URNs. Never guess by replacing `activity` with `share`. If no verified publishing target is available, report the missing capability; do not create a suggestion that cannot be executed.
 3. Get the connected identity using `LINKEDIN_GET_MY_INFO`. Check whether Don has already commented through an available read tool if permitted. Never claim that a permission-denied read proves there are no existing comments.
 4. Use `python3 "${HERMES_HOME:-$HOME/.hermes}/scripts/eaios-linkedin-comments.py" check '<post-urn>'`. Skip any existing pending, rejected, approved, posted, or unresolved attempt. Also compare the article/author with historical approval task titles; legacy tasks may lack a post URN. Previously approved legacy drafts are not confirmed posts; do not blindly resuggest or publish them.
-5. Prepare a specific comment (1–1250 characters) and write only that text into a private local file. Create the UNASSIGNED approval using:
-   `python3 "${HERMES_HOME:-$HOME/.hermes}/scripts/eaios-linkedin-comments.py" suggest --post-urn '<verified-urn>' --post-url '<source-url>' --label '<author and actual post title>' --text-file '<draft-file>' --actor-urn '<verified-person-urn>'`
+5. Prepare a factual two-sentence summary of the original post, based only on the retrieved source. Write it to a separate private file; it is review context, never part of the comment to publish. Prepare a specific comment (1–1250 characters) and write only that text into a private local file. Create the UNASSIGNED approval using:
+   `python3 "${HERMES_HOME:-$HOME/.hermes}/scripts/eaios-linkedin-comments.py" suggest --post-urn '<verified-urn>' --post-url '<source-url>' --label '<actual post title>' --author-name '<verified original author or organization>' --summary-file '<summary-file>' --text-file '<draft-file>' --actor-urn '<verified-person-urn>'`
    This helper checks for duplicates again while creating the approval. It uses actionType publish and a structured linkedinComment target. Never assign your own approval.
 6. Explain that approving publishes the exact displayed comment. Rejection does not publish it. No manual-paste workflow.
 

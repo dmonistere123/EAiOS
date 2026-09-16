@@ -116,6 +116,29 @@ describe('S5 Approval Backlog — sorting, filters, inspector', () => {
   });
 });
 
+describe('LinkedIn approval source context', () => {
+  it('shows the original author and summary in the queue and inspector, separate from the reply', async () => {
+    const source = {
+      postUrn: 'urn:li:share:123', postUrl: 'https://www.linkedin.com/posts/example',
+      actorUrn: 'urn:li:person:owner', authorName: 'Original Author',
+      postSummary: 'The author discusses clearer business decisions. The post recommends documenting accountability.',
+    };
+    mock.__loadFixture({ approvals: [{ ...fx.approvals[0], id: 'source-context', targetSystem: 'linkedin',
+      targetObject: 'Business decisions', linkedinComment: source, payload: 'My proposed reply.' }] });
+    await refreshAll();
+    renderAt('/approvals', <Approvals />, 'approvals');
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Original Author')).toBeInTheDocument();
+    expect(table).toHaveTextContent(source.postSummary);
+    expect(within(table).getByRole('link', { name: 'View original post' })).toHaveAttribute('href', source.postUrl);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Inspect' }));
+    const drawer = await screen.findByRole('dialog');
+    expect(within(drawer).getByText('Original Author')).toBeInTheDocument();
+    expect(drawer).toHaveTextContent(source.postSummary);
+    expect(within(drawer).getByText('My proposed reply.')).toBeInTheDocument();
+  });
+});
+
 describe('S6 Connector Degraded — reconnect warning', () => {
   it("expired-OAuth connector renders 'incomplete' with Resume connect", async () => {
     renderAt('/connections', <Connections />, 'connections');

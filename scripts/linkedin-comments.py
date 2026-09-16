@@ -142,10 +142,10 @@ def publish(home, task_id, transport=mcp):
             raise ValueError('Posting failed or was not confirmed. Do not mark this task complete or retry until the posting outcome is checked') from None
 
 
-def suggest(home, post, url, label, text, actor, runner=subprocess.run):
+def suggest(home, post, url, label, text, actor, runner=subprocess.run, *, author_name, post_summary):
     valid_post(post)
-    if not url.startswith('https://www.linkedin.com/') or not label.strip() or not 1 <= len(text.strip()) <= 1250 or not re.fullmatch(r'urn:li:person:[A-Za-z0-9_-]+', actor):
-        raise ValueError('Verified target URL, label, posting identity and comment text are required')
+    if not post_summary.strip() or not author_name.strip() or not url.startswith('https://www.linkedin.com/') or not label.strip() or not 1 <= len(text.strip()) <= 1250 or not re.fullmatch(r'urn:li:person:[A-Za-z0-9_-]+', actor):
+        raise ValueError('Verified author, post summary, target URL, label, posting identity and comment text are required')
     state = home / 'eaios'; state.mkdir(parents=True, exist_ok=True)
     with (state / 'linkedin-comments.lock').open('a') as lock:
         os.chmod(state / 'linkedin-comments.lock', 0o600)
@@ -153,7 +153,7 @@ def suggest(home, post, url, label, text, actor, runner=subprocess.run):
         existing = seen(home, post)
         if existing['skip']:
             return existing
-        e = {'eaios': 'approval', 'actionType': 'publish', 'targetSystem': 'linkedin', 'targetObject': label, 'risk': 'low', 'requestedBy': 'default', 'payload': text, 'linkedinComment': {'postUrn': post, 'postUrl': url, 'actorUrn': actor}, 'evidence': [{'kind': 'url', 'label': label, 'uri': url}]}
+        e = {'eaios': 'approval', 'actionType': 'publish', 'targetSystem': 'linkedin', 'targetObject': label, 'risk': 'low', 'requestedBy': 'default', 'payload': text, 'linkedinComment': {'postUrn': post, 'postUrl': url, 'actorUrn': actor, 'authorName': author_name.strip(), 'postSummary': post_summary.strip()}, 'evidence': [{'kind': 'url', 'label': label, 'uri': url}]}
         runner(['hermes', 'kanban', 'create', 'LinkedIn comment — ' + label, '--body', json.dumps(e), '--priority', '2'], check=True, capture_output=True, text=True)
         return {'skip': False, 'created': True}
 
@@ -164,14 +164,14 @@ if __name__ == '__main__':
     commands.add_parser('check').add_argument('post_urn')
     commands.add_parser('publish').add_argument('task_id')
     s = commands.add_parser('suggest')
-    for key in ['post-urn', 'post-url', 'label', 'text-file', 'actor-urn']:
+    for key in ['post-urn', 'post-url', 'label', 'text-file', 'actor-urn', 'author-name', 'summary-file']:
         s.add_argument('--' + key, required=True)
     args = parser.parse_args()
     home = Path(os.environ.get('HERMES_HOME', str(Path.home() / '.hermes')))
     try:
         if args.command == 'check': result = seen(home, args.post_urn)
         elif args.command == 'publish': result = publish(home, args.task_id)
-        else: result = suggest(home, args.post_urn, args.post_url, args.label, Path(args.text_file).read_text(), args.actor_urn)
+        else: result = suggest(home, args.post_urn, args.post_url, args.label, Path(args.text_file).read_text(), args.actor_urn, author_name=args.author_name, post_summary=Path(args.summary_file).read_text())
         print(json.dumps(result))
     except Exception as error:
         print(json.dumps({'ok': False, 'error': str(error)}))

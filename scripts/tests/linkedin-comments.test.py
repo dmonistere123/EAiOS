@@ -77,13 +77,13 @@ class Comments(unittest.TestCase):
         for decision in ['pending','rejected','approved']:
             self.env['decision']=decision;self.put()
             self.assertTrue(m.seen(self.home,POST)['skip'])
-            result=m.suggest(self.home,POST,'https://www.linkedin.com/posts/example','Example','New text',ACTOR,lambda *a,**k:self.fail('Must not duplicate'))
+            result=m.suggest(self.home,POST,'https://www.linkedin.com/posts/example','Example','New text',ACTOR,lambda *a,**k:self.fail('Must not duplicate'),author_name='Example Author',post_summary='Original post summary. Second sentence.')
             self.assertTrue(result['skip'])
     def test_new_suggestions_are_unassigned_publish_envelopes(self):
         self.c.execute('DELETE FROM tasks');self.c.commit();calls=[]
         def run(args,**kwargs):calls.append(args)
-        m.suggest(self.home,POST,'https://www.linkedin.com/posts/example','Article','Draft',ACTOR,run)
+        m.suggest(self.home,POST,'https://www.linkedin.com/posts/example','Article','Draft',ACTOR,run,author_name='Original Author',post_summary='Original post summary. Second sentence.')
         self.assertNotIn('--assignee',calls[0]);e=json.loads(calls[0][calls[0].index('--body')+1])
-        self.assertEqual(e['actionType'],'publish');self.assertEqual(e['payload'],'Draft');self.assertEqual(e['linkedinComment']['postUrn'],POST)
+        self.assertEqual(e['linkedinComment']['authorName'],'Original Author');self.assertEqual(e['linkedinComment']['postSummary'],'Original post summary. Second sentence.');self.assertEqual(e['actionType'],'publish');self.assertEqual(e['payload'],'Draft');self.assertEqual(e['linkedinComment']['postUrn'],POST)
 
 if __name__=='__main__':unittest.main()

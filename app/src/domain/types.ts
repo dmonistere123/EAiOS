@@ -95,6 +95,15 @@ export interface Approval {
   actionType: 'send' | 'write' | 'publish' | 'execute' | 'delete' | 'other';
   targetSystem: string;
   targetObject?: string;
+  linkedinComment?: {
+    postUrn: string;
+    postUrl: string;
+    actorUrn: string;
+    /** Original author or publishing organization, verified from the source. */
+    authorName?: string;
+    /** Two-sentence summary of the original post, separate from the reply. */
+    postSummary?: string;
+  };
   risk: RiskLevel;
   status: 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'expired' | 'blocked';
   submittedAt: string;

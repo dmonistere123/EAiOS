@@ -193,6 +193,7 @@ interface KanbanTask {
 /** Approval metadata rides in the task body as a JSON envelope (Phase 3). */
 interface ApprovalEnvelope {
   eaios: 'approval';
+  linkedinComment?: Approval['linkedinComment'];
   actionType: Approval['actionType'];
   targetSystem: string;
   targetObject?: string;
@@ -292,6 +293,7 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     actionType: env.actionType,
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
+    linkedinComment: env.linkedinComment,
     risk: env.risk,
     status,
     submittedAt: epochToIso(t.created_at) ?? new Date().toISOString(),
