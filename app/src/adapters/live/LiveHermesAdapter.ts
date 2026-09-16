@@ -11,7 +11,7 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, VersionInfo, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
+  UsageSummary, DailySpendReport, VersionInfo, ReleaseUpdateInfo, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
@@ -1424,6 +1424,27 @@ class LiveHermesAdapter implements HermesAdapter {
     } catch (e) {
       this.degraded.add('version');
       throw new Error('Running version unavailable', { cause: e });
+    }
+  }
+
+  async getReleaseUpdateInfo(): Promise<ReleaseUpdateInfo> {
+    const response = await fetch('/api/updates');
+    if (!response.ok) throw new Error('Release status unavailable');
+    return response.json() as Promise<ReleaseUpdateInfo>;
+  }
+  async checkForUpdates(): Promise<ReleaseUpdateInfo> {
+    const response = await fetch('/api/updates/check', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    if (!response.ok) throw new Error('Release check unavailable');
+    return response.json() as Promise<ReleaseUpdateInfo>;
+  }
+  async installReleaseUpdate(releaseId: number): Promise<AuditResult> {
+    try {
+      const response = await fetch('/api/updates/install', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ releaseId }) });
+      const result = await response.json() as AuditResult & { error?: { safeMessage?: string } };
+      if (!response.ok) throw new Error(result.error?.safeMessage ?? 'Could not start installation');
+      return result;
+    } catch (error) {
+      return { ok: false, auditEventId: `release-install-failed-${Date.now()}`, error: { code: 'release_install_failed', safeMessage: error instanceof Error ? error.message : 'Could not start installation', retryable: true } };
     }
   }
   // ----- LIVE: assistant chat (Phase 6.4a, spec §8.2) -----

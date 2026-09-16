@@ -139,11 +139,8 @@ describe('live assistant session lifecycle', () => {
     const fetchCalls: { url: string; body: unknown }[] = [];
     vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
       fetchCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ text: `Bridge reply to ${(init?.body ? JSON.parse(String(init.body)) : {}).text}`, finishReason: 'complete' }),
-      } as Response;
+      const text = `Bridge reply to ${(init?.body ? JSON.parse(String(init.body)) : {}).text}`;
+      return new Response(`event: delta\ndata: ${JSON.stringify({ text })}\n\nevent: complete\ndata: ${JSON.stringify({ text, finishReason: 'complete' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
     });
     // startNewAssistantChat still opens a fresh WS session for the lane, even
     // though the default send path uses the REST bridge.
@@ -161,6 +158,7 @@ describe('live assistant session lifecycle', () => {
 
     const res = await live.sendAssistantMessage('hello bridge');
     expect(res.ok).toBe(true);
+    expect(fetchCalls[0].url).toBe('/api/chat-ally/stream');
     expect(events.map((e) => e.kind)).toEqual(['start', 'delta', 'complete']);
 
     // History must include both the user message and the bridge reply so the UI

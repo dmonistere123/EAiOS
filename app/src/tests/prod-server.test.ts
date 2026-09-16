@@ -282,3 +282,42 @@ describe('running version identity', () => {
     } finally { await new Promise<void>(resolve => missing.close(() => resolve())); }
   });
 });
+
+
+describe('release update API safeguards', () => {
+  it('reads cached weekly check status without making a GitHub request', async () => {
+    const response = await fetch(`${base}/api/updates`);
+    expect(response.status).toBe(200);
+    const body = await response.json(); expect(body.status).toBe('not_checked'); expect(body.checkIntervalDays).toBe(7);
+  });
+  it('rejects cross-origin checks and installs', async () => {
+    for (const path of ['check', 'install']) {
+      const response = await fetch(`${base}/api/updates/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://untrusted.example' }, body: JSON.stringify({ releaseId: 42 }) });
+      expect(response.status).toBe(403);
+    }
+  });
+  it('refuses installation unless that release was checked successfully', async () => {
+    const response = await fetch(`${base}/api/updates/install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ releaseId: 42 }) });
+    expect(response.status).toBe(409);
+  });
+});
+
+
+describe('persistent data root', () => {
+  it('writes settings and dismissals to the original box directory, not release code', async () => {
+    const data = join(root, 'customer-data'), code = join(root, 'new-release');
+    mkdirSync(data, { recursive: true }); mkdirSync(join(code, 'app/dist'), { recursive: true });
+    writeFileSync(join(data, 'settings.local.json'), JSON.stringify({ usageBudgetUsd: 12 }));
+    writeFileSync(join(code, 'app/dist/version.json'), JSON.stringify({ version: '0.2.0', gitSha: 'ccccccc', gitBranch: 'main', builtAt: new Date().toISOString() }));
+    const isolated = createEaiosServer(loadConfig({ EAIOS_ROOT: code, EAIOS_DATA_ROOT: data, EAIOS_DIST: join(code, 'app/dist'), HERMES_HOME: join(root, 'isolated-hermes') } as NodeJS.ProcessEnv));
+    await new Promise<void>(resolve => isolated.listen(0, '127.0.0.1', resolve));
+    const port = (isolated.address() as AddressInfo).port;
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/api/eaios-settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usageBudgetUsd: 42 }) })).status).toBe(200);
+      expect(JSON.parse(readFileSync(join(data, 'settings.local.json'), 'utf8')).usageBudgetUsd).toBe(42);
+      expect((await fetch(`http://127.0.0.1:${port}/api/dismissed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'preserved' }) })).status).toBe(200);
+      expect(JSON.parse(readFileSync(join(data, 'dismissed.json'), 'utf8'))).toContain('preserved');
+      expect(() => readFileSync(join(code, 'settings.local.json'))).toThrow();
+    } finally { await new Promise<void>(resolve => isolated.close(() => resolve())); }
+  });
+});

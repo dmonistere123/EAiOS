@@ -4,6 +4,7 @@ import type { EnvironmentFile, VersionInfo } from '../domain/types';
 import { hermes } from '../adapters';
 import { resetPanePrefs } from '../app/AppShell';
 import { toast } from '../state/runtime';
+import { ReleaseUpdates } from '../components/ReleaseUpdates';
 import { Card, SectionTitle, StateBadge } from '../components/ui';
 
 function channelTone(channel?: string): 'ok' | 'warn' | 'neutral' {
@@ -25,14 +26,7 @@ function VersionPanel() {
   }, []);
 
   const formatDate = (iso?: string) => (iso ? new Date(iso).toLocaleString() : 'unknown');
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('ok', 'Copied to clipboard');
-    } catch {
-      toast('error', 'Copy failed');
-    }
-  };
+
 
   return (
     <Card className="p-5">
@@ -57,20 +51,6 @@ function VersionPanel() {
           </div>
 
           <div>
-            <div className="mb-2 text-xs font-medium text-ink-faint">Update commands</div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
-                <code>./scripts/eaios-update.sh</code>
-                <button onClick={() => copy('./scripts/eaios-update.sh')} className="text-signal hover:underline">Copy</button>
-              </div>
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
-                <code>./scripts/eaios-update.sh --rollback</code>
-                <button onClick={() => copy('./scripts/eaios-update.sh --rollback')} className="text-signal hover:underline">Copy</button>
-              </div>
-            </div>
-          </div>
-
-          <div>
             <div className="mb-1 text-xs font-medium text-ink-dim">Update history</div>
             {info.log.length === 0 ? (
               <p className="text-xs text-ink-faint">No updates recorded yet.</p>
@@ -91,7 +71,7 @@ function VersionPanel() {
               </ul>
             )}
           </div>
-          <p className="text-xs text-ink-faint">Updates are run deliberately via <code className="text-signal">scripts/eaios-update.sh</code> on the box. Monthly minor and quarterly major releases are tagged in Git; automatic OTA is intentionally disabled.</p>
+          <p className="text-xs text-ink-faint">Published releases are checked weekly. Install updates from the Release updates panel below.</p>
         </div>
       ) : (
         <p className="text-xs text-warn">Running version unavailable. Retry after the service is restored.</p>
@@ -214,6 +194,7 @@ export default function Settings() {
         </Card>
 
         <VersionPanel />
+        <ReleaseUpdates />
         <EnvFileEditor />
       </div>
     </div>

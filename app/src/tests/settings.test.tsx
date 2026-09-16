@@ -132,8 +132,7 @@ describe('Settings page honesty (mock mode)', () => {
     // release channel badge from the mock manifest
     expect(screen.getByText('stable')).toBeInTheDocument();
     // update/rollback commands are surfaced as copyable actions
-    expect(screen.getByText('./scripts/eaios-update.sh')).toBeInTheDocument();
-    expect(screen.getByText('./scripts/eaios-update.sh --rollback')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toBeInTheDocument();
     // history is empty on the mock adapter
     expect(screen.getByText('No updates recorded yet.')).toBeInTheDocument();
   });

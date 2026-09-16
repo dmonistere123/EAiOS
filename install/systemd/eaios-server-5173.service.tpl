@@ -9,12 +9,14 @@ Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
+Environment=EAIOS_DATA_ROOT=@EAIOS_DATA_ROOT@
+Environment=EAIOS_REPO_ROOT=@EAIOS_REPO_ROOT@
 Type=simple
 Environment=PATH=@HOME@/.local/bin:@HOME@/.hermes/bin:/usr/local/bin:/usr/bin:/bin
 Environment=EAIOS_PORT=5173
 Environment=EAIOS_HOST=127.0.0.1
 Environment=EAIOS_ROOT=@EAIOS_ROOT@
-Environment=HERMES_HOME=@HOME@/.hermes
+Environment=HERMES_HOME=@HERMES_HOME@
 WorkingDirectory=@EAIOS_ROOT@/app
 ExecStart=@NODE_BIN@ @EAIOS_ROOT@/app/server/prod.ts
 Restart=always

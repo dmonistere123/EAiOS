@@ -52,12 +52,15 @@ echo "==> Releasing EAiOS $VERSION"
 # Keep the lockfile consistent and validate before publishing a release.
 cd "$REPO_ROOT/app"
 npm test
-npm version "$PLAIN_VERSION" --no-git-tag-version
+if [[ "$(node -p 'require("./package.json").version')" != "$PLAIN_VERSION" ]]; then
+  npm version "$PLAIN_VERSION" --no-git-tag-version
+fi
+node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json")); fs.writeFileSync("../release-manifest.json",JSON.stringify({schemaVersion:1,version:p.version,minimumNodeMajor:24,dataRootSupported:true,migrationPolicy:"additive"},null,2)+"\n")'
 npm run build
 cd "$REPO_ROOT"
-git add app/package.json app/package-lock.json
-git commit -m "release: $VERSION"
+git add app/package.json app/package-lock.json release-manifest.json
+if ! git diff --cached --quiet; then git commit -m "release: $VERSION"; fi
 git tag -a "$VERSION" -m "EAiOS $VERSION"
 git push --atomic origin "$BRANCH" "$VERSION"
 
-echo "==> Released $VERSION. Update boxes with: ./scripts/eaios-update.sh --to $VERSION"
+echo "==> Tagged $VERSION. Publish this tag as a stable GitHub Release so weekly checks can discover it."

@@ -23,6 +23,7 @@ import type {
   UsageSummary,
   DailySpendReport,
   VersionInfo,
+  ReleaseUpdateInfo,
   WorkItem,
   KnowledgeSource,
   Podcast,
@@ -207,6 +208,9 @@ export interface HermesAdapter {
   setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult>;
   /** Current build version + update history for the EAiOS Settings page. */
   getVersionInfo(): Promise<VersionInfo>;
+  getReleaseUpdateInfo(): Promise<ReleaseUpdateInfo>;
+  checkForUpdates(): Promise<ReleaseUpdateInfo>;
+  installReleaseUpdate(releaseId: number): Promise<AuditResult>;
   listSkills(): Promise<Skill[]>;
 
   /** Enable or disable a skill (rewrites SKILL.md frontmatter). */
@@ -237,8 +241,6 @@ export interface HermesAdapter {
   readEnvironmentFile(id: string): Promise<EnvironmentFile>;
   writeEnvironmentFile(id: string, expectedVersion: string, content: string): Promise<AuditResult>;
 
-  /** Current build version + update history. */
-  getVersionInfo(): Promise<import('../domain/types.ts').VersionInfo>;
 
   // ---------- Assistant chat (Phase 6.4a) ----------
   /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */

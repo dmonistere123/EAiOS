@@ -112,7 +112,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProdConfig {
     port: Number(env.EAIOS_PORT ?? 5200),
     host: env.EAIOS_HOST ?? '127.0.0.1',
     distDir: env.EAIOS_DIST ?? join(APP_ROOT, 'dist'),
-    apiCtx: { hermesHome, eaiosRoot: env.EAIOS_ROOT ?? resolve(APP_ROOT, '..') },
+    apiCtx: { hermesHome, eaiosRoot: env.EAIOS_ROOT ?? resolve(APP_ROOT, '..'), dataRoot: env.EAIOS_DATA_ROOT ?? env.EAIOS_ROOT ?? resolve(APP_ROOT, '..') },
     hermesWsHost: wsHost || '127.0.0.1',
     hermesWsPort: Number(wsPortRaw ?? 9119),
     hermesToken: token,

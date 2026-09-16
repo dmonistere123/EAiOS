@@ -9,6 +9,10 @@ adapters · mock-first per slice with live fallback · no secrets in the client
 bundle · external writes gate on approvals · honest degradation over fake
 success (spec §2) · tests green before commit.
 
+## First-box release priority — September 16, 2026
+
+Weekly stable GitHub Release discovery, manual checks, confirmed staged installation, persistent data paths, online backups, and verified service recovery are implemented and tested. First stable release publication and a deployed-box release smoke test remain shipping gates. Central fleet inventory, remote rollout controls, and automatic release/backup retention remain future work.
+
 ## Phase status
 
 | Phase | Scope | Status |

@@ -46,6 +46,7 @@ import type { BuildVersion } from './apiCore.ts';
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
+import { optionsFor, requireSameOriginJson, checkUpdates, getUpdateStatus, launchReleaseInstall } from './updates.ts';
 import { allyChat, allyChatStream } from './allyGateway.ts';
 
 export interface ApiContext {
@@ -53,6 +54,7 @@ export interface ApiContext {
   hermesHome: string;
   /** EAiOS root (the dir ABOVE app/) — playbooks/, settings.local.json. */
   eaiosRoot: string;
+  dataRoot?: string;
   /** Production captures its manifest at startup; null means unavailable. */
   buildVersion?: BuildVersion | null;
 }
@@ -104,10 +106,32 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   const path = url.pathname;
   const skillsRoot = join(ctx.hermesHome, 'skills');
   const profilesRoot = join(ctx.hermesHome, 'profiles');
-  const playbooksRoot = join(ctx.eaiosRoot, 'playbooks');
-  const settingsFile = join(ctx.eaiosRoot, 'settings.local.json');
+  const dataRoot = ctx.dataRoot ?? ctx.eaiosRoot;
+  const playbooksRoot = join(dataRoot, 'playbooks');
+  const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+
+    if (path === '/api/updates' || path === '/api/updates/check' || path === '/api/updates/install') {
+      try {
+        if (ctx.buildVersion === null) throw new Error('Running build unavailable');
+        const current = ctx.buildVersion ?? readBuildVersion(ctx.eaiosRoot);
+        if (path === '/api/updates' && req.method === 'GET') {
+          json(res, 200, JSON.stringify(getUpdateStatus(optionsFor(ctx), current.version)));
+        } else if (req.method === 'POST' && path !== '/api/updates') {
+          try { requireSameOriginJson(req); } catch { json(res, 403, JSON.stringify({ error: { safeMessage: 'Same-origin JSON request required' } })); return true; }
+          if (path === '/api/updates/check') {
+            await checkUpdates(optionsFor(ctx));
+            json(res, 200, JSON.stringify(getUpdateStatus(optionsFor(ctx), current.version)));
+          } else {
+            const body = await readJsonBody(req);
+            if (!Number.isSafeInteger(body.releaseId) || Number(body.releaseId) <= 0) throw new Error('A checked release is required');
+            json(res, 202, JSON.stringify(await launchReleaseInstall(ctx, current.version, Number(body.releaseId))));
+          }
+        } else json(res, 405, JSON.stringify({ error: { safeMessage: 'Method not allowed' } }));
+      } catch (error) { json(res, 409, JSON.stringify({ error: { safeMessage: errMessage(error) } })); }
+      return true;
+    }
     /* version + update history */
     if (path === '/api/version' && req.method === 'GET') {
       try {
@@ -378,7 +402,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     /* dismissed work items — server-side so dismissal follows the user across browsers/machines */
     if (path === '/api/dismissed') {
       if (req.method === 'GET') {
-        json(res, 200, JSON.stringify({ ids: listDismissed(ctx.eaiosRoot) }));
+        json(res, 200, JSON.stringify({ ids: listDismissed(dataRoot) }));
         return true;
       }
       if (req.method === 'POST') {
@@ -389,7 +413,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
             json(res, 400, JSON.stringify({ error: 'id is required' }));
             return true;
           }
-          json(res, 200, JSON.stringify({ ids: dismissWorkItem(ctx.eaiosRoot, id) }));
+          json(res, 200, JSON.stringify({ ids: dismissWorkItem(dataRoot, id) }));
         } catch (e) {
           json(res, 500, JSON.stringify({ error: errMessage(e) }));
         }
@@ -402,7 +426,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       const id = path.slice('/api/dismissed/'.length);
       if (!id) return false;
       if (req.method === 'DELETE') {
-        json(res, 200, JSON.stringify({ ids: undismissWorkItem(ctx.eaiosRoot, id) }));
+        json(res, 200, JSON.stringify({ ids: undismissWorkItem(dataRoot, id) }));
         return true;
       }
       json(res, 405, JSON.stringify({ error: 'DELETE only' }));

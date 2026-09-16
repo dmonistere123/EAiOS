@@ -6,7 +6,7 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, VersionInfo, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
+  UsageSummary, DailySpendReport, VersionInfo, ReleaseUpdateInfo, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
@@ -446,6 +446,20 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+
+  private releaseUpdateInfo: ReleaseUpdateInfo = { repository: 'dmonistere123/EAiOS', checkIntervalDays: 7, status: 'not_checked' };
+  async getReleaseUpdateInfo(): Promise<ReleaseUpdateInfo> { await delay(20); return structuredClone(this.releaseUpdateInfo); }
+  async checkForUpdates(): Promise<ReleaseUpdateInfo> {
+    await delay(80);
+    this.releaseUpdateInfo = { ...this.releaseUpdateInfo, status: 'available', lastCheckedAt: new Date().toISOString(), lastSuccessfulCheckAt: new Date().toISOString(),
+      release: { id: 1, tag: 'v0.2.0', version: '0.2.0', name: 'EAiOS 0.2.0', notes: 'Example release notes in demo mode.', url: 'https://github.com/dmonistere123/EAiOS/releases/tag/v0.2.0' }, error: null };
+    return this.getReleaseUpdateInfo();
+  }
+  async installReleaseUpdate(releaseId: number): Promise<AuditResult> {
+    if (this.releaseUpdateInfo.status !== 'available' || this.releaseUpdateInfo.release?.id !== releaseId) return { ok: false, auditEventId: 'mock-release-invalid', error: { code: 'release_invalid', safeMessage: 'Check for updates again', retryable: true } };
+    this.releaseUpdateInfo = { ...this.releaseUpdateInfo, status: 'current', install: { status: 'succeeded', releaseId, version: this.releaseUpdateInfo.release.version, finishedAt: new Date().toISOString() } };
+    return audit();
+  }
   async getVersionInfo(): Promise<VersionInfo> {
     await delay(80);
     return {

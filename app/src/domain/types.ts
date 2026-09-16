@@ -554,3 +554,22 @@ export interface VersionInfo {
   current: BuildVersion;
   log: UpdateLogEntry[];
 }
+
+
+// Published-release checks are read-only; installation is a separate action.
+export interface PublishedRelease {
+  id: number; tag: string; version: string; name: string; notes: string;
+  url: string; publishedAt?: string;
+}
+export interface ReleaseInstallStatus {
+  status: 'queued' | 'installing' | 'succeeded' | 'failed';
+  releaseId: number; startedAt?: string; finishedAt?: string;
+  stage?: string; error?: string; recovered?: boolean; version?: string;
+}
+export interface ReleaseUpdateInfo {
+  repository: string; checkIntervalDays: number;
+  status: 'not_checked' | 'check_failed' | 'no_releases' | 'current' | 'ahead' | 'available';
+  lastCheckedAt?: string; lastSuccessfulCheckAt?: string;
+  release?: PublishedRelease | null; error?: string | null;
+  install?: ReleaseInstallStatus | null;
+}

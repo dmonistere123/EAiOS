@@ -146,3 +146,24 @@ curl http://127.0.0.1:5200/api/version
 - SQL migrations and their ledger entries are transactional. Pre-migration backups are retained in `~/.hermes/eaios-migration-backups/` (or beside an overridden `EAIOS_STATE_DB`). Code rollback retains the current shared database to avoid losing newer runtime records; migrations must remain compatible with older releases.
 - Production version reporting is captured from the configured distribution directory at process startup. A rebuild does not change the version an existing process reports. Missing manifests and failed live requests show as unavailable. Only clean commits with a matching stable SemVer tag are labeled stable.
 - Release creation rejects untracked work, runs application tests and a build, and updates both package metadata and the lockfile before tagging/pushing. Existing failing application tests must be fixed before a release can pass that gate.
+
+## Weekly releases and safe updates
+
+Settings includes **Check for updates** and a separate confirmed **Install update** action. The weekly background check only discovers published stable GitHub Releases. It never installs automatically. A pushed version tag must also be published as a GitHub Release to become discoverable.
+
+First-box release preparation: commit the complete application, run the release helper for the chosen version (the existing 0.1.0 is supported for the first release), and publish the matching GitHub Release with notes. Confirm Settings can check GitHub successfully before shipping. Public repositories need no release-check token. Private repositories need a server-side read-only token in `EAIOS_GITHUB_TOKEN` or `$HERMES_HOME/eaios/github-token`; use mode 600 for the token file.
+
+```bash
+systemctl --user is-enabled eaios-update-check.timer
+systemctl --user is-active eaios-update-check.timer
+systemctl --user list-timers eaios-update-check.timer
+journalctl --user -u eaios-update-check.service --no-pager -n 30
+```
+
+The timer checks weekly, remembers missed checks across reboots, and staggers boxes by up to twelve hours. Enable user lingering so checks and application services work without an interactive login.
+
+Release installs stage independent code and dependencies under `~/.local/share/eaios/releases`. `EAIOS_DATA_ROOT` and `EAIOS_REPO_ROOT` keep pointing at the original installation; `HERMES_HOME` and any explicit absolute `EAIOS_KNOWLEDGE_DATA_DIR` retain their existing values. Box-specific files and shared databases remain in place. Online backups and installation status are private under `$HERMES_HOME/eaios`. Migrations must be additive and compatible with the previous release. Installation waits for an idle box and checks both dashboard build identities after activation.
+
+After a failed installation, read Settings and the `eaios-release-install` journal. Preparation failures leave the running application untouched; activation failures attempt to restore and verify the previous services. An interrupted or unrecovered installation requires administrator inspection of deployment metadata and service paths before retry. Never restore shared database backups while writers are running or without reviewing work created since the backup. Retain releases and backups manually until a retention policy is implemented.
+
+Once a box runs a staged release, use Settings for application updates. Rerunning bootstrap or the original checkout service installer can overwrite the active release paths. The older branch updater remains available for administrator support and is not the Settings installation mechanism.

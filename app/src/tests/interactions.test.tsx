@@ -3,7 +3,7 @@
  * Uses the mock adapter (VITE_HERMES_LIVE unset → mock mode).
  */
 import { describe, expect, it, beforeAll, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Today from '../pages/Today';
@@ -82,7 +82,10 @@ describe('Today — delegation flow (spec §8.1)', () => {
 
     let dismissButtons = screen.getAllByRole('button', { name: /Dismiss recommendation/i });
     while (dismissButtons.length > 0) {
+      const title = dismissButtons[0].getAttribute('aria-label')!.replace('Dismiss recommendation ', '');
+      const item = fxWorkItems.find(w => w.title === title)!;
       await user.click(dismissButtons[0]);
+      await waitFor(async () => expect(await hermes.getDismissedWorkIds()).toContain(item.id));
       await waitFor(() => expect(screen.queryAllByRole('button', { name: /Dismiss recommendation/i }).length).toBeLessThan(dismissButtons.length), { timeout: 4000 });
       dismissButtons = screen.queryAllByRole('button', { name: /Dismiss recommendation/i });
     }
@@ -115,7 +118,10 @@ describe('Today — delegation flow (spec §8.1)', () => {
 
     const anyDismiss = screen.queryAllByRole('button', { name: /Dismiss recommendation/i })[0];
     if (!anyDismiss) return;
+    const title = anyDismiss.getAttribute('aria-label')!.replace('Dismiss recommendation ', '');
+    const item = fxWorkItems.find(w => w.title === title)!;
     await user.click(anyDismiss);
+    await waitFor(async () => expect(await hermes.getDismissedWorkIds()).toContain(item.id));
 
     await waitFor(() => {
       expect(kpiValue('Your priorities')).toBe(Math.max(0, before - 1));
@@ -126,31 +132,20 @@ describe('Today — delegation flow (spec §8.1)', () => {
   it('lets the user show and unhide dismissed items', async () => {
     await fullReset();
     const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <Today />
-      </MemoryRouter>,
-    );
-
-    await screen.findByText('Your priorities');
-    await new Promise((r) => setTimeout(r, 200));
+    render(<MemoryRouter><Today /></MemoryRouter>);
+    const dismissButtons = await screen.findAllByRole('button', { name: /Dismiss recommendation/i });
+    const title = dismissButtons[0].getAttribute('aria-label')!.replace('Dismiss recommendation ', '');
+    const item = fxWorkItems.find(w => w.title === title)!;
     const before = kpiValue('Your priorities');
-
-    const dismissButton = screen.queryAllByRole('button', { name: /Dismiss recommendation/i })[0];
-    if (!dismissButton) return;
-    await user.click(dismissButton);
-
-    await waitFor(() => expect(kpiValue('Your priorities')).toBe(before - 1), { timeout: 4000 });
-    const showButton = screen.queryByRole('button', { name: /Show \d+ dismissed/i });
-    if (showButton) {
-      await user.click(showButton);
-      const unhideButtons = screen.queryAllByRole('button', { name: 'Unhide' });
-      if (unhideButtons.length > 0) {
-        await user.click(unhideButtons[0]);
-        await waitFor(() => expect(kpiValue('Your priorities')).toBe(before), { timeout: 4000 });
-        await waitFor(() => expect(screen.queryByRole('button', { name: 'Unhide' })).not.toBeInTheDocument(), { timeout: 4000 });
-      }
-    }
+    await user.click(dismissButtons[0]);
+    await waitFor(async () => expect(await hermes.getDismissedWorkIds()).toContain(item.id));
+    await waitFor(() => expect(kpiValue('Your priorities')).toBe(before - 1));
+    await user.click(await screen.findByRole('button', { name: /Show \d+ dismissed/i }));
+    const row = screen.getByRole('row', { name: new RegExp(title) });
+    await user.click(within(row).getByRole('button', { name: 'Unhide' }));
+    await waitFor(async () => expect(await hermes.getDismissedWorkIds()).not.toContain(item.id));
+    expect(kpiValue('Your priorities')).toBe(before);
+    expect(screen.queryByRole('button', { name: 'Unhide' })).not.toBeInTheDocument();
   });
 });
 

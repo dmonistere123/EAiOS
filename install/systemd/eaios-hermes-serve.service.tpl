@@ -8,6 +8,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+Environment=HERMES_HOME=@HERMES_HOME@
+Environment=EAIOS_DATA_ROOT=@EAIOS_DATA_ROOT@
+Environment=EAIOS_REPO_ROOT=@EAIOS_REPO_ROOT@
 Type=simple
 Environment=PATH=@HOME@/.local/bin:@HOME@/.hermes/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=@EAIOS_ROOT@/scripts/start-hermes-serve.sh

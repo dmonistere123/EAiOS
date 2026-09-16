@@ -260,3 +260,7 @@ installer's specification.
 *Guide v1, 2026-08-29 — commands verified against hermes-agent docs
 (install.sh, gateway setup/install, profile create, BotFather flow). EAiOS
 section pending Phase 8.1/8.2.*
+
+## First deployed box: release checks
+
+Before shipment, publish the tested version as a GitHub Release, confirm Settings shows a successful manual check and the expected current build, and verify eaios-update-check.timer is enabled and active. A version tag without a published Release is insufficient. Check user lingering and reboot persistence. Weekly checks never install; installation requires the separate Settings confirmation. See INSTALL.md for persistent paths and recovery.

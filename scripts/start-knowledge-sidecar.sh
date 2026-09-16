@@ -23,5 +23,6 @@ if [[ -f "$SIDECAR_ENV" ]]; then
   set +a
 fi
 
+export EAIOS_KNOWLEDGE_DATA_DIR="${EAIOS_KNOWLEDGE_DATA_DIR:-${EAIOS_DATA_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/sidecar/data}"
 cd "$(dirname "$0")/../sidecar"
 exec .venv/bin/python server.py

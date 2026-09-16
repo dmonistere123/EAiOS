@@ -9,6 +9,9 @@
 set -euo pipefail
 
 EAIOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+EAIOS_DATA_ROOT="${EAIOS_DATA_ROOT:-$EAIOS_ROOT}"
+EAIOS_REPO_ROOT="${EAIOS_REPO_ROOT:-$EAIOS_DATA_ROOT}"
 UNIT_DIR="$HOME/.config/systemd/user"
 NODE_BIN="$(command -v node || true)"
 
@@ -39,13 +42,17 @@ for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
   sed -e "s|@HOME@|$HOME|g" \
       -e "s|@EAIOS_ROOT@|$EAIOS_ROOT|g" \
       -e "s|@NODE_BIN@|$NODE_BIN|g" \
+      -e "s|@EAIOS_DATA_ROOT@|$EAIOS_DATA_ROOT|g" \
+      -e "s|@EAIOS_REPO_ROOT@|$EAIOS_REPO_ROOT|g" \
+      -e "s|@HERMES_HOME@|$HERMES_HOME|g" \
       "$tpl" > "$UNIT_DIR/$name"
 done
 
 systemctl --user daemon-reload
 for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
   name="$(basename "$tpl" .tpl)"
-  systemctl --user enable "$name"
+  if [[ "$name" == eaios-update-check.service ]]; then continue; fi
+  if [[ "$name" == *.timer ]]; then systemctl --user enable --now "$name"; else systemctl --user enable "$name"; fi
   echo "enabled $name"
 done
 
@@ -58,6 +65,7 @@ fi
 if [[ "${1:-}" == "--start" ]]; then
   for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
     name="$(basename "$tpl" .tpl)"
+    if [[ "$name" == eaios-update-check.service || "$name" == *.timer ]]; then continue; fi
     systemctl --user restart "$name"
     echo "started $name"
   done

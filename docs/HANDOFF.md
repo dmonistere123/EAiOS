@@ -1,36 +1,27 @@
-# EAiOS — session handoff
+# EAiOS session handoff
 
-**Updated:** 2026-09-16 (CDT) · **Repo:** `~/eaios` · **Branch:** `main` · **Base commit:** `d02b408`
+Updated September 16, 2026. Repository: `/home/ally-landry/eaios`, main. Builds on updater hardening commit 2613be9.
 
-## Updater hardening
+## Weekly release management
 
-Fixed the defects found in the September 16 review:
+Settings now displays cached GitHub release status, last successful check, release notes, manual Check for updates, and a separate confirmed Install update action. Only published stable semantic-version GitHub Releases qualify; a pushed tag alone does not. Weekly checks use a persistent systemd timer with up to twelve hours of fixed per-box staggering. Checks never install code.
 
-- Every attempt rebuilds/restarts/verifies, including the same commit. Failed or interrupted deployments can be retried.
-- A flock lock prevents concurrent updates; dirty tracked and untracked work is refused.
-- Targets are recorded separately from the final checkout. Rollback excludes no-op and rollback attempts and uses the pre-update SHA of the latest code-changing attempt, including a failed attempt.
-- Rollback works offline. The running Bash script, audit helper, and migration runner are copied outside the checkout, so old releases without updater files still finish logging.
-- Stage failures, SIGINT, and SIGTERM finish the audit record with an error and timestamp. Logs use full SHAs for new attempts; legacy schemas are extended with action and target SHA columns.
-- SQL migrations execute as whole scripts inside transactions with their ledger entry; comments, triggers, and quoted semicolons work. Duplicate IDs and checksum changes fail before pending work.
-- SQLite online backups include committed WAL records and are kept privately beside the database in `eaios-migration-backups/` before pending migrations.
-- Missing version manifests and failed/malformed live version requests report unavailable, not mock versions. Production captures the configured distribution manifest at startup so a still-running process cannot claim a newly rebuilt version.
-- Stable build labels require a matching stable SemVer tag and a clean tree. Dirty builds are labeled dev with a Local changes badge. Removed the unpublished hardcoded Settings target.
-- Releases reject untracked files, gate on application tests/build, synchronize package and lockfile versions, and push the release commit and tag atomically.
+The installer runs in an independent systemd unit so dashboard restarts do not interrupt it. It validates a fresh candidate and release manifest, stages a detached tagged worktree with independent application and sidecar dependencies, backs up SQLite databases online including WAL, applies additive migrations, then activates and verifies both dashboard build identities. Failures after activation attempt to restore and verify the previous service configuration. Shared databases are never restored backwards automatically. Active delegated or podcast work blocks installation. Interrupted installations report failure and require inspection before retry.
+
+## Persistent locations
+
+EAIOS_DATA_ROOT remains the original checkout and EAIOS_REPO_ROOT remains its Git repository. Settings, dismissals, notifications, playbooks, and sidecar data stay there. HERMES_HOME retains chats, tasks, profiles, credentials, and artifacts. Explicit absolute EAIOS_KNOWLEDGE_DATA_DIR overrides are honored for activity checks and backups. Credentials remain in the original env files, linked into each staged release. Releases live under ~/.local/share/eaios/releases. Cached checks, deployment metadata, install status, locks, and private backups live under HERMES_HOME/eaios.
+
+## Release contract
+
+release-manifest.json declares schema version, matching package version, Node minimum, persistent data support, and additive migration policy. scripts/release.sh gates application tests and build, synchronizes versions, then atomically pushes the commit and tag. It supports publishing the current package version for the first release. A publisher must subsequently create the matching GitHub Release. Public discovery needs no token; an optional read-only token belongs in EAIOS_GITHUB_TOKEN or HERMES_HOME/eaios/github-token, never the browser.
+
+At implementation time GitHub contained no published releases. The first stable release must be pushed and published before shipping. Local tests exercise real staged Git worktrees and SQLite preservation with fake network/build/service commands; an upgrade against a published GitHub release remains a deployment smoke test.
 
 ## Validation
 
-- 17 isolated updater/migration/release tests pass, including all install/build/service/verification failure stages, retries, rollback selection, offline rollback, rollback without old tooling, interrupts/locking, and release metadata/publication guards.
-- 46 focused application tests pass across Settings, production server, and dogfood fixes.
-- Isolated production build and Bash syntax checks pass. The existing bundle-size/config-loader warnings remain.
-- The earlier full application run had two failures: the dismissed-items timeout and an outdated Assistant bridge mock. The bridge failure was reproduced with the committed adapter before these changes; neither is part of this updater slice. Releases correctly stop if application tests are failing.
-- No real updater/migrations/provider calls or service restarts were performed against this box during validation.
+299 application tests, 29 updater/release/migration tests, and nine safe sidecar tests pass. Production build passes. Corrected an obsolete JSON chat mock to the existing SSE contract and dismissal tests to await persisted adapter state. No paid provider calls were used. Existing bundle size and Vite configuration warnings remain.
 
-## Operating contract and remaining design work
+## Operations and remaining work
 
-A failed attempt does not automatically restore code or services. Inspect the error, retry the updater, or deliberately invoke rollback. Rollback rebuilds the earlier code and retains current shared Hermes data. Migrations must remain forward-compatible; blindly restoring shared state can discard work/chat written by other processes since the backup. Database recovery requires stopping all writers and reviewing intervening activity.
-
-Default branch updates are preserved. Latest-tag/major-boundary selection, Hermes minimum-version enforcement, fleet visibility, and coordinated automatic deployment/data restoration remain separate roadmap work. Backups currently have manual retention.
-
-## Files
-
-Updater and helpers are in `scripts/`; regression tests are `scripts/tests/updater.test.mjs`. Migration rules and backup handling are documented in `migrations/README.md`; operational guidance is in `docs/INSTALL.md`. The September 14 design document has a hardening follow-up that distinguishes implemented behavior from future design work.
+See INSTALL.md for checking the timer, publication, and recovery. Keep release and backup retention manual for now. Central fleet inventory, remote rollout controls, Hermes runtime upgrades, and travel integrations remain future work. The legacy branch updater is a support tool; Settings uses the staged release installer. Do not rerun the original checkout bootstrap to update a box already running a staged release: that would overwrite its active service paths.

@@ -660,7 +660,7 @@ function kanbanDelegateMiddleware() {
       // so the shared router must see the full /api/kanban path itself.
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? ''
-        if (!url.startsWith('/api/kanban') && !url.startsWith('/api/usage/daily') && !url.startsWith('/api/travel') && !url.startsWith('/api/dismissed') && !url.startsWith('/api/chat-ally') && !url.startsWith('/api/version')) {
+        if (!url.startsWith('/api/kanban') && !url.startsWith('/api/usage/daily') && !url.startsWith('/api/travel') && !url.startsWith('/api/dismissed') && !url.startsWith('/api/chat-ally') && !url.startsWith('/api/version') && !url.startsWith('/api/updates')) {
           next()
           return
         }
