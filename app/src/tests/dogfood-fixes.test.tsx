@@ -153,6 +153,15 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(true);
   });
 
+  it('reports a failed approval dispatch instead of claiming successful execution', async () => {
+    const env = { eaios: 'approval', actionType: 'publish', targetSystem: 'linkedin', risk: 'low', requestedBy: 'default' };
+    vi.stubGlobal('fetch', vi.fn(async (_input, init) => new Response(JSON.stringify(init?.method === 'PUT' ? { ok: true } : { tasks: [{ id: 't_dispatch', title: 'Comment', status: 'ready', body: JSON.stringify(env), created_at: 1787900000 }] }), { status: 200 })));
+    stubRpc((argv) => argv.includes('assign') ? { code: 1, output: 'Dispatcher unavailable' } : { code: 0, output: '' });
+    const result = await live.decideApproval('t_dispatch', { decision: 'approved' });
+    expect(result.ok).toBe(false);
+    expect(result.error?.safeMessage).toContain('Dispatcher unavailable');
+  });
+
   it('decideApproval rejected/changes_requested: blocks task and records precise decision in envelope', async () => {
     const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default' };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

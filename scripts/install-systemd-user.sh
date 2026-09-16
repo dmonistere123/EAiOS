@@ -31,6 +31,11 @@ if [[ ! -x "$EAIOS_ROOT/sidecar/.venv/bin/python" ]]; then
   exit 1
 fi
 
+# Install EAiOS-managed publishing instructions and executor for this release.
+if [[ -f "$EAIOS_ROOT/scripts/install-linkedin-workflow.py" ]]; then
+  "$EAIOS_ROOT/sidecar/.venv/bin/python" "$EAIOS_ROOT/scripts/install-linkedin-workflow.py"
+fi
+
 mkdir -p "$UNIT_DIR"
 for tpl in "$EAIOS_ROOT"/install/systemd/*.tpl; do
   name="$(basename "$tpl" .tpl)"

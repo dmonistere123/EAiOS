@@ -979,7 +979,7 @@ class LiveHermesAdapter implements HermesAdapter {
       if (decision.decision === 'approved') {
         // Approve means execute. Assign to the original requester.
         const assignee = env.requestedBy ?? task.assignee ?? 'default';
-        await this.kanban<unknown>(['assign', approvalId, assignee]).catch(() => undefined);
+        await this.kanban<unknown>(['assign', approvalId, assignee]);
       } else {
         // Rejected / changes requested: block the task. request-changes only
         // works inside the review workflow, so we use block for both and keep

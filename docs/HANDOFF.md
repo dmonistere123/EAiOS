@@ -25,3 +25,7 @@ At implementation time GitHub contained no published releases. The first stable 
 ## Operations and remaining work
 
 See INSTALL.md for checking the timer, publication, and recovery. Keep release and backup retention manual for now. Central fleet inventory, remote rollout controls, Hermes runtime upgrades, and travel integrations remain future work. The legacy branch updater is a support tool; Settings uses the staged release installer. Do not rerun the original checkout bootstrap to update a box already running a staged release: that would overwrite its active service paths.
+
+## LinkedIn workflow follow-up
+
+Don requires accepted comments to publish automatically, rejected comments to remain unposted. Removed the manual comment workflow; added a managed publisher and persistent duplicate prevention. Weekday 7 AM scan retains its cadence and now checks previous suggestions/receipts. See linkedin-approval-publishing.md. Legacy approvals were not replayed. Real publishing permissions and a correctly targeted approved comment remain the live smoke test; these changes are newer than v0.1.0.
