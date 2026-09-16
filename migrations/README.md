@@ -1,27 +1,33 @@
-# EAiOS Migrations
+# EAiOS migrations
 
-Numbered SQL migrations run once per shipped box by `scripts/eaios-update.sh`.
+Numbered SQL migrations run against `~/.hermes/state.db` during deliberate updates.
 
 ## Rules
 
-1. **Name format:** `NNN-descriptive-name.sql` (zero-padded, sorted lexically).
-2. **Idempotent:** every migration must be safe to run twice. Use `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE ADD COLUMN IF NOT EXISTS` (SQLite ≥3.35), or `INSERT OR REPLACE` where appropriate.
-3. **No secrets:** migrations must not insert credentials, tokens, or keys.
-4. **No destructive drops:** avoid `DROP TABLE` on existing user data. If a schema change requires it, split into a migration that creates the new table + copies data, then a later migration that drops the old one after code no longer reads it.
-5. **Checksum integrity:** `scripts/run-migrations.mjs` records a SHA-256 of each applied migration. Editing an already-applied migration causes the runner to fail loudly.
+1. Name files `NNN-descriptive-name.sql`, with a unique three-digit sequence.
+2. Commit migrations with the code that needs them. Never edit an applied migration; its SHA-256 is checked before new work begins.
+3. Use forward-compatible, additive changes. Old application releases must continue working after a code rollback. Do not drop or overwrite user data.
+4. Each script and its ledger entry run in one transaction. Do not include transaction-control statements, `VACUUM`, `ATTACH`, or journal-mode changes in a migration.
+5. SQL comments, triggers and quoted semicolons are supported. SQLite executes the whole script, rather than a hand-written statement splitter.
+6. Prefer idempotent statements where SQLite supports them. SQLite does **not** support `ALTER TABLE ADD COLUMN IF NOT EXISTS`; the migration ledger normally prevents repeat execution.
+7. Do not insert secrets or make network calls.
 
-## How they run
+## Execution and backups
 
 ```bash
-# During an update:
 node scripts/run-migrations.mjs
 ```
 
-The runner stores progress in `_eaios_migrations` inside `~/.hermes/state.db`.
+Progress is recorded in `_eaios_migrations` in the target database. Before pending migrations, the runner uses SQLite's online backup API so committed WAL records are included. Backup directories have mode 0700; backup files have mode 0600.
 
-## Adding a migration
+By default backups are stored next to the database in `eaios-migration-backups/`. Override paths with `EAIOS_STATE_DB`, `EAIOS_MIGRATIONS_DIR`, and `EAIOS_MIGRATION_BACKUP_DIR`.
 
-1. Pick the next sequence number.
-2. Write the SQL file in this directory.
-3. Commit it with the code change that depends on it.
-4. The next box update will apply it automatically.
+Backups are retained for supervised recovery. Code rollback deliberately does not overwrite the shared Hermes database: restoring it blindly could discard newer chat, work, and other runtime records. Stop all writers and review data changes before restoring a backup. Retention/cleanup is manual for now.
+
+## Verification
+
+```bash
+node --test --test-isolation=none scripts/tests/updater.test.mjs
+```
+
+The tests use local Git repositories, stubbed install/service commands, and temporary databases. They do not update the real application or call providers.

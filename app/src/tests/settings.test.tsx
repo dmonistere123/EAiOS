@@ -7,12 +7,12 @@
  * interactions.test.tsx. Also pins the honesty fix: the mock Model/Approval
  * cards no longer offer fake Save buttons.
  */
-import { describe, expect, it, beforeAll, afterEach } from 'vitest';
+import { describe, expect, it, beforeAll, afterEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Settings from '../pages/Settings';
 import { startRuntime } from '../state/runtime';
-import { live } from '../adapters';
+import { live, hermes } from '../adapters';
 
 beforeAll(() => {
   startRuntime();
@@ -35,6 +35,8 @@ function stubRpc(handler: (method: string, params: Record<string, unknown>) => P
 
 afterEach(() => {
   rpcHolder.rpc = realRpc;
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 const SOUL = 'You are Ally, chief of staff.\n';
@@ -130,9 +132,29 @@ describe('Settings page honesty (mock mode)', () => {
     // release channel badge from the mock manifest
     expect(screen.getByText('stable')).toBeInTheDocument();
     // update/rollback commands are surfaced as copyable actions
-    expect(screen.getByText('./scripts/eaios-update.sh --to v0.2.0')).toBeInTheDocument();
+    expect(screen.getByText('./scripts/eaios-update.sh')).toBeInTheDocument();
     expect(screen.getByText('./scripts/eaios-update.sh --rollback')).toBeInTheDocument();
     // history is empty on the mock adapter
     expect(screen.getByText('No updates recorded yet.')).toBeInTheDocument();
+  });
+});
+
+
+describe('version reporting failures', () => {
+  it('does not substitute a mock version when the live endpoint fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('unavailable', { status: 503 })));
+    await expect(live.getVersionInfo()).rejects.toThrow('Running version unavailable');
+  });
+
+  it('rejects malformed version responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ current: {}, log: [] }))));
+    await expect(live.getVersionInfo()).rejects.toThrow('Running version unavailable');
+  });
+
+  it('shows unavailable data rather than a successful version panel', async () => {
+    vi.spyOn(hermes, 'getVersionInfo').mockRejectedValue(new Error('offline'));
+    render(<MemoryRouter><Settings /></MemoryRouter>);
+    expect(await screen.findByText(/Running version unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText('v0.1.0-mock')).not.toBeInTheDocument();
   });
 });

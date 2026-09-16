@@ -1,269 +1,133 @@
 #!/usr/bin/env bash
-# EAiOS update wrapper for already-shipped CEO boxes.
-#
-# Modes:
-#   ./scripts/eaios-update.sh              # pull current branch, rebuild, restart
-#   ./scripts/eaios-update.sh --to v0.2.0  # checkout a specific tag/branch/commit
-#   ./scripts/eaios-update.sh --rollback   # roll back to the previous successful version
-#
-# The command is deliberate: it stops on first error and reports exactly what
-# changed. It does NOT auto-update on a timer.
-set -euo pipefail
+# Deliberate updates: current branch, --to <tag|branch|sha>, or --rollback.
+# Rebuild and verify even at the same SHA: checkout state is not deployment state.
+set -Eeuo pipefail
+umask 077
 
-EAIOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EAIOS_BRANCH="${EAIOS_BRANCH:-$(cd "$EAIOS_ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
-EAIOS_REPO_URL="${EAIOS_REPO_URL:-}"
-EAIOS_STATE_DB="${EAIOS_STATE_DB:-$HOME/.hermes/state.db}"
-export EAIOS_STATE_DB
+# Bash and logging/migration tools must survive checkout of an older release.
+# Ignore a caller-provided runtime path; only the copied script may reuse it.
+if [[ -n "${EAIOS_UPDATE_RUNTIME:-}" && "$0" != "$EAIOS_UPDATE_RUNTIME/updater.sh" ]]; then
+  unset EAIOS_UPDATE_RUNTIME
+fi
+if [[ -z "${EAIOS_UPDATE_RUNTIME:-}" ]]; then
+  export EAIOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+  export EAIOS_UPDATE_RUNTIME="$(mktemp -d "${TMPDIR:-/tmp}/eaios-update.XXXXXXXX")"
+  cp "$0" "$EAIOS_UPDATE_RUNTIME/updater.sh"
+  cp "$EAIOS_ROOT/scripts/update-state.mjs" "$EAIOS_ROOT/scripts/run-migrations.mjs" "$EAIOS_UPDATE_RUNTIME/"
+  exec bash "$EAIOS_UPDATE_RUNTIME/updater.sh" "$@"
+fi
 
-ACTION="update"
-ACTION_TARGET=""
+export EAIOS_STATE_DB="${EAIOS_STATE_DB:-$HOME/.hermes/state.db}"
+ACTION=update
+TARGET=""
+STEP=preflight
+LOG_ROW_ID=""
+SUCCESS=0
+ERROR_MESSAGE=""
+
+version() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$EAIOS_ROOT/app/package.json"; }
+state() { node "$EAIOS_UPDATE_RUNTIME/update-state.mjs" "$@"; }
+fail() { ERROR_MESSAGE="$*"; echo "ERROR: $*" >&2; exit 1; }
+finish() {
+  local result=$?
+  trap - EXIT ERR INT TERM
+  if [[ -n "$LOG_ROW_ID" ]]; then
+    local sha v
+    sha="$(git -C "$EAIOS_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
+    v="$(version 2>/dev/null || echo unknown)"
+    state finish "$LOG_ROW_ID" "$SUCCESS" "${ERROR_MESSAGE:-}" "$sha" "$v" || {
+      echo "ERROR: could not finish the update log" >&2
+      result=1
+    }
+  fi
+  # Only remove the private directory created by this invocation.
+  rm -rf -- "$EAIOS_UPDATE_RUNTIME"
+  exit "$result"
+}
+trap finish EXIT
+trap 'ERROR_MESSAGE="${ERROR_MESSAGE:-Failed during $STEP (line $LINENO, exit $?) }"' ERR
+trap 'ERROR_MESSAGE="Interrupted during $STEP"; exit 130' INT
+trap 'ERROR_MESSAGE="Terminated during $STEP"; exit 143' TERM
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rollback)
-      ACTION="rollback"
-      shift
-      ;;
-    --to)
-      ACTION="update-to"
-      ACTION_TARGET="${2:-}"
-      if [[ -z "$ACTION_TARGET" ]]; then
-        echo "--to requires a tag/branch/commit" >&2
-        exit 1
-      fi
-      shift 2
-      ;;
-    --help|-h)
-      echo "Usage: $0 [--to <tag|branch|sha>] [--rollback]"
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      exit 1
-      ;;
+    --rollback) [[ "$ACTION" == update ]] || fail 'Choose only one update mode'; ACTION=rollback; shift ;;
+    --to) [[ "$ACTION" == update && -n "${2:-}" && "${2:0:1}" != - ]] || fail '--to requires a tag, branch, or SHA'; ACTION=update-to; TARGET="$2"; shift 2 ;;
+    --help|-h) echo 'Usage: eaios-update.sh [--to <tag|branch|sha> | --rollback]'; exit 0 ;;
+    *) fail "Unknown argument: $1" ;;
   esac
 done
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-log_info() { echo -e "\033[1;34m==>\033[0m $*"; }
-log_success() { echo -e "\033[1;32m✓\033[0m $*"; }
-log_warn() { echo -e "\033[1;33m!\033[0m $*" >&2; }
-log_error() { echo -e "\033[1;31m✗\033[0m $*" >&2; }
-
-fail() {
-  log_error "$*"
-  write_log_finish 0 "$*"
-  exit 1
-}
-
-need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || fail "$1 is required but not installed."
-}
-
-LOG_ROW_ID=""
-
-# Insert the initial log row.
-write_log_start() {
-  local old_sha="$1"
-  local old_version="$2"
-  LOG_ROW_ID="$(node - "$old_sha" "$old_version" <<'NODE'
-const [oldSha, oldVersion] = process.argv.slice(2);
-const { DatabaseSync } = require('node:sqlite');
-const db = new DatabaseSync(process.env.EAIOS_STATE_DB);
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS eaios_update_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      started_at INTEGER NOT NULL,
-      finished_at INTEGER,
-      old_git_sha TEXT,
-      new_git_sha TEXT,
-      old_version TEXT,
-      new_version TEXT,
-      success INTEGER NOT NULL DEFAULT 0,
-      error_message TEXT
-    )
-  `);
-  const info = db.prepare('INSERT INTO eaios_update_log (started_at, old_git_sha, old_version) VALUES (?, ?, ?)')
-    .run(Math.floor(Date.now()/1000), oldSha || null, oldVersion || null);
-  console.log(info.lastInsertRowid);
-} finally { db.close(); }
-NODE
-  )"
-}
-
-# Update the log row with the final outcome.
-write_log_finish() {
-  local success="$1"
-  local error_message="${2:-}"
-  if [[ -z "$LOG_ROW_ID" ]]; then
-    return
-  fi
-  local new_sha new_version
-  new_sha="$(cd "$EAIOS_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  new_version="$(node -p "require('$EAIOS_ROOT/app/package.json').version" 2>/dev/null || echo 0.0.0)"
-  node - "$LOG_ROW_ID" "$success" "$error_message" "$new_sha" "$new_version" <<'NODE' || true
-const [rowIdRaw, successRaw, errorMessage, newSha, newVersion] = process.argv.slice(2);
-const { DatabaseSync } = require('node:sqlite');
-const db = new DatabaseSync(process.env.EAIOS_STATE_DB);
-try {
-  db.prepare('UPDATE eaios_update_log SET finished_at=?, new_git_sha=?, new_version=?, success=?, error_message=? WHERE id=?')
-    .run(Math.floor(Date.now()/1000), newSha || null, newVersion || null, Number(successRaw), errorMessage || null, Number(rowIdRaw));
-} finally { db.close(); }
-NODE
-}
-
-# Look up the last successful update's old_git_sha so we can roll back to it.
-find_rollback_target() {
-  node - <<'NODE'
-const { DatabaseSync } = require('node:sqlite');
-const db = new DatabaseSync(process.env.EAIOS_STATE_DB);
-try {
-  const row = db.prepare(
-    `SELECT old_git_sha, old_version FROM eaios_update_log
-     WHERE success = 1 AND old_git_sha IS NOT NULL
-     ORDER BY started_at DESC, id DESC LIMIT 1`
-  ).get();
-  if (!row || !row.old_git_sha) {
-    console.error('No successful prior update found in eaios_update_log; cannot determine rollback target.');
-    process.exit(1);
-  }
-  console.log(`${row.old_git_sha}\t${row.old_version || 'unknown'}`);
-} finally { db.close(); }
-NODE
-}
-
-# ---------------------------------------------------------------------------
-# Pre-flight
-# ---------------------------------------------------------------------------
-need_cmd git
-need_cmd node
-need_cmd npm
-
+for cmd in git node npm uv flock; do command -v "$cmd" >/dev/null || fail "$cmd is required"; done
+[[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 24 ]] || fail 'Node >=24 is required'
 cd "$EAIOS_ROOT"
+# flock leaves no stale lock after an interrupted process.
+exec 9>"$(git rev-parse --git-path eaios-update.lock)"
+flock -n 9 || fail 'Another EAiOS update is running'
+[[ -z "$(git status --porcelain)" ]] || fail 'Commit or stash local changes (including untracked files) before updating'
 
-OLD_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-OLD_VERSION="$(node -p "require('$EAIOS_ROOT/app/package.json').version" 2>/dev/null || echo 0.0.0)"
+OLD_SHA="$(git rev-parse HEAD)"
+OLD_VERSION="$(version)"
+LOG_ROW_ID="$(state start "$ACTION" "$OLD_SHA" "$OLD_VERSION")"
 
-log_info "EAiOS update starting"
-log_info "Mode:    $ACTION"
-log_info "Branch:  $EAIOS_BRANCH"
-log_info "Current: $OLD_VERSION @ $OLD_GIT_SHA"
-
-node scripts/run-migrations.mjs || fail "migration runner failed"
-write_log_start "$OLD_GIT_SHA" "$OLD_VERSION"
-
-# ---------------------------------------------------------------------------
-# Determine what to checkout
-# ---------------------------------------------------------------------------
-TARGET_DESC=""
-if [[ "$ACTION" == "rollback" ]]; then
-  log_info "Determining rollback target"
-  ROLLBACK_PAIR="$(find_rollback_target)"
-  ROLLBACK_SHA="${ROLLBACK_PAIR%%$'\t'*}"
-  ROLLBACK_VERSION="${ROLLBACK_PAIR#*$'\t'}"
-  ACTION_TARGET="$ROLLBACK_SHA"
-  TARGET_DESC="rollback to $ROLLBACK_VERSION @ $ROLLBACK_SHA"
-  log_info "Rollback target: $TARGET_DESC"
+STEP='resolve target'
+if [[ "$ACTION" == rollback ]]; then
+  TARGET="$(state rollback-target)"
+  # Rollback uses local objects and works without network access.
+  TARGET_SHA="$(git rev-parse --verify "$TARGET^{commit}")"
 else
-  TARGET_DESC="${ACTION_TARGET:-$EAIOS_BRANCH (pull)}"
-fi
-
-# ---------------------------------------------------------------------------
-# 1. Fetch / checkout
-# ---------------------------------------------------------------------------
-log_info "Fetching updates"
-if [[ -n "$EAIOS_REPO_URL" ]]; then
-  if git remote get-url origin >/dev/null 2>&1; then
+  if [[ -n "${EAIOS_REPO_URL:-}" ]]; then
     git remote set-url origin "$EAIOS_REPO_URL"
+  fi
+  if [[ "$ACTION" == update ]]; then
+    BRANCH="${EAIOS_BRANCH:-$(git symbolic-ref --quiet --short HEAD || true)}"
+    if [[ -z "$BRANCH" ]]; then
+      BRANCH="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"
+      BRANCH="${BRANCH#origin/}"
+    fi
+    git check-ref-format --branch "$BRANCH" >/dev/null
+    git fetch origin "$BRANCH"
+    TARGET_SHA="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
   else
-    git remote add origin "$EAIOS_REPO_URL"
+    git fetch --tags origin
+    # Fetch the requested ref explicitly so branches do not resolve to stale
+    # local tips. Full SHA targets must also be available from origin.
+    git fetch origin "$TARGET"
+    TARGET_SHA="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
   fi
 fi
+state target "$LOG_ROW_ID" "$TARGET_SHA"
 
-git fetch origin "$EAIOS_BRANCH" || fail "git fetch failed"
-
-if [[ "$ACTION" == "rollback" || "$ACTION" == "update-to" ]]; then
-  git fetch --tags origin || true
-  git checkout "$ACTION_TARGET" || fail "git checkout of $ACTION_TARGET failed"
+STEP=checkout
+if [[ "$ACTION" == update && -n "$(git symbolic-ref --quiet HEAD || true)" ]]; then
+  git merge --ff-only "$TARGET_SHA"
 else
-  git pull --ff-only origin "$EAIOS_BRANCH" || fail "git pull failed (non-fast-forward? resolve manually)"
+  git checkout --detach "$TARGET_SHA"
 fi
 
-NEW_GIT_SHA_BEFORE_BUILD="$(git rev-parse --short HEAD)"
-if [[ "$OLD_GIT_SHA" == "$NEW_GIT_SHA_BEFORE_BUILD" && "$ACTION" != "rollback" ]]; then
-  log_info "No code change; skipping build and restart"
-  write_log_finish 1 ""
-  log_success "EAiOS is already on the latest commit"
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# 2. Build app
-# ---------------------------------------------------------------------------
-log_info "Installing / building app"
+STEP='app dependency installation'
 cd "$EAIOS_ROOT/app"
 npm ci
+STEP='app build'
 npm run build
-log_success "App built"
 
-# ---------------------------------------------------------------------------
-# 3. Sidecar venv
-# ---------------------------------------------------------------------------
-log_info "Refreshing sidecar venv"
+STEP='sidecar dependencies'
 cd "$EAIOS_ROOT/sidecar"
-if [[ ! -x .venv/bin/python ]]; then
-  if ! command -v uv >/dev/null 2>&1; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="$HOME/.local/bin:$PATH"
-  fi
-  uv venv .venv --python 3.11
-fi
+if [[ ! -x .venv/bin/python ]]; then uv venv .venv --python 3.11; fi
 uv pip install --python .venv/bin/python -r requirements.txt
-log_success "Sidecar venv refreshed"
 
-# ---------------------------------------------------------------------------
-# 4. Migrations (re-run after pull; new ones will apply)
-# ---------------------------------------------------------------------------
-log_info "Running migrations"
+STEP=migrations
 cd "$EAIOS_ROOT"
-node scripts/run-migrations.mjs || fail "migrations failed"
-log_success "Migrations up-to-date"
-
-# ---------------------------------------------------------------------------
-# 5. systemd units
-# ---------------------------------------------------------------------------
-log_info "Re-rendering systemd units"
-cd "$EAIOS_ROOT"
+# Use the fixed runner even when rolling back to code without update tooling.
+EAIOS_MIGRATIONS_DIR="$EAIOS_ROOT/migrations" node "$EAIOS_UPDATE_RUNTIME/run-migrations.mjs"
+STEP='service installation'
 ./scripts/install-systemd-user.sh
-log_success "Units rendered"
-
-# ---------------------------------------------------------------------------
-# 6. Restart services
-# ---------------------------------------------------------------------------
-log_info "Restarting services"
+STEP='service restart'
 for unit in eaios-hermes-serve eaios-knowledge-sidecar eaios-server eaios-server-5173; do
-  if systemctl --user is-active --quiet "$unit" 2>/dev/null; then
-    systemctl --user restart "$unit"
-    log_success "$unit restarted"
-  else
-    log_warn "$unit was not active; enabling + starting"
-    systemctl --user enable "$unit"
-    systemctl --user start "$unit"
-  fi
+  systemctl --user enable "$unit"
+  systemctl --user restart "$unit"
 done
-
-# ---------------------------------------------------------------------------
-# 7. Verification
-# ---------------------------------------------------------------------------
-log_info "Running verification"
-cd "$EAIOS_ROOT"
-./scripts/verify-install.sh || fail "verification failed"
-
-# ---------------------------------------------------------------------------
-# 8. Persist success
-# ---------------------------------------------------------------------------
-write_log_finish 1 ""
-log_success "EAiOS update complete: $OLD_VERSION @ $OLD_GIT_SHA → $(node -p "require('$EAIOS_ROOT/app/package.json').version") @ $(git rev-parse --short HEAD)"
+STEP=verification
+./scripts/verify-install.sh
+SUCCESS=1
+echo "EAiOS $ACTION complete: $OLD_VERSION @ $OLD_SHA -> $(version) @ $(git rev-parse HEAD)"

@@ -534,6 +534,7 @@ export interface BuildVersion {
   gitBranch: string;
   gitTag?: string;
   releaseChannel?: 'stable' | 'rc' | 'dev';
+  dirty?: boolean;
   builtAt: string;
 }
 

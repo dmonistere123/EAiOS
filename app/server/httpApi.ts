@@ -42,6 +42,7 @@ import { TravelApiError, createTrip, decideTravelApproval, getTrip, listTrips, p
 import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring.ts';
 import type { PlaybookInput, SkillInput } from './authoring.ts';
 import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interfaces.ts';
+import type { BuildVersion } from './apiCore.ts';
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
@@ -52,6 +53,8 @@ export interface ApiContext {
   hermesHome: string;
   /** EAiOS root (the dir ABOVE app/) — playbooks/, settings.local.json. */
   eaiosRoot: string;
+  /** Production captures its manifest at startup; null means unavailable. */
+  buildVersion?: BuildVersion | null;
 }
 
 interface CacheEntry {
@@ -108,7 +111,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     /* version + update history */
     if (path === '/api/version' && req.method === 'GET') {
       try {
-        const current = readBuildVersion(ctx.eaiosRoot);
+        if (ctx.buildVersion === null) throw new Error('Build version manifest unavailable at startup');
+        const current = ctx.buildVersion ?? readBuildVersion(ctx.eaiosRoot);
         const log = readUpdateLog(join(ctx.hermesHome, 'state.db'));
         json(res, 200, JSON.stringify({ current, log }));
       } catch (e) {

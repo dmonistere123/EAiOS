@@ -38,6 +38,7 @@ import { homedir } from 'node:os';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { handleApiRequest } from './httpApi.ts';
+import { readBuildVersion } from './apiCore.ts';
 import type { ApiContext } from './httpApi.ts';
 
 const APP_DIR = dirname(fileURLToPath(import.meta.url)); // <eaios>/app/server
@@ -208,6 +209,9 @@ async function proxyHttp(req: IncomingMessage, res: ServerResponse, targetBase: 
 /* ------------------------------------------------------------ server */
 
 export function createEaiosServer(config: ProdConfig) {
+  // Rebuilding files on disk must not make an old process report a new build.
+  const apiCtx = { ...config.apiCtx, buildVersion: null as ReturnType<typeof readBuildVersion> | null };
+  try { apiCtx.buildVersion = readBuildVersion(config.apiCtx.eaiosRoot, config.distDir); } catch { /* API returns 503 */ }
   const server = createServer((req, res) => {
     void (async () => {
       const path = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -218,7 +222,7 @@ export function createEaiosServer(config: ProdConfig) {
           res.end('websocket endpoint — connect with a WS client');
           return;
         }
-        if (await handleApiRequest(req, res, config.apiCtx)) return;
+        if (await handleApiRequest(req, res, apiCtx)) return;
         res.statusCode = 404;
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ error: 'unknown api endpoint' }));

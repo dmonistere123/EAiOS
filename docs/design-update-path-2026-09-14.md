@@ -311,3 +311,12 @@ Then add rollback (step 4) and visibility (steps 6–7) before the first major r
 - `server/apiCore.ts` `/api/version` support
 - Settings UI panel
 - Updated docs
+
+
+## Hardening follow-up (2026-09-16)
+
+The implementation now preserves the shipped default branch behavior while fixing same-SHA retry, no-op rollback history, failed-attempt rollback targeting, incomplete error logging, detached checkout handling, offline rollback, and rollback into releases without update tooling. The audit helper extends older log schemas in place with `action` and `target_git_sha`; existing API history fields remain compatible.
+
+Migration execution now uses whole SQL scripts and a transaction per migration plus ledger entry. It rejects checksum changes and duplicate IDs, and takes a private online SQLite backup before pending migrations. Version reporting no longer substitutes mock data for live failures, startup manifests identify the running production process, and dirty/non-release tags cannot label a build stable. The Settings update command no longer names an unpublished release.
+
+This is still a deliberate updater, not full automatic recovery. Default latest-tag selection, fleet visibility, Hermes minimum-version enforcement, and automatic deployment/database restoration remain separate design work. Database restoration needs coordination with all writers to the shared Hermes state database; silently restoring a snapshot can destroy activity since the snapshot. The current migration contract therefore requires forward compatibility for code rollback.

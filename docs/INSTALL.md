@@ -120,7 +120,7 @@ The update wrapper:
 2. Pulls the latest code from the configured branch.
 3. Rebuilds the app (regenerates `version.json`).
 4. Refreshes the sidecar Python venv.
-5. Runs any new migrations in `migrations/`.
+5. Backs up the shared state database with SQLite before any pending migrations, then runs new migrations in `migrations/`.
 6. Re-renders systemd units if templates changed.
 7. Restarts the eaios-* services.
 8. Verifies the install (ports, endpoints, config files).
@@ -132,3 +132,17 @@ You can check the running version from within the EAiOS Settings page or via the
 ```bash
 curl http://127.0.0.1:5200/api/version
 ```
+
+
+### Update and rollback safeguards (2026-09-16)
+
+- Commit or stash all tracked and untracked work before updating. The updater refuses a dirty repository and uses a process lock to prevent concurrent attempts.
+- `git`, Node >=24, `npm`, `uv`, and `flock` must be available. The updater does not download tools through an unchecked installer pipeline.
+- Every invocation rebuilds, restarts, and verifies, including an unchanged commit. This allows retrying an interrupted or failed deployment.
+- Default updates preserve the shipped branch-update behavior. On a detached checkout, `EAIOS_BRANCH` or the remote default branch is used (falling back to `main`). Use `--to <published-tag>` to deploy a specific release. This is not a latest-tag or major-version selector.
+- Rollback uses local Git objects, works offline, and returns to the pre-update revision of the latest code-changing update attempt. No-op updates and previous rollback operations cannot overwrite that rollback point.
+- Logging and migration tools are copied outside the checkout for the duration of an attempt, so rolling back to an older release without those tools still finishes the audit log.
+- Failures and interrupts record the failing stage and a completion timestamp. A failure does not automatically restore the checkout, services, or shared databases; inspect the history, then retry or run `./scripts/eaios-update.sh --rollback` deliberately.
+- SQL migrations and their ledger entries are transactional. Pre-migration backups are retained in `~/.hermes/eaios-migration-backups/` (or beside an overridden `EAIOS_STATE_DB`). Code rollback retains the current shared database to avoid losing newer runtime records; migrations must remain compatible with older releases.
+- Production version reporting is captured from the configured distribution directory at process startup. A rebuild does not change the version an existing process reports. Missing manifests and failed live requests show as unavailable. Only clean commits with a matching stable SemVer tag are labeled stable.
+- Release creation rejects untracked work, runs application tests and a build, and updates both package metadata and the lockfile before tagging/pushing. Existing failing application tests must be fixed before a release can pass that gate.

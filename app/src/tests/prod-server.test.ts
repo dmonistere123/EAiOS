@@ -34,9 +34,8 @@ beforeAll(async () => {
   mkdirSync(join(dist, 'assets'), { recursive: true });
   writeFileSync(join(dist, 'index.html'), '<!doctype html><title>EAiOS</title>');
   writeFileSync(join(dist, 'assets', 'index-abc123.js'), 'console.log(1)');
-  // Production layout: dist/ is under app/; version.json is generated there at build time.
-  mkdirSync(join(eaiosRoot, 'app', 'dist'), { recursive: true });
-  writeFileSync(join(eaiosRoot, 'app', 'dist', 'version.json'), JSON.stringify({ version: '0.1.0', gitSha: 'abc1234', gitBranch: 'main', builtAt: new Date().toISOString() }));
+  // Use the configured distribution directory, including custom EAIOS_DIST.
+  writeFileSync(join(dist, 'version.json'), JSON.stringify({ version: '0.1.0', gitSha: 'abc1234', gitBranch: 'main', builtAt: new Date().toISOString() }));
 
   const config = loadConfig({
     EAIOS_DIST: dist,
@@ -259,5 +258,27 @@ describe('kanban board endpoint (48K cli.exec cap fix)', () => {
     expect(run.id).toBe('t_small');
     expect(run.worker_session_id).toBe('sess-worker-1');
     expect(run.worker_message_count).toBe(24);
+  });
+});
+
+
+describe('running version identity', () => {
+  it('keeps the startup version until the server restarts', async () => {
+    const manifest = join(root, 'dist', 'version.json');
+    const previous = readFileSync(manifest, 'utf8');
+    try {
+      writeFileSync(manifest, JSON.stringify({ version: '9.9.9', gitSha: 'fffffff', gitBranch: 'main', builtAt: new Date().toISOString() }));
+      const body = await (await fetch(`${base}/api/version`)).json();
+      expect(body.current.version).toBe('0.1.0');
+    } finally { writeFileSync(manifest, previous); }
+  });
+
+  it('returns unavailable when the configured dist has no version manifest', async () => {
+    const missing = createEaiosServer(loadConfig({ EAIOS_DIST: join(root, 'no-manifest'), EAIOS_ROOT: join(root, 'eaios'), HERMES_HOME: join(root, 'hermes') } as NodeJS.ProcessEnv));
+    await new Promise<void>(resolve => missing.listen(0, '127.0.0.1', resolve));
+    try {
+      const port = (missing.address() as AddressInfo).port;
+      expect((await fetch(`http://127.0.0.1:${port}/api/version`)).status).toBe(503);
+    } finally { await new Promise<void>(resolve => missing.close(() => resolve())); }
   });
 });

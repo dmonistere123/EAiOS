@@ -1415,11 +1415,15 @@ class LiveHermesAdapter implements HermesAdapter {
     try {
       const res = await fetch('/api/version');
       if (!res.ok) throw new Error(`version ${res.status}`);
+      const info = (await res.json()) as VersionInfo;
+      if (!info?.current?.version || !info.current.gitSha || !info.current.builtAt || !Array.isArray(info.log)) {
+        throw new Error('Invalid version response');
+      }
       this.degraded.delete('version');
-      return (await res.json()) as VersionInfo;
+      return info;
     } catch (e) {
       this.degraded.add('version');
-      return this.fallback.getVersionInfo();
+      throw new Error('Running version unavailable', { cause: e });
     }
   }
   // ----- LIVE: assistant chat (Phase 6.4a, spec §8.2) -----

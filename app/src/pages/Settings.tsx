@@ -20,6 +20,7 @@ function VersionPanel() {
     void hermes
       .getVersionInfo()
       .then((v) => setInfo(v))
+      .catch(() => setInfo(null))
       .finally(() => setLoading(false));
   }, []);
 
@@ -43,6 +44,7 @@ function VersionPanel() {
           <div className="rounded-lg border border-edge bg-canvas p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-lg font-semibold text-ink">v{info.current.version}</span>
+              {info.current.dirty && <StateBadge label="Local changes" tone="warn" />}
               {info.current.gitTag && info.current.gitTag !== `v${info.current.version}` && (
                 <span className="text-xs text-ink-dim">({info.current.gitTag})</span>
               )}
@@ -58,8 +60,8 @@ function VersionPanel() {
             <div className="mb-2 text-xs font-medium text-ink-faint">Update commands</div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
-                <code>./scripts/eaios-update.sh --to v0.2.0</code>
-                <button onClick={() => copy('./scripts/eaios-update.sh --to v0.2.0')} className="text-signal hover:underline">Copy</button>
+                <code>./scripts/eaios-update.sh</code>
+                <button onClick={() => copy('./scripts/eaios-update.sh')} className="text-signal hover:underline">Copy</button>
               </div>
               <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
                 <code>./scripts/eaios-update.sh --rollback</code>
@@ -77,7 +79,7 @@ function VersionPanel() {
                 {info.log.slice(0, 10).map((entry) => (
                   <li key={entry.id} className="rounded-lg border border-edge bg-canvas px-3 py-2 text-xs">
                     <div className="flex items-center justify-between">
-                      <span className={entry.success ? 'text-ok' : 'text-warn'}>{entry.success ? 'Success' : 'Failed'}</span>
+                      <span className={entry.success ? 'text-ok' : 'text-warn'}>{!entry.finishedAt ? 'Incomplete' : entry.success ? 'Success' : 'Failed'}</span>
                       <span className="text-ink-faint">{formatDate(entry.startedAt)}</span>
                     </div>
                     <div className="mt-1 font-mono text-ink-faint">
@@ -92,7 +94,7 @@ function VersionPanel() {
           <p className="text-xs text-ink-faint">Updates are run deliberately via <code className="text-signal">scripts/eaios-update.sh</code> on the box. Monthly minor and quarterly major releases are tagged in Git; automatic OTA is intentionally disabled.</p>
         </div>
       ) : (
-        <p className="text-xs text-warn">Could not load version.</p>
+        <p className="text-xs text-warn">Running version unavailable. Retry after the service is restored.</p>
       )}
     </Card>
   );

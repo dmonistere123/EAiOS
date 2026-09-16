@@ -37,7 +37,7 @@ if [[ "$BRANCH" != "main" && "$BRANCH" != "master" ]]; then
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree is not clean. Commit or stash changes first." >&2
   exit 1
 fi
@@ -49,19 +49,15 @@ fi
 
 echo "==> Releasing EAiOS $VERSION"
 
-# Bump package.json version.
-node -e "
-const fs = require('fs');
-const path = 'app/package.json';
-const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-pkg.version = '$PLAIN_VERSION';
-fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
-console.log('Bumped ' + path + ' to ' + pkg.version);
-"
-
-git add app/package.json
+# Keep the lockfile consistent and validate before publishing a release.
+cd "$REPO_ROOT/app"
+npm test
+npm version "$PLAIN_VERSION" --no-git-tag-version
+npm run build
+cd "$REPO_ROOT"
+git add app/package.json app/package-lock.json
 git commit -m "release: $VERSION"
 git tag -a "$VERSION" -m "EAiOS $VERSION"
-git push origin "$BRANCH" "$VERSION"
+git push --atomic origin "$BRANCH" "$VERSION"
 
 echo "==> Released $VERSION. Update boxes with: ./scripts/eaios-update.sh --to $VERSION"
