@@ -1,10 +1,102 @@
 /** Settings — safe config surface + allowlisted .MD/.TXT environment editor. */
 import { useEffect, useState } from 'react';
-import type { EnvironmentFile } from '../domain/types';
+import type { EnvironmentFile, VersionInfo } from '../domain/types';
 import { hermes } from '../adapters';
 import { resetPanePrefs } from '../app/AppShell';
 import { toast } from '../state/runtime';
 import { Card, SectionTitle, StateBadge } from '../components/ui';
+
+function channelTone(channel?: string): 'ok' | 'warn' | 'neutral' {
+  if (channel === 'stable') return 'ok';
+  if (channel === 'rc') return 'warn';
+  return 'neutral';
+}
+
+function VersionPanel() {
+  const [info, setInfo] = useState<VersionInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void hermes
+      .getVersionInfo()
+      .then((v) => setInfo(v))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const formatDate = (iso?: string) => (iso ? new Date(iso).toLocaleString() : 'unknown');
+  const copy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('ok', 'Copied to clipboard');
+    } catch {
+      toast('error', 'Copy failed');
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <SectionTitle right={<StateBadge label={info?.current.releaseChannel ?? 'unknown'} tone={channelTone(info?.current.releaseChannel)} />}>Version &amp; updates</SectionTitle>
+      {loading ? (
+        <p className="text-xs text-ink-dim">Loading version…</p>
+      ) : info ? (
+        <div className="space-y-4 text-sm">
+          <div className="rounded-lg border border-edge bg-canvas p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-lg font-semibold text-ink">v{info.current.version}</span>
+              {info.current.gitTag && info.current.gitTag !== `v${info.current.version}` && (
+                <span className="text-xs text-ink-dim">({info.current.gitTag})</span>
+              )}
+            </div>
+            <div className="mt-2 grid grid-cols-1 gap-1 text-xs text-ink-dim sm:grid-cols-2">
+              <div><span className="text-ink-faint">SHA:</span> <span className="font-mono">{info.current.gitSha}</span></div>
+              <div><span className="text-ink-faint">Branch:</span> <span className="font-mono">{info.current.gitBranch}</span></div>
+              <div><span className="text-ink-faint">Built:</span> {formatDate(info.current.builtAt)}</div>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-xs font-medium text-ink-faint">Update commands</div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
+                <code>./scripts/eaios-update.sh --to v0.2.0</code>
+                <button onClick={() => copy('./scripts/eaios-update.sh --to v0.2.0')} className="text-signal hover:underline">Copy</button>
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2 font-mono text-xs text-ink-dim">
+                <code>./scripts/eaios-update.sh --rollback</code>
+                <button onClick={() => copy('./scripts/eaios-update.sh --rollback')} className="text-signal hover:underline">Copy</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1 text-xs font-medium text-ink-dim">Update history</div>
+            {info.log.length === 0 ? (
+              <p className="text-xs text-ink-faint">No updates recorded yet.</p>
+            ) : (
+              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                {info.log.slice(0, 10).map((entry) => (
+                  <li key={entry.id} className="rounded-lg border border-edge bg-canvas px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className={entry.success ? 'text-ok' : 'text-warn'}>{entry.success ? 'Success' : 'Failed'}</span>
+                      <span className="text-ink-faint">{formatDate(entry.startedAt)}</span>
+                    </div>
+                    <div className="mt-1 font-mono text-ink-faint">
+                      {entry.oldVersion ?? entry.oldGitSha ?? 'unknown'} → {entry.newVersion ?? entry.newGitSha ?? 'unknown'}
+                    </div>
+                    {entry.errorMessage && <div className="mt-1 text-warn">{entry.errorMessage}</div>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <p className="text-xs text-ink-faint">Updates are run deliberately via <code className="text-signal">scripts/eaios-update.sh</code> on the box. Monthly minor and quarterly major releases are tagged in Git; automatic OTA is intentionally disabled.</p>
+        </div>
+      ) : (
+        <p className="text-xs text-warn">Could not load version.</p>
+      )}
+    </Card>
+  );
+}
 
 function EnvFileEditor() {
   const [files, setFiles] = useState<{ id: string; name: string }[]>([]);
@@ -119,6 +211,7 @@ export default function Settings() {
           <button onClick={resetPanePrefs} className="mt-3 rounded-lg border border-warn/40 px-4 py-2 text-sm font-medium text-warn hover:bg-warn/10">Reset layout preferences</button>
         </Card>
 
+        <VersionPanel />
         <EnvFileEditor />
       </div>
     </div>

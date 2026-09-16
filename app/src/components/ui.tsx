@@ -80,9 +80,9 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
   return <div className={`rounded-xl border border-edge bg-canvas-raised ${className}`}>{children}</div>;
 }
 
-export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
+export function SectionTitle({ children, right, className = '' }: { children: ReactNode; right?: ReactNode; className?: string }) {
   return (
-    <div className="mb-3 flex items-center justify-between">
+    <div className={`mb-3 flex items-center justify-between ${className}`}>
       <h2 className="text-sm font-semibold tracking-wide text-ink">{children}</h2>
       {right}
     </div>

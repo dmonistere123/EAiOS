@@ -24,7 +24,7 @@ fi
 
 if [[ ! -x "$EAIOS_ROOT/sidecar/.venv/bin/python" ]]; then
   echo "ERROR: sidecar .venv not found at $EAIOS_ROOT/sidecar/.venv" >&2
-  echo "       Run: cd $EAIOS_ROOT/sidecar && uv venv .venv && uv pip install --python .venv/bin/python pymupdf python-docx python-pptx" >&2
+  echo "       Run: cd $EAIOS_ROOT/sidecar && uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt" >&2
   exit 1
 fi
 

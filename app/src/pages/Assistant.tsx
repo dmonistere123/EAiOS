@@ -105,6 +105,8 @@ export default function Assistant() {
   const [openSession, setOpenSession] = useState<AssistantSessionRef | null>(null);
   const [sessions, setSessions] = useState<AssistantSessionRef[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
 
   const voice = useVoice((text) => {
     setDraft(text);
@@ -134,10 +136,27 @@ export default function Assistant() {
     return unsub;
   }, []);
 
-  // Keep the latest exchange in view.
+  // Keep the latest exchange in view, but only if the user is already near
+  // the bottom so they can scroll up to read history without being yanked down.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [thread, streaming]);
+    if (!scrollRef.current || !atBottom) return;
+    scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [thread, streaming, atBottom]);
+
+  // Auto-grow the textarea as the user types so long messages stay visible.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [draft]);
+
+  // Respect user's scroll position: only auto-scroll if they are near the bottom.
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 40);
+  }, []);
 
   // D-B2: the selected profile's full conversation history (all sources).
   useEffect(() => {
@@ -281,6 +300,7 @@ export default function Assistant() {
     setSending(true);
     setDraft('');
     draftRef.current = '';
+    setAtBottom(true);
     const displayText = text || `[${attachments.length} attachment${attachments.length === 1 ? '' : 's'}]`;
     const optimistic: ChatMessage = { id: `opt-${Date.now()}`, role: 'you', text: displayText, at: new Date().toISOString() };
     setThread((t) => [...t, optimistic]);
@@ -288,6 +308,7 @@ export default function Assistant() {
     setAttachments([]);
     const res = await hermes.sendAssistantMessage(text, { attachments: toSend });
     setSending(false);
+    textareaRef.current?.focus();
     if (!res.ok) {
       setThread((t) => t.filter((m) => m.id !== optimistic.id)); // never pretend it sent
       toast('error', res.error?.safeMessage ?? 'Message failed to send.');
@@ -346,8 +367,8 @@ export default function Assistant() {
   const knowledgeIndexing = s.knowledge.filter((k) => k.indexingStatus === 'processing').length;
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-center justify-between gap-4">
+    <div className="flex h-full flex-col gap-6">
+      <header className="flex shrink-0 items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">My Assistant</h1>
           <p className="mt-1 text-sm text-ink-dim">Chat with {AGENT_NAME}, your chief of staff. Pick an agent to see its channel — what {AGENT_NAME} delegated and their {AGENT_NAME}↔agent chat.</p>
@@ -376,11 +397,11 @@ export default function Assistant() {
         </div>
       </header>
 
-      <div className="grid gap-4 xl:grid-cols-5">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
         {/* conversation — always Ally */}
-        <Card className="flex flex-col p-4 xl:col-span-3">
-          <SectionTitle>Conversation with {AGENT_NAME}</SectionTitle>
-          <div ref={scrollRef} className="max-h-[52vh] flex-1 space-y-3 overflow-y-auto">
+        <Card className="flex min-h-0 flex-col h-[calc(100dvh-8rem)] flex-none p-4 xl:flex-[3] xl:h-full">
+          <SectionTitle className="shrink-0">Conversation with {AGENT_NAME}</SectionTitle>
+          <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
               <p className="text-xs text-ink-faint">Starting a conversation with {AGENT_NAME}…</p>
             )}
@@ -437,13 +458,21 @@ export default function Assistant() {
                 ))}
               </div>
             )}
-            <div className="flex gap-2">
-              <input
+            <div className="flex items-start gap-2">
+              <textarea
+                ref={textareaRef}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+                rows={1}
                 placeholder={busy ? `${AGENT_NAME} is responding…` : voice.listening ? 'Listening…' : `Message ${AGENT_NAME}…`}
                 aria-label={`Message ${AGENT_NAME}`}
-                className="flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
+                className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
               <button
                 type="button"
@@ -468,7 +497,7 @@ export default function Assistant() {
         </Card>
 
         {/* context column — Ally: orchestration; staff agent: channel view */}
-        <div className="space-y-4 xl:col-span-2">
+        <div className="flex min-h-0 flex-[2] flex-col gap-4 overflow-y-auto">
           {contextIsAlly ? (
             <>
               <Card className="p-4">

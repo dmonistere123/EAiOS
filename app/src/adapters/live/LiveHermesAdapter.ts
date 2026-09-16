@@ -11,7 +11,7 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
+  UsageSummary, DailySpendReport, VersionInfo, WorkItem, ActivityEvent, RuntimeEventType, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
@@ -183,6 +183,9 @@ interface KanbanTask {
   started_at?: number | null;
   completed_at?: number | null;
   result?: string | null;
+  /** Why the task was blocked (Hermes block kind). Distinguishes rejected
+   * approvals from ones waiting on executive input or a missing capability. */
+  block_kind?: string | null;
   /** Comma-separated parent ids from task_links (server-side GROUP_CONCAT). */
   parents?: string | null;
 }
@@ -250,12 +253,38 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
   // execution is async, so the kanban task may stay ready/running for a while.
   // Without this, approved approvals kept showing in the pending list (dogfood
   // 2026-09-08, t_b5ed136e).
-  const status: Approval['status'] = env.decision ?? (
-    t.status === 'done' ? 'approved' :
-    t.status === 'blocked' ? 'rejected' :
-    t.status === 'archived' ? 'expired' :
-    'pending'
-  );
+  //
+  // Blocked is ambiguous: decideApproval blocks on reject/changes_requested,
+  // but an approval can also be blocked for input, credentials, or a missing
+  // capability before the executive has decided (dogfood 2026-09-13: Approvals
+  // module showed 3 of 4 because a blocked plugin update was treated as rejected).
+  // Use the Hermes block kind when available, and fall back to the run summary for
+  // legacy blocks that predate the kind column.
+  let status: Approval["status"];
+  if (env.decision) {
+    status = env.decision;
+  } else if (t.status === "done") {
+    status = "approved";
+  } else if (t.status === "archived") {
+    status = "expired";
+  } else if (t.status === "blocked") {
+    if (t.block_kind === "needs_input") {
+      status = "pending";
+    } else if (t.block_kind === "capability" || t.block_kind === "dependency" || t.block_kind === "transient") {
+      status = "blocked";
+    } else {
+      const summary = (t.result ?? "").toLowerCase();
+      if (summary.includes("rejected by executive")) {
+        status = "rejected";
+      } else if (summary.includes("changes requested by executive")) {
+        status = "changes_requested";
+      } else {
+        status = "blocked";
+      }
+    }
+  } else {
+    status = "pending";
+  }
   return {
     id: t.id,
     workItemId: t.id,
@@ -991,7 +1020,11 @@ class LiveHermesAdapter implements HermesAdapter {
       const tasks = await this.kanbanTasks();
       const work = tasks.filter((t) => !parseEnvelope(t.body));
       const open = work.filter((t) => !['done', 'archived'].includes(t.status));
-      const approvals = tasks.filter((t) => parseEnvelope(t.body) && !['done', 'blocked', 'archived'].includes(t.status));
+      const approvals = tasks
+        .map((t) => ({ t, env: parseEnvelope(t.body) }))
+        .filter((x): x is { t: KanbanTask; env: ApprovalEnvelope } => x.env !== null)
+        .map(({ t, env }) => mapTaskToApproval(t, env))
+        .filter((a) => a.status === 'pending');
       const h = new Date().getHours();
       this.degraded.delete('today');
       return {
@@ -1000,7 +1033,7 @@ class LiveHermesAdapter implements HermesAdapter {
         executivePriorities: open.filter((t) => !t.assignee).length,
         delegatableCount: open.filter((t) => !t.assignee && ['ready', 'triage'].includes(t.status)).length,
         approvalsWaiting: approvals.length,
-        headline: approvals.length > 0 ? `${approvals.length} item${approvals.length === 1 ? '' : 's'} need your decision.` : 'Nothing waiting on your decision.',
+        headline: approvals.length > 0 ? `${approvals.length} item${approvals.length === 1 ? '' : 's'} need${approvals.length === 1 ? 's' : ''} your decision.` : 'Nothing waiting on your decision.',
       };
     } catch {
       this.degraded.add('today');
@@ -1374,6 +1407,19 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `settings-daily-alert-${Date.now()}` };
     } catch (e) {
       return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Threshold save failed.', retryable: true } };
+    }
+  }
+
+  /** Update-path visibility: current build version + tail of update history. */
+  async getVersionInfo(): Promise<VersionInfo> {
+    try {
+      const res = await fetch('/api/version');
+      if (!res.ok) throw new Error(`version ${res.status}`);
+      this.degraded.delete('version');
+      return (await res.json()) as VersionInfo;
+    } catch (e) {
+      this.degraded.add('version');
+      return this.fallback.getVersionInfo();
     }
   }
   // ----- LIVE: assistant chat (Phase 6.4a, spec §8.2) -----

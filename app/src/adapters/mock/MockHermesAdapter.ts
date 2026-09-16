@@ -6,7 +6,7 @@
 import type {
   Agent, AgentChannel, Approval, ApprovalDecision, Artifact, AssistantEvent, AssistantSessionRef, AuditResult, ChatMessage, CronJob,
   DelegatedRun, EnvironmentFile, EnvironmentFileRef, RuntimeEvent, TodaySummary,
-  UsageSummary, DailySpendReport, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
+  UsageSummary, DailySpendReport, VersionInfo, WorkItem, ActivityEvent, Skill, Playbook, PlaybookRun, TravelTrip, TravelBooking, TravelAgentResult,
 } from '../../domain/types';
 import type {
   AgentConfigPatch, ApprovalFilter, ArtifactFilter, CreateAgent, CreateCronJob,
@@ -444,6 +444,21 @@ class MockHermesAdapter implements HermesAdapter {
     for (const d of fx.dailySpendReport.days) d.overThreshold = d.costUsd > fx.dailySpendReport.thresholdUsd;
     this.emit('config.changed', undefined, thresholdUsd === null ? 'Daily spend alert cleared (default $5)' : `Daily spend alert set to $${thresholdUsd}`);
     return audit();
+  }
+
+  async getVersionInfo(): Promise<VersionInfo> {
+    await delay(80);
+    return {
+      current: {
+        version: '0.1.0-mock',
+        gitSha: 'mock',
+        gitBranch: 'mock',
+        gitTag: 'v0.1.0-mock',
+        releaseChannel: 'stable',
+        builtAt: new Date().toISOString(),
+      },
+      log: [],
+    };
   }
 
   /** W7: writable in-memory skills list (create lands here; mock parity). */

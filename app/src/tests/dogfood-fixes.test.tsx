@@ -252,6 +252,51 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(approved.some((a) => a.id === 't_decided')).toBe(true);
   });
 
+  it('listApprovals treats blocked approvals as pending unless the envelope or summary says rejected', async () => {
+    const base = { eaios: 'approval' as const, actionType: 'send' as const, targetSystem: 'gmail' as const, risk: 'low' as const, requestedBy: 'default' as const };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/kanban') {
+        return new Response(JSON.stringify({ tasks: [
+          { id: 't_blocked_input', title: 'Blocked for credentials', status: 'blocked', block_kind: 'needs_input', result: 'Need WordPress admin credentials', body: JSON.stringify(base), created_at: 1787900000 },
+          { id: 't_blocked_rejected', title: 'Rejected by executive', status: 'blocked', result: 'Rejected by executive', body: JSON.stringify(base), created_at: 1787900000 },
+          { id: 't_blocked_decided', title: 'Decided rejected', status: 'blocked', result: 'Need credentials', body: JSON.stringify({ ...base, decision: 'rejected' as const, decidedAt: new Date().toISOString() }), created_at: 1787900000 },
+        ] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
+    const pending = await live.listApprovals({ status: ['pending'] });
+    expect(pending.map((a) => a.id)).toContain('t_blocked_input');
+    expect(pending.map((a) => a.id)).not.toContain('t_blocked_rejected');
+    expect(pending.map((a) => a.id)).not.toContain('t_blocked_decided');
+    const rejected = await live.listApprovals({ status: ['rejected'] });
+    expect(rejected.map((a) => a.id)).toContain('t_blocked_rejected');
+    expect(rejected.map((a) => a.id)).toContain('t_blocked_decided');
+  });
+
+
+  it('getTodaySummary counts only pending approvals and ignores decided envelopes', async () => {
+    const pendingEnvelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default' };
+    const approvedEnvelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default', decision: 'approved' as const, decidedAt: new Date().toISOString() };
+    const rejectedEnvelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default', decision: 'rejected' as const, decidedAt: new Date().toISOString() };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/kanban') {
+        return new Response(JSON.stringify({ tasks: [
+          { id: 't_pending', title: 'Pending', status: 'ready', body: JSON.stringify(pendingEnvelope), created_at: 1787900000 },
+          { id: 't_approved', title: 'Approved', status: 'todo', body: JSON.stringify(approvedEnvelope), created_at: 1787900000 },
+          { id: 't_rejected', title: 'Rejected', status: 'ready', body: JSON.stringify(rejectedEnvelope), created_at: 1787900000 },
+        ] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
+    const summary = await live.getTodaySummary();
+    expect(summary.approvalsWaiting).toBe(1);
+    expect(summary.headline).toBe('1 item needs your decision.');
+  });
+
   it('updateApprovalPayload PUTs a new envelope body to /api/kanban', async () => {
     const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'outlook', risk: 'medium' as const, requestedBy: 'quill', payload: 'Original body' };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

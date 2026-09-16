@@ -188,5 +188,65 @@ class TestCitationSurface(SidecarCase):
         self.assertTrue(hits and not hits[0]["citationEnabled"])
 
 
+class TestPodcastTtsStatus(SidecarCase):
+    """TTS provider status reflects configured API keys."""
+
+    def test_tts_status_returns_providers(self):
+        status = self.get("/podcasts/tts-status")
+        self.assertIn("providers", status)
+        ids = {p["id"] for p in status["providers"]}
+        self.assertEqual(ids, {"edge", "elevenlabs", "openai"})
+        edge = next(p for p in status["providers"] if p["id"] == "edge")
+        self.assertTrue(edge["available"])
+        self.assertTrue(edge["voices"])
+
+
+class TestPodcastGenerationTtsConfig(SidecarCase):
+    """Per-generation TTS provider and voice selection persist on the podcast record."""
+
+    def test_generate_with_elevenlabs_stores_tts_model(self):
+        # Provide a tiny text file; generation will fail quickly without an
+        # ElevenLabs key, but the record should still capture the requested model.
+        body = b"Artificial intelligence is transforming the economy."
+        boundary = uuid.uuid4().hex
+        parts = [
+            f"--{boundary}\r\ncontent-disposition: form-data; name=\"file\"; filename=\"ai.txt\"\r\n\r\n".encode()
+            + body
+            + b"\r\n",
+            f"--{boundary}\r\ncontent-disposition: form-data; name=\"ttsModel\"\r\n\r\nelevenlabs\r\n".encode(),
+            f"--{boundary}\r\ncontent-disposition: form-data; name=\"voiceHost\"\r\n\r\nChris\r\n".encode(),
+            f"--{boundary}\r\ncontent-disposition: form-data; name=\"voiceGuest\"\r\n\r\nJessica\r\n".encode(),
+            f"--{boundary}--\r\n".encode(),
+        ]
+        code, payload = self.req(
+            "POST",
+            "/podcasts/generate",
+            b"".join(parts),
+            {"content-type": f"multipart/form-data; boundary={boundary}"},
+        )
+        self.assertEqual(code, 202)
+        podcast = payload["podcast"]
+        self.assertEqual(podcast["ttsModel"], "elevenlabs")
+        self.assertEqual(podcast["voiceMap"], {"host": "Chris", "guest": "Jessica"})
+
+    def test_generate_defaults_to_edge(self):
+        body = b"Short document."
+        boundary = uuid.uuid4().hex
+        parts = [
+            f"--{boundary}\r\ncontent-disposition: form-data; name=\"file\"; filename=\"short.txt\"\r\n\r\n".encode()
+            + body
+            + b"\r\n",
+            f"--{boundary}--\r\n".encode(),
+        ]
+        code, payload = self.req(
+            "POST",
+            "/podcasts/generate",
+            b"".join(parts),
+            {"content-type": f"multipart/form-data; boundary={boundary}"},
+        )
+        self.assertEqual(code, 202)
+        self.assertEqual(payload["podcast"]["ttsModel"], "edge")
+
+
 if __name__ == "__main__":
     unittest.main()

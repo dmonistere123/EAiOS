@@ -117,4 +117,22 @@ describe('Settings page honesty (mock mode)', () => {
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save policy' })).not.toBeInTheDocument();
   });
+
+  it('Version & updates panel shows current version, channel, and update commands', async () => {
+    render(
+      <MemoryRouter>
+        <Settings />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Version & updates')).toBeInTheDocument();
+    // current version is rendered with a leading "v"
+    expect(await screen.findByText('v0.1.0-mock')).toBeInTheDocument();
+    // release channel badge from the mock manifest
+    expect(screen.getByText('stable')).toBeInTheDocument();
+    // update/rollback commands are surfaced as copyable actions
+    expect(screen.getByText('./scripts/eaios-update.sh --to v0.2.0')).toBeInTheDocument();
+    expect(screen.getByText('./scripts/eaios-update.sh --rollback')).toBeInTheDocument();
+    // history is empty on the mock adapter
+    expect(screen.getByText('No updates recorded yet.')).toBeInTheDocument();
+  });
 });

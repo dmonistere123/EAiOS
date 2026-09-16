@@ -1,0 +1,12 @@
+import { DatabaseSync } from 'node:sqlite';
+const db = new DatabaseSync('/home/ally-landry/.hermes/kanban.db', { readOnly: true });
+console.log('--- tasks schema ---');
+console.log(db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get());
+console.log('--- task_runs schema ---');
+console.log(db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_runs'").get());
+console.log('--- task_links schema ---');
+console.log(db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='task_links'").get());
+console.log('--- sample blocked approval tasks ---');
+const rows = db.prepare("SELECT id, title, status, result, block_kind, body FROM tasks WHERE status='blocked' LIMIT 10").all();
+console.log(rows);
+db.close();

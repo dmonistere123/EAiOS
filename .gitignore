@@ -2,6 +2,7 @@ node_modules/
 sidecar/.venv/
 sidecar/data/
 sidecar/__pycache__/
+sidecar/.env
 # EAiOS-owned local settings (Phase 6.2 F15) — per-machine, never committed
 settings.local.json
 settings.local.json.tmp
@@ -9,3 +10,5 @@ notify-state.json
 # Server-side dismissed work-item ids (Today page cross-browser sync)
 dismissed.json
 dismissed.json.tmp
+# Generated at build time by scripts/generate-version.mjs
+app/public/version.json

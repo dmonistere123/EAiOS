@@ -68,6 +68,7 @@ export function ConciergeWidget() {
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Subscribe + rehydrate whenever the panel is open/minimized; unsubscribe
   // when closed to the FAB. (First version gated on a `hydrated` flag in the
@@ -109,6 +110,14 @@ export function ConciergeWidget() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [thread, streaming, sending, mode]);
 
+  // Auto-grow the concierge input so longer navigation questions stay visible.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  }, [draft]);
+
   /** Fresh concierge session — drops the old context entirely (new lane
    * session on the gateway) so the next question carries the full nav brief
    * again and the example prompts resurface. (Don 2026-08-30) */
@@ -136,8 +145,9 @@ export function ConciergeWidget() {
     // Optimistic bubble (display-stripped); history rehydration on complete is authoritative.
     setThread((t) => [...t, { id: `optimistic-${Date.now()}`, role: 'you', text: ctx + q, at: new Date().toISOString() }]);
     const res = await hermes.sendAssistantMessage(ctx + q, { agentId: LANE });
+    setSending(false);
+    textareaRef.current?.focus();
     if (!res.ok) {
-      setSending(false);
       toast('error', res.error?.safeMessage ?? 'Message failed to send.');
     }
   };
@@ -237,15 +247,23 @@ export function ConciergeWidget() {
           e.preventDefault();
           void send(draft);
         }}
-        className="flex gap-2 border-t border-edge px-3 py-2.5"
+        className="flex items-start gap-2 border-t border-edge px-3 py-2.5"
       >
-        <input
+        <textarea
+          ref={textareaRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void send(draft);
+            }
+          }}
+          rows={1}
           placeholder="Ask how to get around…"
           aria-label="Ask the concierge"
           disabled={!ready}
-          className="min-w-0 flex-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-ink placeholder:text-ink-faint"
+          className="max-h-24 min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-ink placeholder:text-ink-faint"
         />
         <button type="submit" disabled={sending || !ready || !draft.trim()} className="rounded-lg bg-signal px-3.5 py-2 text-xs font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
           Send

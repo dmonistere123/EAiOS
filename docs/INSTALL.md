@@ -24,15 +24,16 @@ curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/main/install/in
 
 The installer:
 
-1. Checks OS and base tools.
+1. Checks OS and basic tools.
 2. Ensures Node.js >= 24 is installed.
 3. Ensures Hermes Agent is installed.
 4. Clones or uses the EAiOS repo.
 5. Runs `npm ci` and `npm run build`.
-6. Sets up the sidecar Python venv (`sidecar/.venv`).
+6. Sets up the sidecar Python venv (`sidecar/.venv`) with knowledge + podcast dependencies from `sidecar/requirements.txt`.
 7. Generates a dev token and creates `app/.env.local` from the template.
-8. Renders and installs systemd user units.
-9. Starts services and runs verification probes.
+8. Creates `sidecar/.env` from `sidecar/.env.example` for optional Podcast TTS/provider keys.
+9. Renders and installs systemd user units.
+10. Starts services and runs verification probes.
 
 ## Agent name
 
@@ -56,7 +57,13 @@ To skip the prompt in automation:
    ```bash
    nano ~/eaios/app/.env.local
    ```
-2. **Enable boot persistence** (optional, recommended for a headless appliance):
+2. **Edit `sidecar/.env`** with optional podcast/TTS provider keys:
+   ```bash
+   nano ~/eaios/sidecar/.env
+   systemctl --user restart eaios-knowledge-sidecar
+   ```
+   Keys: `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_CLOUD_PROJECT` + `GOOGLE_APPLICATION_CREDENTIALS`. Edge TTS works without a key.
+3. **Enable boot persistence** (optional, recommended for a headless appliance):
    ```bash
    sudo loginctl enable-linger $USER
    ```
@@ -84,7 +91,7 @@ To skip the prompt in automation:
 
 ## Environment template
 
-`app/.env.local.example` is the canonical template for a fresh install. Keep it up to date when you add required environment variables.
+`app/.env.local.example` is the canonical template for a fresh install, and `sidecar/.env.example` is the canonical template for sidecar provider keys. Keep both up to date when you add required environment variables.
 
 ## Distributing EAiOS
 
@@ -98,3 +105,30 @@ For distribution to a fresh box:
    ```
 
 Or ship a tarball/USB containing the repo and run `./install/install.sh` from it.
+
+## Updating a shipped box
+
+Already-installed CEO boxes can be updated deliberately (not automatically) via:
+
+```bash
+cd ~/eaios
+./scripts/eaios-update.sh
+```
+
+The update wrapper:
+1. Records the current version/git SHA.
+2. Pulls the latest code from the configured branch.
+3. Rebuilds the app (regenerates `version.json`).
+4. Refreshes the sidecar Python venv.
+5. Runs any new migrations in `migrations/`.
+6. Re-renders systemd units if templates changed.
+7. Restarts the eaios-* services.
+8. Verifies the install (ports, endpoints, config files).
+9. Records the outcome in the `eaios_update_log` table in `~/.hermes/state.db`.
+
+**Why not automatic (OTA)?** EAiOS follows the approval-gate culture — state-changing actions are deliberate, never silent background updates. The Settings page shows the current build version and update history so you know what each box is running. If OTA is needed later, the update script exists and a systemd timer can wrap it, but the design doc (docs/design-update-path-2026-09-14.md) recommends staying with deliberate updates.
+
+You can check the running version from within the EAiOS Settings page or via the API:
+```bash
+curl http://127.0.0.1:5200/api/version
+```

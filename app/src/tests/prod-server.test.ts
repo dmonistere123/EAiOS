@@ -34,6 +34,9 @@ beforeAll(async () => {
   mkdirSync(join(dist, 'assets'), { recursive: true });
   writeFileSync(join(dist, 'index.html'), '<!doctype html><title>EAiOS</title>');
   writeFileSync(join(dist, 'assets', 'index-abc123.js'), 'console.log(1)');
+  // Production layout: dist/ is under app/; version.json is generated there at build time.
+  mkdirSync(join(eaiosRoot, 'app', 'dist'), { recursive: true });
+  writeFileSync(join(eaiosRoot, 'app', 'dist', 'version.json'), JSON.stringify({ version: '0.1.0', gitSha: 'abc1234', gitBranch: 'main', builtAt: new Date().toISOString() }));
 
   const config = loadConfig({
     EAIOS_DIST: dist,
@@ -167,6 +170,15 @@ describe('api endpoints (hermetic roots)', () => {
   it('unknown /api path → 404; /api/ws over plain HTTP → 426', async () => {
     expect((await fetch(`${base}/api/nope`)).status).toBe(404);
     expect((await fetch(`${base}/api/ws`)).status).toBe(426);
+  });
+
+  it('/api/version returns the build manifest + empty update log', async () => {
+    const res = await fetch(`${base}/api/version`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { current: { version: string; gitSha: string }; log: unknown[] };
+    expect(body.current.version).toBe('0.1.0');
+    expect(body.current.gitSha).toMatch(/^[a-f0-9]+$/);
+    expect(Array.isArray(body.log)).toBe(true);
   });
 
   it('dismissed work items: GET/POST/DELETE round-trip to gitignored dismissed.json', async () => {

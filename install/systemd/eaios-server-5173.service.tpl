@@ -6,6 +6,7 @@
 Description=EAiOS executive dashboard server (prod, front door :5173)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -16,7 +17,7 @@ Environment=EAIOS_ROOT=@EAIOS_ROOT@
 Environment=HERMES_HOME=@HOME@/.hermes
 WorkingDirectory=@EAIOS_ROOT@/app
 ExecStart=@NODE_BIN@ @EAIOS_ROOT@/app/server/prod.ts
-Restart=on-failure
+Restart=always
 RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true

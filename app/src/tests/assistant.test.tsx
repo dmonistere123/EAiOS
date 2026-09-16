@@ -323,6 +323,21 @@ describe('Assistant page (mock mode)', () => {
     expect(await screen.findByText('Market scan: AI ops tooling')).toBeInTheDocument();
     expect(await screen.findByText(/No Ally↔Scout chat yet/)).toBeInTheDocument();
   });
+
+  it('keeps the composer anchored while the message thread scrolls', async () => {
+    render(
+      <MemoryRouter>
+        <Assistant />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/chief of staff/);
+    // The message list is the scrollable region; the composer form follows it.
+    const thread = screen.getByLabelText('Message Ally').closest('form')?.previousElementSibling as HTMLElement;
+    expect(thread).toBeTruthy();
+    expect(thread.className).toContain('overflow-y-auto');
+    expect(thread.className).toContain('flex-1');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
+  });
 });
 
 // ---------- voice I/O (browser Web Speech API) ----------
