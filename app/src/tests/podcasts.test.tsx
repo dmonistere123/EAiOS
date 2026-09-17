@@ -3,12 +3,13 @@
  * provider + voice preview.
  */
 import { describe, expect, it, beforeAll, afterEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Podcasts from '../pages/Podcasts';
 import { startRuntime, getState } from '../state/runtime';
 import { podcasts } from '../adapters';
+import { useRailDeclaration } from '../state/rail';
 
 beforeAll(async () => {
   startRuntime();
@@ -32,6 +33,37 @@ function setup() {
 }
 
 describe('Podcasts page', () => {
+  it('keeps an older recording selected across polling and shows 10 historical recordings', async () => {
+    const episodes = Array.from({ length: 13 }, (_, i) => ({
+      id: `history-${i}`, sourceName: `Recording ${i}`, sourceType: 'file' as const,
+      status: 'ready' as const, createdAt: new Date(Date.now() - i * 86400000).toISOString(),
+    }));
+    const list = vi.spyOn(podcasts, 'listPodcasts').mockResolvedValue(episodes);
+    const originalInterval = globalThis.setInterval;
+    let poll: (() => void) | undefined;
+    vi.spyOn(globalThis, 'setInterval').mockImplementation(((handler: () => void, delay: number) => {
+      if (delay === 5000) poll = handler;
+      return originalInterval(handler, delay);
+    }) as typeof setInterval);
+    function EpisodeRail() {
+      const sections = useRailDeclaration();
+      return <aside>{sections?.map((section) => <div key={section.key}>{section.node}</div>)}</aside>;
+    }
+    const view = render(<MemoryRouter><Podcasts /><EpisodeRail /></MemoryRouter>);
+    await screen.findByText('Recording 1');
+    expect(screen.queryByText('Recording 11')).not.toBeInTheDocument();
+    expect(screen.getByText('Recording 10')).toBeInTheDocument();
+    await userEvent.click(screen.getByText('Recording 1').closest('button')!);
+    const audio = view.container.querySelector('audio')!;
+    const oldSource = audio.getAttribute('src');
+    expect(oldSource).toBe(podcasts.getAudioUrl('history-1'));
+    audio.currentTime = 42;
+    await act(async () => { poll!(); });
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(audio.getAttribute('src')).toBe(oldSource);
+    expect(audio.currentTime).toBe(42);
+  });
+
   it('renders title and generate panel', async () => {
     setup();
     expect(await screen.findByRole('heading', { name: /Podcasts/i })).toBeInTheDocument();

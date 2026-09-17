@@ -67,9 +67,14 @@ export default function Podcasts() {
 
   const load = async () => {
     try {
-      const list = await podcasts.listPodcasts();
+      const episodes = await podcasts.listPodcasts();
+      let completed = 0;
+      const list = episodes.filter((episode) => episode.status !== 'ready' || ++completed <= 11);
       setItems(list);
-      if (list.length && !selectedId) setSelectedId(list[0].id);
+      // The polling effect retains its initial closure. Read the current
+      // selection through a state updater so refresh never restarts an older episode.
+      setSelectedId((current) => list.some((episode) => episode.id === current) ? current : list[0]?.id ?? null);
+
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Failed to load podcasts.');
     } finally {
@@ -248,7 +253,7 @@ export default function Podcasts() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Podcasts</h1>
-          <p className="mt-1 text-sm text-ink-dim">Documents turned into audio conversations. Powered by Podcastfy + Edge, ElevenLabs, or OpenAI TTS.</p>
+          <p className="mt-1 text-sm text-ink-dim">Documents turned into audio conversations. The latest recording and 10 historical recordings are available.</p>
         </div>
         <div className="flex items-center gap-2">
           <StateBadge label="Podcastfy" tone="signal" />
