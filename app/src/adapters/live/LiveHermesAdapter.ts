@@ -1,3 +1,5 @@
+import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
+import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
 /**
  * LiveHermesAdapter — talks to the real Hermes gateway over JSON-RPC/WebSocket
  * (`hermes serve`, /api/ws). Implements the slices Phase 2 wires live:
@@ -2019,6 +2021,13 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   // ---------- Travel (F31) ----------
+  chooseTravelOption(tripId: string, resultId: string): Promise<AuditResult<TravelBooking>> { return liveTravel.chooseTravelOption(tripId,resultId); }
+  travelPlaces(query: string): Promise<TravelPlace[]> { return liveTravel.travelPlaces(query); }
+  travelRecommendations(tripId: string): Promise<TravelShortlist[]> { return liveTravel.travelRecommendations(tripId); }
+  updateTravelTrip(tripId: string, input: CreateTripInput): Promise<AuditResult<TravelTrip>> { return liveTravel.updateTravelTrip(tripId,input); }
+  addTravelPlan(tripId: string, input: TravelPlanInput): Promise<AuditResult<TravelBooking>> { return liveTravel.addTravelPlan(tripId, input); }
+  travelAction(tripId: string, bookingId: string, action: TravelAction): Promise<AuditResult<TravelBooking>> { return liveTravel.travelAction(tripId, bookingId, action); }
+
   listTrips(): Promise<TravelTrip[]> {
     return liveTravel.listTrips();
   }

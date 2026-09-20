@@ -1,611 +1,184 @@
-/** Travel (F31) — executive travel hub.
- * Top cards for Flights / Hotels & Cars / Restaurants open search drawers.
- * Upcoming trips listed below; each trip has tabs for Itinerary /
- * Confirmations / Approvals. Live bookings gate on approval envelopes. */
-import { useEffect, useMemo, useState } from 'react';
-import { hermes } from '../adapters';
-import { toast } from '../state/runtime';
-import { usePageRail } from '../state/rail';
-import type { RailSectionDef } from '../state/rail';
-import type { TravelTrip, TravelBooking, TravelApproval, TravelAgentResult } from '../domain/types';
-import { AGENT_NAME } from '../config';
-import type { TravelSearchParams, TravelSearchResult } from '../adapters/interfaces.ts';
-import { Card, Drawer, EmptyState, SectionTitle, StateBadge, RiskBadge } from '../components/ui';
+import {AGENT_NAME} from '../config';
+import {usePageRail} from '../state/rail';
+import {useEffect,useState} from 'react';
+import {hermes,travelMode} from '../adapters';
+import type {CreateTripInput,TravelSearchResult} from '../adapters/interfaces';
+import type {TravelTrip,TravelBooking} from '../domain/types';
+import type {TravelPlace,TravelShortlist,CarPreferences} from '../domain/travelGuide';
+import {TravelCityPicker} from '../components/TravelCityPicker';
+import {PlanDrawer,TravelBookingActions} from '../components/TravelPlanning';
+import {Card} from '../components/ui';
 
-type SearchKind = 'flight' | 'hotel' | 'car' | 'restaurant';
+const fieldClass='mt-2 w-full rounded-xl border border-edge bg-canvas px-4 py-3 text-sm text-ink';
+const primary='rounded-xl bg-signal px-5 py-3 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50';
+const secondary='rounded-xl border border-edge px-4 py-2 text-sm text-ink-dim hover:bg-canvas-overlay disabled:opacity-50';
+const noRail: import('../state/rail').RailSectionDef[] = [];
+const steps=['Trip details','Your preferences','Your options','Your itinerary'];
+const dateLabel=(value:string)=>new Date(`${value.slice(0,10)}T12:00:00`).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+const title=(b:TravelBooking)=>b.title??(b.kind==='flight'?`${b.airline} ${b.flightNumber}`:b.kind==='hotel'?b.hotelName:b.kind==='restaurant'?b.restaurantName:`${b.company} ${b.carType}`);
+const bookingDate=(b:TravelBooking)=>b.kind==='flight'?b.departureAt:b.kind==='hotel'?b.checkIn:b.kind==='car'?b.pickupAt:b.reservationAt;
+const errorText=(e:unknown)=>e instanceof Error?e.message:'Something went wrong. Please try again.';
 
-const KIND_META: Record<SearchKind, { label: string; headline: string; icon: string; fields: ('origin' | 'destination' | 'checkIn' | 'checkOut' | 'departureDate' | 'returnDate' | 'date' | 'pickupLocation' | 'dropoffLocation' | 'partySize')[] }> = {
-  flight: { label: 'Flights', headline: 'Search flights', icon: '✈', fields: ['origin', 'destination', 'departureDate', 'returnDate'] },
-  hotel: { label: 'Hotels & Cars', headline: 'Search hotels', icon: '🏨', fields: ['destination', 'checkIn', 'checkOut'] },
-  car: { label: 'Hotels & Cars', headline: 'Search rental cars', icon: '🚗', fields: ['pickupLocation', 'dropoffLocation', 'departureDate', 'returnDate'] },
-  restaurant: { label: 'Restaurants', headline: 'Find restaurants', icon: '🍽', fields: ['destination', 'date', 'partySize'] },
-};
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-function formatTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-}
-
-function BookingRow({ booking, trip, onRefresh }: { booking: TravelBooking; trip: TravelTrip; onRefresh: () => void }) {
-  const [busy, setBusy] = useState(false);
-
-  const cancelProposal = async () => {
-    setBusy(true);
-    const approval = trip.approvals.find((a) => a.bookingId === booking.id && a.status === 'pending');
-    if (approval) {
-      const res = await hermes.decideTravelApproval(approval.id, { decision: 'rejected', note: 'Cancelled by executive in Travel UI' });
-      if (res.ok) {
-        toast('ok', `Cancelled ${bookingTitle(booking)} proposal.`);
-        onRefresh();
-      } else {
-        toast('error', res.error?.safeMessage ?? 'Cancel failed.');
-      }
-    }
-    setBusy(false);
-  };
-
-  return (
-    <div className="rounded-lg border border-edge bg-canvas p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <BookingIcon kind={booking.kind} />
-            <span className="truncate text-sm font-medium text-ink">{bookingTitle(booking)}</span>
-          </div>
-          <div className="mt-1 text-xs text-ink-dim">{bookingSubtitle(booking)}</div>
-          {booking.costUsd !== undefined && (
-            <div className="mt-1 text-xs text-ink-faint">{booking.costUsd === 0 ? 'No prepaid cost' : `~$${booking.costUsd}`}</div>
-          )}
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <StateBadge label={booking.status} tone={booking.status === 'confirmed' ? 'ok' : booking.status === 'proposed' ? 'warn' : 'neutral'} />
-          {booking.status === 'proposed' && (
-            <button onClick={() => void cancelProposal()} disabled={busy} className="text-[10px] font-medium text-risk hover:underline disabled:opacity-50">
-              {busy ? 'Cancelling…' : 'Cancel proposal'}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BookingIcon({ kind }: { kind: TravelBooking['kind'] }) {
-  const icon = kind === 'flight' ? '✈' : kind === 'hotel' ? '🏨' : kind === 'car' ? '🚗' : '🍽';
-  return <span className="text-sm" aria-hidden>{icon}</span>;
-}
-
-function TravelScopeBanner() {
-  return (
-    <div className="rounded-lg border border-warn/30 bg-warn/10 px-4 py-3 text-xs text-warn">
-      <strong>Live hotel, car, and restaurant booking is post-beta.</strong> Demo data is shown for hotels, cars, and restaurants. Flights are live when Duffel is configured.
-    </div>
-  );
-}
-
-function bookingTitle(b: TravelBooking) {
-  if (b.kind === 'flight') return `${b.airline} ${b.flightNumber}`;
-  if (b.kind === 'hotel') return b.hotelName;
-  if (b.kind === 'car') return `${b.company} ${b.carType}`;
-  return b.restaurantName;
-}
-
-function bookingSubtitle(b: TravelBooking) {
-  if (b.kind === 'flight') return `${b.origin} → ${b.destination} · ${formatDate(b.departureAt)} ${formatTime(b.departureAt)} – ${formatTime(b.arrivalAt)} · ${b.cabin}`;
-  if (b.kind === 'hotel') return `${formatDate(b.checkIn)} – ${formatDate(b.checkOut)} · ${b.roomType}${b.address ? ` · ${b.address}` : ''}`;
-  if (b.kind === 'car') return `${formatDate(b.pickupAt)} ${formatTime(b.pickupAt)} – ${formatDate(b.dropoffAt)} ${formatTime(b.dropoffAt)} · ${b.pickupLocation}`;
-  return `${formatDate(b.reservationAt)} ${formatTime(b.reservationAt)} · Party of ${b.partySize}${b.cuisine ? ` · ${b.cuisine}` : ''}`;
-}
-
-function SearchDrawer({ kind, onClose, tripId }: { kind: SearchKind; onClose: () => void; tripId?: string }) {
-  const meta = KIND_META[kind];
-  const [params, setParams] = useState<Partial<TravelSearchParams>>({ kind });
-  const [results, setResults] = useState<TravelSearchResult[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [proposing, setProposing] = useState<string | null>(null);
-
-  const search = async () => {
-    setBusy(true);
-    const res = await hermes.searchTravel(params as TravelSearchParams);
-    setResults(res);
-    setBusy(false);
-  };
-
-  const propose = async (result: TravelSearchResult) => {
-    if (!tripId) {
-      toast('error', 'Select a trip first or create a new one.');
-      return;
-    }
-    setProposing(result.id);
-    const res = await hermes.proposeBooking(tripId, result.id);
-    setProposing(null);
-    if (res.ok) {
-      toast('ok', `Proposed ${result.title} — approval created.`);
-      onClose();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Could not create proposal.');
-    }
-  };
-
-  const field = (key: keyof TravelSearchParams, label: string, type = 'text') => (
-    <div>
-      <label className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">{label}</label>
-      <input
-        type={type}
-        value={(params[key] as string | number | undefined) ?? ''}
-        onChange={(e) => setParams((p: Partial<TravelSearchParams>) => ({ ...p, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
-        className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink"
-      />
-    </div>
-  );
-
-  return (
-    <Drawer title={meta.headline} onClose={onClose} width={460}>
-      <div className="space-y-4">
-        <div className="grid gap-3">
-          {meta.fields.includes('origin') && field('origin', 'Origin (airport/city)')}
-          {meta.fields.includes('destination') && field('destination', 'Destination (airport/city)')}
-          {meta.fields.includes('checkIn') && field('checkIn', 'Check-in', 'date')}
-          {meta.fields.includes('checkOut') && field('checkOut', 'Check-out', 'date')}
-          {meta.fields.includes('departureDate') && field('departureDate', 'Pickup / departure', 'date')}
-          {meta.fields.includes('returnDate') && field('returnDate', 'Dropoff / return', 'date')}
-          {meta.fields.includes('date') && field('date', 'Date', 'date')}
-          {meta.fields.includes('pickupLocation') && field('pickupLocation', 'Pickup location')}
-          {meta.fields.includes('dropoffLocation') && field('dropoffLocation', 'Dropoff location')}
-          {meta.fields.includes('partySize') && field('partySize', 'Party size', 'number')}
-        </div>
-        <button onClick={() => void search()} disabled={busy} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-          {busy ? 'Searching…' : 'Search'}
-        </button>
-        {results && (
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Results</div>
-            {results.length === 0 ? (
-              <p className="text-xs text-ink-faint">No results for this search.</p>
-            ) : (
-              results.map((r) => (
-                <div key={r.id} className="rounded-lg border border-edge bg-canvas p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-ink">{r.title}</div>
-                      <div className="text-xs text-ink-dim">{r.subtitle}</div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      {r.priceUsd !== undefined && <div className="text-sm font-semibold text-ink">{r.priceUsd === 0 ? 'Free' : `$${r.priceUsd}`}</div>}
-                      <button
-                        onClick={() => void propose(r)}
-                        disabled={proposing === r.id || !tripId}
-                        className="mt-1 rounded border border-signal/40 px-2 py-1 text-[10px] font-medium text-signal hover:bg-signal/10 disabled:opacity-50"
-                      >
-                        {proposing === r.id ? '…' : 'Propose'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-        {!tripId && <p className="text-xs text-warn">Open this search from a trip card so the proposal lands on the right trip.</p>}
-      </div>
-    </Drawer>
-  );
-}
-
-function TripDrawer({ trip: initialTrip, onClose, onRefresh }: { trip: TravelTrip; onClose: () => void; onRefresh: () => void }) {
-  const [tab, setTab] = useState<'itinerary' | 'confirmations' | 'approvals'>('itinerary');
-  const [searchKind, setSearchKind] = useState<SearchKind | null>(null);
-  const [busyApproval, setBusyApproval] = useState<string | null>(null);
-  const [trip, setTrip] = useState(initialTrip);
-
-  const refreshTrip = async () => {
-    const fresh = await hermes.getTrip(trip.id);
-    if (fresh) setTrip(fresh);
-  };
-
-  useEffect(() => {
-    void refreshTrip();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const decide = async (approval: TravelApproval, decision: 'approved' | 'rejected') => {
-    setBusyApproval(approval.id);
-    const res = await hermes.decideTravelApproval(approval.id, { decision });
-    setBusyApproval(null);
-    if (res.ok) {
-      toast('ok', `${decision === 'approved' ? 'Approved' : 'Rejected'} ${approval.targetObject ?? 'booking'}.`);
-      await refreshTrip();
-      onRefresh();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Decision failed.');
-    }
-  };
-
-  const confirmed = trip.bookings.filter((b) => b.status === 'confirmed');
-  const pendingApprovals = trip.approvals.filter((a) => a.status === 'pending');
-
-  return (
-    <Drawer title={trip.name} onClose={onClose} width={560}>
-      <div className="mb-4 flex items-center justify-between">
-        <div className="text-sm text-ink-dim">{trip.destination} · {formatDate(trip.startsAt)} – {formatDate(trip.endsAt)}</div>
-        <StateBadge label={trip.status} tone={trip.status === 'upcoming' ? 'signal' : trip.status === 'active' ? 'ok' : 'neutral'} />
-      </div>
-
-      <div className="mb-4 flex border-b border-edge">
-        {(['itinerary', 'confirmations', 'approvals'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-2 text-xs font-medium capitalize ${tab === t ? 'border-b-2 border-signal text-signal' : 'text-ink-dim hover:text-ink'}`}
-          >
-            {t} {t === 'confirmations' ? `(${confirmed.length})` : t === 'approvals' ? `(${pendingApprovals.length})` : `(${trip.bookings.length})`}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'itinerary' && (
-        <div className="space-y-3">
-          {trip.bookings.length === 0 ? (
-            <EmptyState title="No bookings yet" hint="Use the top cards on the Travel page to search and propose bookings." />
-          ) : (
-            trip.bookings.map((b) => <BookingRow key={b.id} booking={b} trip={trip} onRefresh={onRefresh} />)
-          )}
-          <div className="flex gap-2 pt-2">
-            <button onClick={() => setSearchKind('flight')} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-canvas-overlay">＋ Flight</button>
-            <button onClick={() => setSearchKind('hotel')} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-canvas-overlay">＋ Hotel</button>
-            <button onClick={() => setSearchKind('car')} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-canvas-overlay">＋ Car</button>
-            <button onClick={() => setSearchKind('restaurant')} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim hover:bg-canvas-overlay">＋ Restaurant</button>
-          </div>
-        </div>
-      )}
-
-      {tab === 'confirmations' && (
-        <div className="space-y-3">
-          {confirmed.length === 0 ? (
-            <EmptyState title="No confirmed bookings" hint="Confirmed bookings appear here once you approve a proposal." />
-          ) : (
-            confirmed.map((b) => <BookingRow key={b.id} booking={b} trip={trip} onRefresh={onRefresh} />)
-          )}
-        </div>
-      )}
-
-      {tab === 'approvals' && (
-        <div className="space-y-3">
-          {pendingApprovals.length === 0 ? (
-            <EmptyState title="No pending approvals" hint="Booking proposals create approvals that appear here." />
-          ) : (
-            pendingApprovals.map((a) => (
-              <div key={a.id} className="rounded-lg border border-edge bg-canvas p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-ink">{a.targetObject ?? 'Travel booking'}</div>
-                    <div className="mt-0.5 text-xs text-ink-dim">{a.targetSystem} · <RiskBadge risk={a.risk} /></div>
-                    {a.payload && <p className="mt-2 whitespace-pre-wrap text-xs text-ink-faint">{a.payload}</p>}
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => void decide(a, 'approved')}
-                    disabled={busyApproval === a.id}
-                    className="rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50"
-                  >
-                    {busyApproval === a.id ? 'Approving…' : 'Approve'}
-                  </button>
-                  <button
-                    onClick={() => void decide(a, 'rejected')}
-                    disabled={busyApproval === a.id}
-                    className="rounded-lg border border-risk/40 px-3 py-1.5 text-xs font-medium text-risk hover:bg-risk/10 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {searchKind && <SearchDrawer kind={searchKind} tripId={trip.id} onClose={() => setSearchKind(null)} />}
-    </Drawer>
-  );
+function DateField({label,value,min,onChange}: {label:string;value:string;min?:string;onChange:(v:string)=>void}) {
+  const [open,setOpen]=useState(false);
+  const [month,setMonth]=useState(()=>new Date());
+  const begin=()=>{setMonth(new Date(`${(value||min||new Date().toISOString().slice(0,10)).slice(0,7)}-01T12:00:00`));setOpen(true);};
+  const year=month.getFullYear(), index=month.getMonth();
+  const first=new Date(year,index,1).getDay(), days=new Date(year,index+1,0).getDate();
+  const iso=(day:number)=>`${year}-${String(index+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+  return <div className="relative">
+    <label className="block text-sm font-medium">{label}<input className={`${fieldClass} [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:hidden`} type="date" required min={min} value={value} onChange={e=>onChange(e.target.value)} onClick={begin} onKeyDown={e=>{if(e.key==='ArrowDown'){e.preventDefault();begin();}if(e.key==='Escape')setOpen(false);}}/></label>
+    <button type="button" onClick={()=>open?setOpen(false):begin()} className="absolute right-3 top-10 rounded px-2 text-signal" aria-label={`Open ${label.toLowerCase()} calendar`}>▦</button>
+    {open&&<div role="dialog" aria-label={`Choose ${label.toLowerCase()}`} className="mt-2 rounded-xl border border-signal/40 bg-canvas-raised p-3 shadow-lg" onKeyDown={e=>{if(e.key==='Escape')setOpen(false);}}>
+      <div className="mb-3 flex items-center justify-between"><button type="button" className="rounded p-2 hover:bg-canvas-overlay" aria-label="Previous month" onClick={()=>setMonth(new Date(year,index-1,1))}>‹</button><span className="text-sm font-medium" aria-live="polite">{month.toLocaleDateString(undefined,{month:'long',year:'numeric'})}</span><button type="button" className="rounded p-2 hover:bg-canvas-overlay" aria-label="Next month" onClick={()=>setMonth(new Date(year,index+1,1))}>›</button></div>
+      <div className="grid grid-cols-7 gap-1">{['S','M','T','W','T','F','S'].map((day,i)=><span key={`weekday-${i}`} className="p-1 text-center text-xs text-ink-faint">{day}</span>)}{Array.from({length:first},(_,i)=><span key={`blank-${i}`}/>)}{Array.from({length:days},(_,i)=>{const day=i+1,date=iso(day);return <button type="button" key={day} aria-label={date} aria-pressed={value===date} disabled={!!min&&date<min} className={`rounded-lg py-2 text-xs hover:bg-signal/20 disabled:opacity-20 ${value===date?'bg-signal text-canvas':'text-ink'}`} onClick={()=>{onChange(date);setOpen(false);}}>{day}</button>;})}</div>
+      <button type="button" className="mt-2 w-full p-1 text-xs text-ink-dim" onClick={()=>setOpen(false)}>Close calendar</button>
+    </div>}
+  </div>;
 }
 
 export default function Travel() {
-  const [trips, setTrips] = useState<TravelTrip[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [openTrip, setOpenTrip] = useState<TravelTrip | null>(null);
-  const [searchKind, setSearchKind] = useState<SearchKind | null>(null);
-  const [newTripOpen, setNewTripOpen] = useState(false);
-  const [agentResult, setAgentResult] = useState<TravelAgentResult | null>(null);
-  const [agentBusy, setAgentBusy] = useState(false);
-  const [agentQuery, setAgentQuery] = useState('');
-  const [agentProposing, setAgentProposing] = useState<string | null>(null);
+  usePageRail(noRail);
+  const [trips,setTrips]=useState<TravelTrip[]>([]);
+  const [trip,setTrip]=useState<TravelTrip|null>(null);
+  const [step,setStep]=useState(0);
+  const [name,setName]=useState('');
+  const [origin,setOrigin]=useState<TravelPlace>();
+  const [destination,setDestination]=useState<TravelPlace>();
+  const [start,setStart]=useState('');
+  const [end,setEnd]=useState('');
+  const [budget,setBudget]=useState('');
+  const [airlines,setAirlines]=useState('');
+  const [hotels,setHotels]=useState('');
+  const [dining,setDining]=useState('');
+  const [needsCar,setNeedsCar]=useState(false);
+  const [car,setCar]=useState<CarPreferences>({driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});
+  const [shortlists,setShortlists]=useState<TravelShortlist[]>([]);
+  const [busy,setBusy]=useState(false);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  const [addPlan,setAddPlan]=useState(false);
+  const [choosing,setChoosing]=useState('');
+  const [plannerKey,setPlannerKey]=useState(0);
+  const [loadError,setLoadError]=useState('');
 
-  const load = async () => {
-    setLoading(true);
-    const rows = await hermes.listTrips();
-    setTrips(rows);
-    setOpenTrip((current) => (current ? rows.find((t) => t.id === current.id) ?? null : null));
-    setLoading(false);
-  };
+  async function loadTrips() {
+    try{setTrips(await hermes.listTrips());setLoadError('');}catch(e){setLoadError(errorText(e));}finally{setLoading(false);}
+  }
+  useEffect(()=>{
+    let active=true;
+    void hermes.listTrips().then(rows=>{if(active){setTrips(rows);setLoading(false);}}).catch(e=>{if(active){setLoadError(errorText(e));setLoading(false);}});
+    return ()=>{active=false;};
+  },[]);
+  async function refresh() {
+    if(!trip)return;
+    try{const fresh=await hermes.getTrip(trip.id);if(fresh)setTrip(fresh);await loadTrips();}catch(e){setError(errorText(e));}
+  }
+  function openTrip(saved:TravelTrip) {
+    setTrip(saved);setName(saved.name);setOrigin(saved.originPlace);setDestination(saved.destinationPlace);setStart(saved.startsAt.slice(0,10));setEnd(saved.endsAt.slice(0,10));setBudget(saved.budgetUsd===undefined?'':String(saved.budgetUsd));setAirlines(saved.preferredAirlines??'');setHotels(saved.preferredHotels??'');setDining(saved.diningPreferences??'');setNeedsCar(saved.needsCar??false);setCar(saved.carPreferences??{driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});setShortlists([]);setError('');setStep(3);setPlannerKey(k=>k+1);
+  }
+  function newTrip() {
+    setTrip(null);setName('');setOrigin(undefined);setDestination(undefined);setStart('');setEnd('');setBudget('');setAirlines('');setHotels('');setDining('');setNeedsCar(false);setCar({driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});setShortlists([]);setError('');setStep(0);setPlannerKey(k=>k+1);
+  }
+  function checkDetails() {
+    if(!origin||!destination){setError('Choose your departure and destination from the city suggestions.');return false;}
+    if(origin.code===destination.code){setError('Choose a different destination from your departure airport.');return false;}
+    if(!start||!end||end<start){setError('Choose departure and return dates, with return on or after departure.');return false;}
+    setError('');return true;
+  }
+  async function findOptions() {
+    if(!checkDetails()){setStep(0);return;}
+    if(budget && (!Number.isFinite(Number(budget))||Number(budget)<0)){setError('Enter a positive budget, or leave it blank.');return;}
+    if(needsCar&&(!Number.isInteger(car.driverAge)||car.driverAge<18||car.driverAge>100)){setError('Enter the driver’s age at pickup (18–100) to find rental cars.');return;}
+    setBusy(true);setError('');setShortlists([]);setStep(2);
+    try {
+      const input:CreateTripInput={name:name.trim()||`${destination!.city} trip`,destination:destination!.city,originPlace:origin,destinationPlace:destination,startsAt:start,endsAt:end,budgetUsd:budget?Number(budget):undefined,preferredAirlines:airlines,preferredHotels:hotels,diningPreferences:dining,needsCar,carPreferences:needsCar?car:undefined};
+      const saved=trip ? await hermes.updateTravelTrip(trip.id,input) : await hermes.createTrip(input);
+      if(!saved.ok||!saved.data)throw new Error(saved.error?.safeMessage??'Could not save this trip.');
+      setTrip(saved.data);
+      await loadTrips();
+      setShortlists(await hermes.travelRecommendations(saved.data.id));
+    }catch(e){setError(errorText(e));}finally{setBusy(false);}
+  }
+  async function choose(result:TravelSearchResult) {
+    if(!trip||choosing)return;
+    setChoosing(result.id);setError('');
+    try {
+      const saved=await hermes.chooseTravelOption(trip.id,result.id);
+      if(!saved.ok)throw new Error(saved.error?.safeMessage??'Could not save this choice.');
+      await refresh();
+    }catch(e){setError(errorText(e));}finally{setChoosing('');}
+  }
+  async function approvePlan(b:TravelBooking) {
+    const approval=trip?.approvals.find(a=>a.bookingId===b.id&&a.status==='pending');if(!approval)return;
+    setChoosing(b.id);setError('');
+    try{const result=await hermes.decideTravelApproval(approval.id,{decision:'approved'});if(!result.ok)throw new Error(result.error?.safeMessage);await refresh();}catch(e){setError(errorText(e));}finally{setChoosing('');}
+  }
+  const activeBookings=trip?.bookings.filter(b=>b.status!=='cancelled')??[];
+  const optionsFor=(kind:TravelShortlist['kind'])=>shortlists.find(s=>s.kind===kind);
+  const total=activeBookings.reduce((sum,b)=>sum+(b.currency==='USD'?Number(b.amount??0):b.costUsd??0),0);
 
-  const runAgent = async () => {
-    const q = agentQuery.trim();
-    if (!q) return;
-    setAgentBusy(true);
-    setAgentResult(null);
-    const res = await hermes.travelAgent(q);
-    setAgentResult(res);
-    setAgentBusy(false);
-  };
-
-  const proposeAgentResult = async (result: TravelSearchResult) => {
-    const firstTrip = upcoming[0];
-    if (!firstTrip) {
-      toast('error', 'Create a trip first before proposing bookings.');
-      return;
-    }
-    setAgentProposing(result.id);
-    const res = await hermes.proposeBooking(firstTrip.id, result.id);
-    setAgentProposing(null);
-    if (res.ok) {
-      toast('ok', `Proposed ${result.title} on "${firstTrip.name}".`);
-      await load();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Could not create proposal.');
-    }
-  };
-
-  const handleAgentKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      void runAgent();
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const upcoming = useMemo(() => trips.filter((t) => ['planning', 'upcoming', 'active'].includes(t.status)).sort((a, b) => a.startsAt.localeCompare(b.startsAt)), [trips]);
-  const pendingApprovals = useMemo(() => trips.flatMap((t) => t.approvals.filter((a) => a.status === 'pending')), [trips]);
-
-  const railSections = useMemo<RailSectionDef[]>(
-    () => [
-      {
-        key: 'travel-upcoming',
-        title: 'Upcoming trips',
-        count: upcoming.length,
-        node: (
-          <ul className="space-y-1.5">
-            {upcoming.length === 0 ? (
-              <li className="px-2 text-xs text-ink-faint">No upcoming trips.</li>
-            ) : (
-              upcoming.map((t) => (
-                <li key={t.id}>
-                  <button onClick={() => setOpenTrip(t)} className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay">
-                    <div className="truncate text-xs font-medium text-ink">{t.name}</div>
-                    <div className="text-[11px] text-ink-faint">{formatDate(t.startsAt)} · {t.bookings.filter((b) => b.status === 'confirmed').length}/{t.bookings.length} confirmed</div>
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-        ),
-      },
-      {
-        key: 'travel-approvals',
-        title: 'Pending approvals',
-        count: pendingApprovals.length,
-        node: (
-          <ul className="space-y-1.5">
-            {pendingApprovals.length === 0 ? (
-              <li className="px-2 text-xs text-ok">No pending travel approvals.</li>
-            ) : (
-              pendingApprovals.map((a) => (
-                <li key={a.id}>
-                  <button onClick={() => {
-                    const trip = trips.find((t) => t.id === a.tripId);
-                    if (trip) setOpenTrip(trip);
-                  }} className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay">
-                    <div className="truncate text-xs font-medium text-ink">{a.targetObject ?? 'Travel booking'}</div>
-                    <div className="text-[11px] text-ink-faint">{a.targetSystem} · <span className="text-warn">{a.risk} risk</span></div>
-                  </button>
-                </li>
-              ))
-            )}
-          </ul>
-        ),
-      },
-    ],
-    [upcoming, pendingApprovals, trips],
-  );
-  usePageRail(railSections);
-
-  return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Travel</h1>
-        <p className="mt-1 text-sm text-ink-dim">Flights, hotels, cars, and restaurants for upcoming trips. Proposed bookings become approvals before any purchase.</p>
-      </header>
-
-      {/* Ask Ally natural-language travel search */}
-      <div className="rounded-xl border border-signal/20 bg-signal/[0.04] p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <span className="text-sm" aria-hidden>🤖</span>
-          <span className="text-xs font-semibold uppercase tracking-wider text-signal">Ask {AGENT_NAME}</span>
-        </div>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={agentQuery}
-            onChange={(e) => setAgentQuery(e.target.value)}
-            onKeyDown={handleAgentKeyDown}
-            placeholder='Try "flights BHM to BTR Sep 15–17" or "restaurants in New York on Friday for 4"'
-            className="min-w-0 flex-1 rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink placeholder:text-ink-faint"
-            disabled={agentBusy}
-          />
-          <button
-            onClick={() => void runAgent()}
-            disabled={agentBusy || !agentQuery.trim()}
-            className="shrink-0 rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50"
-          >
-            {agentBusy ? 'Searching…' : 'Search'}
-          </button>
-        </div>
-        {agentResult && (
-          <div className="mt-3 space-y-2">
-            <div className="flex items-start gap-2">
-              {agentResult.kind ? (
-                <span className="text-xs text-ink-dim">{agentResult.summary}</span>
-              ) : (
-                <span className="text-xs text-warn">{agentResult.summary}</span>
-              )}
-            </div>
-            {agentResult.results.length > 0 && (
-              <div className="space-y-1.5">
-                {agentResult.results.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-edge bg-canvas px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-ink">{r.title}</div>
-                      <div className="text-xs text-ink-dim">{r.subtitle}</div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {r.priceUsd !== undefined && (
-                        <span className="text-sm font-semibold text-ink">{r.priceUsd === 0 ? 'Free' : `$${r.priceUsd}`}</span>
-                      )}
-                      <button
-                        onClick={() => void proposeAgentResult(r)}
-                        disabled={agentProposing === r.id}
-                        className="rounded border border-signal/40 px-2 py-1 text-[10px] font-medium text-signal hover:bg-signal/10 disabled:opacity-50"
-                      >
-                        {agentProposing === r.id ? '…' : 'Propose'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {agentResult.kind && agentResult.results.length === 0 && !agentBusy && (
-              <p className="text-xs text-ink-faint">Use the search cards below or try a different query.</p>
-            )}
-          </div>
-        )}
+  return <div className="mx-auto max-w-6xl space-y-6 pb-10">
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div><p className="text-xs font-semibold uppercase tracking-widest text-signal">Travel with {AGENT_NAME}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Let’s plan your next trip.</h1><p className="mt-2 max-w-2xl text-sm text-ink-dim">Tell me where you’re going. I’ll narrow the choices so you can focus on the trip.</p></div>
+      {trip&&<button className={secondary} disabled={busy||!!choosing} onClick={newTrip}>Plan another trip</button>}
+    </header>
+    {travelMode==='mock' ? <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">Design preview · example recommendations, not live availability.</p> : import.meta.env.VITE_TRAVEL_LIVE==='1' && <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">Test mode · provider prices and bookings are sandbox examples. Your trip plans are saved.</p>}
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="min-w-0 space-y-5">
+        <ol aria-label="Planning progress" className="grid grid-cols-4 gap-2">{steps.map((label,i)=><li key={label} aria-current={step===i?'step':undefined} className={`border-t-2 pt-3 text-xs ${step===i?'border-signal font-semibold text-signal':'border-edge text-ink-faint'}`}><span className="mr-1.5">{i+1}.</span>{label}</li>)}</ol>
+        {error&&<div role="alert" className="rounded-xl border border-risk/30 bg-risk/10 p-4 text-sm text-risk">{error}</div>}
+        {step===0&&<Card className="space-y-6 p-6 md:p-8">
+          <div><h2 className="text-xl font-semibold">Where are we going?</h2><p className="mt-1 text-sm text-ink-dim">Choose the cities and dates. I’ll use these for all your searches.</p></div>
+          {trip&&!destination&&<p className="text-sm text-ink-dim">Your saved destination is {trip.destination}. Select its airport below to find flights.</p>}
+          <div key={plannerKey} className="grid gap-5 md:grid-cols-2"><TravelCityPicker label="Leaving from" value={origin} onChange={setOrigin}/><TravelCityPicker label="Going to" value={destination} onChange={setDestination}/></div>
+          <div className="grid gap-5 md:grid-cols-2"><DateField label="Departure date" value={start} onChange={setStart}/><DateField label="Return date" value={end} min={start} onChange={setEnd}/></div>
+          <label className="block text-sm font-medium">Trip name <span className="font-normal text-ink-faint">(optional)</span><input className={fieldClass} value={name} onChange={e=>setName(e.target.value)} placeholder="For example, Baton Rouge visit"/></label>
+          <p className="text-xs text-ink-faint">This first booking flow supports one adult. Nothing is purchased while you plan.</p>
+          <button className={primary} onClick={()=>{if(checkDetails())setStep(1);}}>Continue to preferences →</button>
+        </Card>}
+        {step===1&&<Card className="space-y-6 p-6 md:p-8">
+          <div><h2 className="text-xl font-semibold">What makes a good trip for you?</h2><p className="mt-1 text-sm text-ink-dim">Share the preferences that matter to you. If you need a car, we’ll also need driver details for accurate rates.</p></div>
+          <label className="block text-sm font-medium">Total trip budget (USD)<input className={fieldClass} type="number" min="0" value={budget} onChange={e=>setBudget(e.target.value)} placeholder="For example, 1,500"/></label>
+          <div className="grid gap-5 md:grid-cols-2"><label className="block text-sm font-medium">Preferred airlines<input className={fieldClass} value={airlines} onChange={e=>setAirlines(e.target.value)} placeholder="Any airline, or your favorites"/></label><label className="block text-sm font-medium">Preferred hotels<input className={fieldClass} value={hotels} onChange={e=>setHotels(e.target.value)} placeholder="Any hotel, or IHG, Hilton…"/></label></div>
+          <label className="block text-sm font-medium">Dining preferences<textarea className={fieldClass} rows={2} value={dining} onChange={e=>setDining(e.target.value)} placeholder="Seafood, casual dinners, dietary needs…"/></label>
+          <fieldset><legend className="text-sm font-medium">Will you need a rental car?</legend><div className="mt-3 flex gap-3">{[false,true].map(v=><label key={String(v)} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-5 py-3 text-sm ${needsCar===v?'border-signal bg-signal/10':'border-edge'}`}><input type="radio" name="car-needed" checked={needsCar===v} onChange={()=>setNeedsCar(v)}/>{v?'Yes, include a car':'No, I’m covered'}</label>)}</div></fieldset>
+          {needsCar&&<div className="space-y-3 rounded-xl border border-edge p-4"><p className="text-sm text-ink-dim">Pickup and return near your destination airport, on your trip dates. Times are local to the rental location.</p><div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-sm">Driver’s age at pickup<input className={fieldClass} type="number" min="18" max="100" value={car.driverAge||''} onChange={e=>setCar({...car,driverAge:Number(e.target.value)})}/></label>
+            <label className="text-sm">Driver’s country of residence<select className={fieldClass} value={car.residenceCountry} onChange={e=>setCar({...car,residenceCountry:e.target.value})}>{[['US','United States'],['CA','Canada'],['GB','United Kingdom'],['MX','Mexico'],['AU','Australia'],['FR','France'],['DE','Germany']].map(([code,name])=><option value={code} key={code}>{name}</option>)}</select></label>
+            <label className="text-sm">Car pickup time<input className={fieldClass} type="time" value={car.pickupTime} onChange={e=>setCar({...car,pickupTime:e.target.value})}/></label>
+            <label className="text-sm">Car return time<input className={fieldClass} type="time" value={car.dropoffTime} onChange={e=>setCar({...car,dropoffTime:e.target.value})}/></label>
+          </div>{import.meta.env.VITE_TRAVEL_SANDBOX==='1'&&<label className="flex items-start gap-2 text-xs text-warn"><input type="checkbox" checked={car.useTestLocation??false} onChange={e=>setCar({...car,useTestLocation:e.target.checked})}/>Use Duffel’s sample car location to test checkout. These cars are not at your destination and cannot create a real rental.</label>}</div>}
+          <div className="flex flex-wrap justify-between gap-3"><button className={secondary} onClick={()=>setStep(0)}>← Back</button><button className={primary} disabled={busy} onClick={()=>void findOptions()}>Find my options →</button></div>
+        </Card>}
+        {step===2&&<div className="space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">A few choices, picked for your trip.</h2><p className="mt-1 text-sm text-ink-dim">Up to three options in each category, sorted using your preferences and available prices.</p></div><button disabled={busy} className={secondary} onClick={()=>setStep(0)}>Edit trip details</button></div>
+          {busy&&<div role="status" className="rounded-xl border border-signal/30 bg-signal/5 p-6"><p className="font-medium">Finding options for {destination?.city}…</p><p className="mt-2 text-sm text-ink-dim">Checking flights, hotels, restaurants, and any requested rental cars. Your trip is saved; no purchases are being made.</p></div>}
+          {!busy&&(['flight','hotel','restaurant',...(needsCar?['car' as const]:[])] as const).map(kind=>{
+            const group=optionsFor(kind), labels={flight:'Flights',hotel:'Hotels',restaurant:'Restaurants',car:'Rental cars'};
+            return <section key={kind} className="space-y-3" aria-label={labels[kind]}>
+              <h3 className="text-lg font-semibold">{labels[kind]} <span className="ml-2 text-xs font-normal text-ink-faint">{group?.options.length??0} options</span></h3>
+              {!!group?.options.length&&group.notice&&<p className="text-sm text-ink-dim">{group.notice}</p>}
+              {!!group?.options.length&&<div className="grid gap-3 lg:grid-cols-3">{group.options.map((option,i)=>{
+                const selected=activeBookings.some(b=>b.offerId===option.id);
+                return <Card key={option.id} className={`flex flex-col p-4 ${selected?'border-signal':''}`}><p className="text-[11px] uppercase tracking-wide text-signal">{selected?'Added to itinerary':`Option ${i+1}`}</p><h4 className="mt-2 text-base font-semibold">{option.title}</h4><p className="mt-2 text-sm font-semibold">{option.amount?`${option.currency} ${option.amount}`:option.priceUsd!==undefined?`USD ${option.priceUsd}`:'Price not supplied'}{option.testMode?' · TEST':''}</p>{kind==='car'&&<p className="mt-2 text-xs text-ink-dim">{option.subtitle}<br/>Pickup: {option.meta.pickupLocation}<br/>{option.meta.pickupAt?.replace('T',' ')} → {option.meta.dropoffAt?.replace('T',' ')}</p>}{kind==='flight'&&option.meta.departureAt&&<div className="mt-3 space-y-1 text-sm"><p>Out: {dateLabel(option.meta.departureAt)} · {option.meta.departureAt.slice(11,16)}–{option.meta.arrivalAt?.slice(11,16)}</p>{option.meta.returnDepartureAt&&<p>Back: {dateLabel(option.meta.returnDepartureAt)} · {option.meta.returnDepartureAt.slice(11,16)}–{option.meta.returnArrivalAt?.slice(11,16)}</p>}<p className="text-xs text-ink-dim">{option.meta.stops==='0'?'Nonstop outbound':option.meta.stops?`${option.meta.stops} outbound connection(s)`:''} · Times local to each airport</p></div>}<p className="mt-2 text-xs text-ink-dim">{option.reason}</p><details className="my-3 text-xs"><summary className="cursor-pointer text-signal">View itinerary details</summary><p className="mt-2 whitespace-pre-wrap">{option.subtitle}</p></details><button className={`${selected?secondary:primary} mt-auto w-full`} disabled={!!choosing||selected} onClick={()=>void choose(option)}>{choosing===option.id?'Adding…':selected?'Selected':'Choose this option'}</button></Card>;
+              })}</div>}
+              {!group?.options.length&&<div className="rounded-xl border border-edge bg-canvas-raised p-4"><p className="text-sm">{group?.notice || (kind==='flight'?'No flight options to show yet. Try different dates or retry the search.':kind==='hotel'?'Your hotel preference is saved. You can choose a hotel on its website and add the confirmation to this itinerary.':'Your dining preferences are saved. Restaurant suggestions and table availability still need a connected source.')}</p>{kind!=='flight'&&<a className="mt-3 inline-block text-sm text-signal underline" href={kind==='hotel'?'https://www.kayak.com/hotels':kind==='car'?'https://www.kayak.com/cars':'https://www.opentable.com/'} target="_blank" rel="noreferrer">{kind==='hotel'?'Search hotels on Kayak':kind==='car'?'Search cars on Kayak':'Search restaurants on OpenTable'} ↗</a>}</div>}
+            </section>;
+          })}
+          {!busy&&<div className="flex flex-wrap justify-between gap-3"><button className={secondary} disabled={!!choosing} onClick={()=>void findOptions()}>Refresh options</button><button disabled={!trip||!!choosing} className={primary} onClick={()=>setStep(3)}>Review my itinerary →</button></div>}
+        </div>}
+        {step===3&&trip&&<div className="space-y-5">
+          <div><h2 className="text-2xl font-semibold">{trip.name}</h2><p className="mt-1 text-sm text-ink-dim">{trip.destination} · {dateLabel(trip.startsAt)}–{dateLabel(trip.endsAt)}</p><p className="mt-2 text-sm text-ink-dim">Your choices, checkout, and confirmations are all here. Selecting an option does not purchase it.</p></div>
+          <div className="flex flex-wrap gap-3"><button className={primary} onClick={()=>{setStep(shortlists.length?2:0);setError('');}}>{shortlists.length?'Back to my options':'Find options for this trip'}</button><button className={secondary} onClick={()=>setAddPlan(true)}>Add an external reservation</button></div>
+          {activeBookings.length===0?<Card className="p-8 text-center"><h3 className="text-lg font-medium">Your itinerary is ready to fill.</h3><p className="mt-2 text-sm text-ink-dim">Start with “Find options for this trip.” Your dates and preferences are already filled in.</p></Card>:<div className="space-y-3">{[...activeBookings].sort((a,b)=>bookingDate(a).localeCompare(bookingDate(b))).map(b=><Card key={b.id} className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs uppercase tracking-wider text-ink-faint">{b.kind} · {dateLabel(bookingDate(b))}</p><h3 className="mt-1 font-semibold">{title(b)}</h3></div><span className="rounded-full border border-edge px-3 py-1 text-xs">{b.status==='confirmed'?(b.testMode?'Test confirmation':'Booked'):b.status==='recorded'?'Confirmation recorded':b.status==='approved'?'Selected · not booked':b.status}</span></div>{b.status==='proposed'&&<button className={`${secondary} mt-3`} disabled={!!choosing} onClick={()=>void approvePlan(b)}>Use this plan</button>}<TravelBookingActions booking={b} onRefresh={()=>void refresh()}/></Card>)}</div>}
+          {addPlan&&<PlanDrawer trip={trip} onClose={()=>setAddPlan(false)} onSaved={()=>void refresh()}/>}
+        </div>}
       </div>
-
-      <TravelScopeBanner />
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <button onClick={() => setSearchKind('flight')} className="rounded-xl border border-edge bg-canvas-raised p-5 text-left hover:border-signal/40 hover:bg-canvas-overlay">
-          <div className="text-2xl" aria-hidden>✈</div>
-          <div className="mt-2 text-sm font-semibold">Flights</div>
-          <div className="text-xs text-ink-dim">Search and propose flight itineraries.</div>
-        </button>
-        <button onClick={() => setSearchKind('hotel')} className="rounded-xl border border-edge bg-canvas-raised p-5 text-left hover:border-signal/40 hover:bg-canvas-overlay">
-          <div className="text-2xl" aria-hidden>🏨</div>
-          <div className="mt-2 text-sm font-semibold">Hotels & Cars</div>
-          <div className="text-xs text-ink-dim">Search hotels and rental cars.</div>
-        </button>
-        <button onClick={() => setSearchKind('restaurant')} className="rounded-xl border border-edge bg-canvas-raised p-5 text-left hover:border-signal/40 hover:bg-canvas-overlay">
-          <div className="text-2xl" aria-hidden>🍽</div>
-          <div className="mt-2 text-sm font-semibold">Restaurants</div>
-          <div className="text-xs text-ink-dim">Find and reserve restaurants.</div>
-        </button>
-      </div>
-
-      <Card className="p-5">
-        <SectionTitle right={
-          <button onClick={() => setNewTripOpen(true)} className="rounded-lg bg-signal px-3 py-1.5 text-xs font-semibold text-canvas hover:bg-signal/90">New trip</button>
-        }>Upcoming trips</SectionTitle>
-        {loading ? (
-          <p className="text-xs text-ink-faint">Loading trips…</p>
-        ) : upcoming.length === 0 ? (
-          <EmptyState title="No trips yet" hint="Create a trip, then search flights, hotels, cars, and restaurants." />
-        ) : (
-          <ul className="grid gap-3 md:grid-cols-2">
-            {upcoming.map((t) => (
-              <li key={t.id}>
-                <button onClick={() => setOpenTrip(t)} className="w-full rounded-lg border border-edge bg-canvas p-4 text-left hover:border-signal/40">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-sm font-semibold text-ink">{t.name}</span>
-                    <StateBadge label={t.status} tone={t.status === 'active' ? 'ok' : t.status === 'upcoming' ? 'signal' : 'neutral'} />
-                  </div>
-                  <div className="mt-1 text-xs text-ink-dim">{t.destination}</div>
-                  <div className="mt-2 flex items-center gap-3 text-[11px] text-ink-faint">
-                    <span>{formatDate(t.startsAt)} – {formatDate(t.endsAt)}</span>
-                    <span>{t.bookings.filter((b) => b.status === 'confirmed').length} confirmed</span>
-                    {t.approvals.filter((a) => a.status === 'pending').length > 0 && (
-                      <span className="text-warn">{t.approvals.filter((a) => a.status === 'pending').length} pending</span>
-                    )}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      {searchKind && <SearchDrawer kind={searchKind} onClose={() => setSearchKind(null)} />}
-      {openTrip && <TripDrawer trip={openTrip} onClose={() => setOpenTrip(null)} onRefresh={() => void load()} />}
-      {newTripOpen && <NewTripDrawer onClose={() => setNewTripOpen(false)} onCreated={() => void load()} />}
+      <aside className="space-y-4 xl:sticky xl:top-5">
+        <Card className="p-5"><h2 className="text-xs font-semibold uppercase tracking-widest text-ink-dim">Your trip at a glance</h2><p className="mt-4 text-lg font-semibold">{destination?.city||trip?.destination||'Your next destination'}</p><p className="mt-1 text-sm text-ink-dim">{origin?`From ${origin.city}`:'Choose your departure city'}</p><p className="mt-2 text-sm">{start&&end?`${dateLabel(start)}–${dateLabel(end)}`:'Choose your dates'}</p><dl className="mt-4 space-y-2 border-t border-edge pt-4 text-xs"><div className="flex justify-between"><dt className="text-ink-dim">Budget</dt><dd>{budget?`USD ${budget}`:'Flexible'}</dd></div><div className="flex justify-between"><dt className="text-ink-dim">Rental car</dt><dd>{needsCar?'Yes':'No'}</dd></div><div className="flex justify-between"><dt className="text-ink-dim">Selected USD prices</dt><dd>USD {total.toFixed(2)}</dd></div></dl><p className="mt-3 text-xs text-ink-faint">Selected prices are not a complete trip total. Meals, local fees, and other currencies may be additional.</p></Card>
+        <Card className="p-5"><h2 className="text-sm font-semibold">Saved trips</h2>{loadError?<p role="alert" className="mt-3 text-xs text-risk">{loadError} <button className="underline" onClick={()=>void loadTrips()}>Retry</button></p>:loading?<p className="mt-3 text-xs text-ink-dim">Loading trips…</p>:trips.length===0?<p className="mt-3 text-xs text-ink-dim">Your plans will appear here.</p>:<ul className="mt-3 space-y-2">{trips.map(t=><li key={t.id}><button disabled={busy||!!choosing} className={`w-full rounded-lg p-2 text-left ${trip?.id===t.id?'bg-signal/10 text-signal':'hover:bg-canvas-overlay'}`} onClick={()=>openTrip(t)}><span className="block text-sm font-medium">{t.name}</span><span className="text-xs text-ink-dim">{dateLabel(t.startsAt)}–{dateLabel(t.endsAt)}</span></button></li>)}</ul>}</Card>
+      </aside>
     </div>
-  );
-}
-
-function NewTripDrawer({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState('');
-  const [destination, setDestination] = useState('');
-  const [startsAt, setStartsAt] = useState('');
-  const [endsAt, setEndsAt] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const submit = async () => {
-    if (!name.trim() || !destination.trim() || !startsAt || !endsAt) {
-      toast('error', 'All fields are required.');
-      return;
-    }
-    setBusy(true);
-    const res = await hermes.createTrip({ name: name.trim(), destination: destination.trim(), startsAt, endsAt });
-    setBusy(false);
-    if (res.ok) {
-      toast('ok', `Created trip "${name.trim()}".`);
-      onCreated();
-      onClose();
-    } else {
-      toast('error', res.error?.safeMessage ?? 'Could not create trip.');
-    }
-  };
-
-  return (
-    <Drawer title="New trip" onClose={onClose}>
-      <div className="space-y-4">
-        <div>
-          <label htmlFor="trip-name" className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Trip name</label>
-          <input id="trip-name" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink" placeholder="Q4 board trip" />
-        </div>
-        <div>
-          <label htmlFor="trip-destination" className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Destination</label>
-          <input id="trip-destination" value={destination} onChange={(e) => setDestination(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink" placeholder="Baton Rouge, LA" />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="trip-starts" className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Starts</label>
-            <input id="trip-starts" type="date" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink" />
-          </div>
-          <div>
-            <label htmlFor="trip-ends" className="text-[11px] font-medium uppercase tracking-wider text-ink-faint">Ends</label>
-            <input id="trip-ends" type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink" />
-          </div>
-        </div>
-        <button onClick={() => void submit()} disabled={busy} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-          {busy ? 'Creating…' : 'Create trip'}
-        </button>
-      </div>
-    </Drawer>
-  );
+  </div>;
 }

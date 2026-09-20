@@ -69,6 +69,8 @@ async function installFixture(t, failure = '') {
   for (const name of sentinels) write(join(root, name), `keep:${name}`);
   const hermesHome = join(dir, 'hermes'); mkdirSync(hermesHome);
   const state = new DatabaseSync(join(hermesHome, 'state.db')); state.exec("PRAGMA journal_mode=WAL; CREATE TABLE customer_records (text); INSERT INTO customer_records VALUES ('keep chat');"); state.close();
+  mkdirSync(join(root, 'travel-data'));
+  const travel = new DatabaseSync(join(root, 'travel-data/travel.db')); travel.exec("CREATE TABLE trips (body TEXT); INSERT INTO trips VALUES ('custom itinerary and confirmation');"); travel.close();
   let activeRoot = root; const calls = [];
   const opts = { codeRoot: root, dataRoot: root, repoRoot: root, hermesHome, stateDir: join(hermesHome, 'eaios'), releasesDir: join(dir, 'releases'), fetcher: async () => Response.json(release), idleCheck: () => {},
     healthFetcher: async () => Response.json({ current: JSON.parse(readFileSync(join(activeRoot, 'app/dist/version.json'), 'utf8')) }),
@@ -102,9 +104,10 @@ for (const failure of ['', 'manifest', 'build', 'dependencies', 'verification'])
     assert.equal(readFileSync(join(f.root, 'playbooks/owned.md'), 'utf8'), 'Customer-authored playbook');
     assert.equal(git(f.root, 'rev-parse', 'HEAD'), f.a, 'original checkout was not changed');
     const db = new DatabaseSync(join(f.opts.hermesHome, 'state.db')); assert.equal(db.prepare('SELECT text FROM customer_records').get().text, 'keep chat'); db.close();
+    const travel = new DatabaseSync(join(f.root, 'travel-data/travel.db')); assert.equal(travel.prepare('SELECT body FROM trips').get().body, 'custom itinerary and confirmation'); travel.close();
     if (failure === 'verification') { assert.equal(f.active(), f.root); assert.equal(getUpdateStatus(f.opts, '0.1.0').install.recovered, true); }
     else if (failure) assert.equal(f.calls.some(call => call.command === 'systemctl'), false);
-    else { assert.notEqual(f.active(), f.root); assert.equal(getUpdateStatus(f.opts, '0.2.0').status, 'current'); assert.ok(readdirSync(join(f.opts.stateDir, 'release-backups')).length); }
+    else { assert.notEqual(f.active(), f.root); assert.equal(getUpdateStatus(f.opts, '0.2.0').status, 'current'); assert.ok(readdirSync(join(f.opts.stateDir, 'release-backups')).length); const backupDir = getUpdateStatus(f.opts, '0.2.0').install.backupDir; const backup = new DatabaseSync(join(backupDir, 'travel.db'), {readOnly:true}); assert.equal(backup.prepare('SELECT body FROM trips').get().body, 'custom itinerary and confirmation'); backup.close(); }
   });
 }
 test('expired checks and changed release identities cannot install', async t => {

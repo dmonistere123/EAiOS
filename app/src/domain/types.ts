@@ -450,9 +450,22 @@ export interface AgentChannel {
 // ---------- Travel (F31) ----------
 
 export type TravelBookingKind = 'flight' | 'hotel' | 'car' | 'restaurant';
-export type TravelBookingStatus = 'proposed' | 'confirmed' | 'cancelled';
+export type TravelBookingStatus = 'proposed' | 'approved' | 'submitting' | 'unknown' | 'failed' | 'recorded' | 'confirmed' | 'cancelled';
 
 interface TravelBookingBase {
+  offerId?: string;
+  amount?: string;
+  currency?: string;
+  testMode?: boolean;
+  providerId?: string;
+  attemptId?: string;
+  outcomeMessage?: string;
+  details?: string;
+  confirmationEvidence?: string;
+  title?: string;
+  notes?: string;
+  confirmationSource?: 'manual' | 'provider';
+  confirmedAt?: string;
   id: string;
   tripId: string;
   kind: TravelBookingKind;
@@ -484,6 +497,10 @@ export interface TravelHotel extends TravelBookingBase {
 }
 
 export interface TravelCar extends TravelBookingBase {
+  driverAge?: number;
+  residenceCountry?: string;
+  quoteId?: string;
+  driverName?: string;
   kind: 'car';
   company: string;
   carType: string;
@@ -520,6 +537,14 @@ export interface TravelApproval {
 }
 
 export interface TravelTrip {
+  originPlace?: import('./travelGuide.ts').TravelPlace;
+  destinationPlace?: import('./travelGuide.ts').TravelPlace;
+  needsCar?: boolean;
+  carPreferences?: import('./travelGuide.ts').CarPreferences;
+  budgetUsd?: number;
+  preferredAirlines?: string;
+  preferredHotels?: string;
+  diningPreferences?: string;
   id: string;
   name: string;
   destination: string;
@@ -531,6 +556,7 @@ export interface TravelTrip {
 }
 
 export interface TravelAgentResult {
+  draft?: Partial<import('../adapters/interfaces.ts').CreateTripInput>;
   /** Natural language summary of the search outcome. */
   summary: string;
   /** The search kind that was executed (null if the query wasn't a travel search). */

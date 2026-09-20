@@ -43,6 +43,7 @@ export async function backupPersistentData(options, backupDir) {
     [join(options.hermesHome, 'state.db'), 'hermes-state.db'],
     [join(options.hermesHome, 'kanban.db'), 'hermes-kanban.db'],
     [join(knowledgeDir(options), 'knowledge.db'), 'knowledge.db'],
+    [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
   ]) {
     if (!existsSync(source)) continue;
     const db = new DatabaseSync(source, { readOnly: true });

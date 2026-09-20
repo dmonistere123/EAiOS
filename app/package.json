@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:sidecar": "../sidecar/.venv/bin/python -m unittest discover -s ../sidecar -p 'test_*.py' -v",
-    "start": "node server/prod.ts"
+    "start": "node server/prod.ts",
+    "dev:mock": "vite --config vite.mock.config.ts",
+    "dev:travel": "node --env-file-if-exists=../.local/duffel-test.env ./node_modules/vite/bin/vite.js --config vite.travel.config.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

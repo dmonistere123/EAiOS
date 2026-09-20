@@ -1,3 +1,5 @@
+import type { TravelPlace, TravelShortlist } from '../domain/travelGuide.ts';
+import type { TravelPlanInput, TravelAction } from '../domain/travelPlan.ts';
 /**
  * Adapter contracts — from the build planner §6.
  * Page components NEVER import Hermes/Composio/calendar/RAG SDKs.
@@ -265,6 +267,12 @@ export interface HermesAdapter {
   startNewAssistantChat(agentId?: string): Promise<AuditResult>;
 
   // ---------- Travel (F31) ----------
+  chooseTravelOption(tripId: string, resultId: string): Promise<AuditResult<TravelBooking>>;
+  travelPlaces(query: string): Promise<TravelPlace[]>;
+  travelRecommendations(tripId: string): Promise<TravelShortlist[]>;
+  updateTravelTrip(tripId: string, input: CreateTripInput): Promise<AuditResult<TravelTrip>>;
+  addTravelPlan(tripId: string, input: TravelPlanInput): Promise<AuditResult<TravelBooking>>;
+  travelAction(tripId: string, bookingId: string, action: TravelAction): Promise<AuditResult<TravelBooking>>;
   listTrips(): Promise<TravelTrip[]>;
   getTrip(id: string): Promise<TravelTrip | null>;
   searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]>;
@@ -276,6 +284,14 @@ export interface HermesAdapter {
 }
 
 export interface CreateTripInput {
+  originPlace?: TravelPlace;
+  destinationPlace?: TravelPlace;
+  needsCar?: boolean;
+  carPreferences?: import('./../domain/travelGuide.ts').CarPreferences;
+  budgetUsd?: number;
+  preferredAirlines?: string;
+  preferredHotels?: string;
+  diningPreferences?: string;
   name: string;
   destination: string;
   startsAt: string;
@@ -283,6 +299,9 @@ export interface CreateTripInput {
 }
 
 export interface TravelSearchParams {
+  carPreferences?: import('../domain/travelGuide.ts').CarPreferences;
+  latitude?: number;
+  longitude?: number;
   kind: 'flight' | 'hotel' | 'car' | 'restaurant';
   origin?: string;
   destination?: string;
@@ -297,6 +316,9 @@ export interface TravelSearchParams {
 }
 
 export interface TravelSearchResult {
+  amount?: string;
+  currency?: string;
+  testMode?: boolean;
   id: string;
   kind: TravelSearchParams['kind'];
   title: string;

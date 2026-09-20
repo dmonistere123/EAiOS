@@ -47,6 +47,7 @@ const NAV = [
   { to: '/travel', label: 'Travel (RM)', icon: '✈' },
   { to: '/knowledge', label: 'Knowledge', icon: '❖' },
   { to: '/podcasts', label: 'Podcasts', icon: '❚❚' },
+  { to: 'https://vistasocial.com/dashboard', label: 'Social Media', icon: '↗', external: true },
   { to: '/skills', label: 'Skills & Playbooks', icon: '⚒' },
   { to: '/artifacts', label: 'Artifacts', icon: '▤' },
   { to: '/usage', label: 'Usage', icon: '◔' },
@@ -239,7 +240,9 @@ export default function AppShell() {
   const rightDrag = useDrag('right', prefs.right, setRight);
 
   const leftWidth = prefs.leftCollapsed ? 64 : isNarrow ? LIMITS.left.min : prefs.left;
-  const showRail = !isNarrow && !prefs.rightCollapsed;
+  const declaredRail = useRailDeclaration();
+  const pageHidesRail = declaredRail?.length === 0;
+  const showRail = !pageHidesRail && !isNarrow && !prefs.rightCollapsed;
   const pending = selectPendingApprovals(s).length;
 
   return (
@@ -292,7 +295,20 @@ export default function AppShell() {
         {/* left nav */}
         <nav aria-label="Primary" style={{ width: leftWidth }} className="flex shrink-0 flex-col border-r border-edge bg-canvas-raised transition-[width] duration-75">
           <div className="flex-1 overflow-y-auto py-3">
-            {NAV.map((n) => (
+            {NAV.map((n) => n.external ? (
+              <a
+                key={n.to}
+                href={n.to}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`${n.label} (opens in a new tab)`}
+                aria-label={`${n.label} (opens in a new tab)`}
+                className="mx-2 mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-dim transition-colors hover:bg-canvas-overlay hover:text-ink"
+              >
+                <span aria-hidden className="w-4 text-center">{n.icon}</span>
+                {!prefs.leftCollapsed && <span className="truncate">{n.label}</span>}
+              </a>
+            ) : (
               <NavLink
                 key={n.to}
                 to={n.to}
@@ -335,7 +351,7 @@ export default function AppShell() {
             <RightRail />
           </aside>
         )}
-        {!showRail && !isNarrow && (
+        {!pageHidesRail && !showRail && !isNarrow && (
           <button
             onClick={() => setPrefs((p) => ({ ...p, rightCollapsed: false }))}
             className="w-8 shrink-0 border-l border-edge text-ink-faint hover:bg-canvas-overlay hover:text-signal"

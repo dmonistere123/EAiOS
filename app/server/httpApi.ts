@@ -1,3 +1,5 @@
+import {travelPlaces,travelRecommendations} from './travelGuide.ts';
+import { travelAction } from './travelBooking.ts';
 /// <reference types="node" />
 /**
  * httpApi (Phase 8.1, F10) — one router for every EAiOS /api endpoint,
@@ -38,7 +40,7 @@ import {
   updateKanbanTaskBody,
   writeSettings,
 } from './apiCore.ts';
-import { TravelApiError, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
+import { TravelApiError, updateTravelTrip, addTravelPlan, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
 import { deletePlaybook, deleteSkill, updatePlaybookEnabled, updateSkillStatus, writePlaybook, writeSkill } from './authoring.ts';
 import type { PlaybookInput, SkillInput } from './authoring.ts';
 import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interfaces.ts';
@@ -466,9 +468,34 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     /* travel (F31) — Duffel/browser-use/OpenTable proxy; 503 when no provider is configured */
     if (path === '/api/travel/trips' && req.method === 'GET') {
       try {
-        json(res, 200, JSON.stringify({ trips: await listTrips() }));
+        json(res, 200, JSON.stringify({ trips: await listTrips(ctx.dataRoot ?? ctx.eaiosRoot) }));
       } catch (e) {
         json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
+      }
+      return true;
+    }
+    const detailsMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/details$/);
+    const recommendationsMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/recommendations$/);
+    if ((path === '/api/travel/places' && req.method === 'GET') || (recommendationsMatch && req.method === 'GET') || (detailsMatch && req.method === 'POST')) {
+      try {
+        const result = detailsMatch ? await updateTravelTrip(detailsMatch[1],await readJsonBody(req) as unknown as CreateTripInput,ctx.dataRoot??ctx.eaiosRoot)
+          : recommendationsMatch ? {shortlists:await travelRecommendations(recommendationsMatch[1],ctx.dataRoot??ctx.eaiosRoot)}
+          : {places:await travelPlaces(url.searchParams.get('query')??'')};
+        json(res,200,JSON.stringify(result));
+      } catch(error) {json(res,error instanceof TravelApiError?error.status:503,JSON.stringify({error:error instanceof Error?error.message:'Travel request failed.'}));}
+      return true;
+    }
+    const planMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/plans$/);
+    const confirmationMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/bookings\/([^/]+)\/action$/);
+    if ((planMatch || confirmationMatch) && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const result = planMatch
+          ? await addTravelPlan(planMatch[1], body as unknown as import('../src/domain/travelPlan.ts').TravelPlanInput, ctx.dataRoot ?? ctx.eaiosRoot)
+          : await travelAction(confirmationMatch![1], confirmationMatch![2], body as unknown as import('../src/domain/travelPlan.ts').TravelAction, ctx.dataRoot ?? ctx.eaiosRoot);
+        json(res, 200, JSON.stringify(result));
+      } catch (error) {
+        json(res, error instanceof TravelApiError ? error.status : 503, JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
       }
       return true;
     }
@@ -476,17 +503,17 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       const tripMatch = path.match(/^\/api\/travel\/trips\/([^/]+)$/);
       if (tripMatch && req.method === 'GET') {
         try {
-          json(res, 200, JSON.stringify({ trip: await getTrip(tripMatch[1]) }));
+          json(res, 200, JSON.stringify({ trip: await getTrip(tripMatch[1], ctx.dataRoot ?? ctx.eaiosRoot) }));
         } catch (e) {
           json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
         }
         return true;
       }
-      const proposalMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/proposals$/);
+      const proposalMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/(proposals|choices)$/);
       if (proposalMatch && req.method === 'POST') {
         try {
           const body = await readJsonBody(req);
-          const result = await proposeBooking(proposalMatch[1], String(body.resultId ?? ''), String(body.note ?? ''));
+          const result = await proposeBooking(proposalMatch[1], String(body.resultId ?? ''), String(body.note ?? ''), ctx.dataRoot ?? ctx.eaiosRoot, proposalMatch[2] === 'choices');
           json(res, result.ok ? 200 : 400, JSON.stringify(result));
         } catch (e) {
           json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
@@ -497,7 +524,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (path === '/api/travel/trips' && req.method === 'POST') {
       try {
         const body = (await readJsonBody(req)) as unknown as CreateTripInput;
-        const result = await createTrip(body);
+        const result = await createTrip(body, ctx.dataRoot ?? ctx.eaiosRoot);
         json(res, result.ok ? 201 : 400, JSON.stringify(result));
       } catch (e) {
         json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
@@ -507,6 +534,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     if (path === '/api/travel/search' && req.method === 'GET') {
       try {
         const params: TravelSearchParams = {
+          latitude: url.searchParams.has('latitude') ? Number(url.searchParams.get('latitude')) : undefined,
+          longitude: url.searchParams.has('longitude') ? Number(url.searchParams.get('longitude')) : undefined,
           kind: url.searchParams.get('kind') as TravelSearchParams['kind'],
           origin: url.searchParams.get('origin') ?? undefined,
           destination: url.searchParams.get('destination') ?? undefined,
@@ -519,7 +548,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
           dropoffLocation: url.searchParams.get('dropoffLocation') ?? undefined,
           partySize: url.searchParams.has('partySize') ? Number(url.searchParams.get('partySize')) : undefined,
         };
-        json(res, 200, JSON.stringify({ results: await searchTravel(params) }));
+        json(res, 200, JSON.stringify({ results: await searchTravel(params, ctx.dataRoot ?? ctx.eaiosRoot) }));
       } catch (e) {
         json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));
       }
@@ -530,7 +559,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       if (approvalMatch && req.method === 'POST') {
         try {
           const body = (await readJsonBody(req)) as unknown as ApprovalDecision;
-          const result = await decideTravelApproval(approvalMatch[1], body);
+          const result = await decideTravelApproval(approvalMatch[1], body, ctx.dataRoot ?? ctx.eaiosRoot);
           json(res, result.ok ? 200 : 400, JSON.stringify(result));
         } catch (e) {
           json(res, e instanceof TravelApiError ? e.status : 503, JSON.stringify({ error: e instanceof TravelApiError ? e.message : String(e) }));

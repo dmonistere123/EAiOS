@@ -15,3 +15,9 @@ dismissed.json
 dismissed.json.tmp
 # Generated at build time by scripts/generate-version.mjs
 app/public/version.json
+
+# Disposable development state and local validation logs
+.local/
+
+# Persistent, box-local travel data
+travel-data/

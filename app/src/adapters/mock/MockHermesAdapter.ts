@@ -1,3 +1,5 @@
+import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
+import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
 /**
  * MockHermesAdapter — in-memory implementation of HermesAdapter.
  * Simulates latency and emits periodic runtime events so the shell behaves
@@ -873,6 +875,13 @@ class MockHermesAdapter implements HermesAdapter {
   }
 
   // ---------- Travel (F31) ----------
+  chooseTravelOption(tripId: string, resultId: string): Promise<AuditResult<TravelBooking>> { return this.travel.chooseTravelOption(tripId,resultId); }
+  travelPlaces(query: string): Promise<TravelPlace[]> { return this.travel.travelPlaces(query); }
+  travelRecommendations(tripId: string): Promise<TravelShortlist[]> { return this.travel.travelRecommendations(tripId); }
+  updateTravelTrip(tripId: string, input: CreateTripInput): Promise<AuditResult<TravelTrip>> { return this.travel.updateTravelTrip(tripId,input); }
+  addTravelPlan(tripId: string, input: TravelPlanInput): Promise<AuditResult<TravelBooking>> { return this.travel.addTravelPlan(tripId, input); }
+  travelAction(tripId: string, bookingId: string, action: TravelAction): Promise<AuditResult<TravelBooking>> { return this.travel.travelAction(tripId, bookingId, action); }
+
   async listTrips(): Promise<TravelTrip[]> {
     await delay();
     return this.travel.listTrips();

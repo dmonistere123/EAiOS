@@ -1,3 +1,5 @@
+import {shortlist, type TravelPlace, type TravelShortlist} from '../../domain/travelGuide';
+import { makeTravelPlan, type TravelPlanInput, type TravelAction } from '../../domain/travelPlan';
 /**
  * MockTravelAdapter — in-memory travel bookings + Duffel/browser-use/OpenTable-
  * shaped search fixtures. The live adapter swaps these for real API calls; the
@@ -16,6 +18,38 @@ export class MockTravelAdapter {
   private trips = clone(fixtureTrips);
   private searchResults = clone(fixtureSearch);
 
+  async addTravelPlan(tripId: string, input: TravelPlanInput): Promise<AuditResult<TravelBooking>> {
+    const trip = this.trips.find(t => t.id === tripId);
+    if (!trip) throw new Error('Trip not found');
+    const booking = makeTravelPlan(tripId, input);
+    trip.bookings.push(booking);
+    trip.approvals.push({ id: uid('ta'), tripId, bookingId: booking.id, actionType: 'book', targetSystem: 'other', targetObject: booking.title, risk: 'low', status: 'pending', submittedAt: new Date().toISOString() });
+    return audit(clone(booking));
+  }
+  async travelAction(tripId: string, bookingId: string, action: TravelAction): Promise<AuditResult<TravelBooking>> {
+    const booking = this.trips.find(t => t.id === tripId)?.bookings.find(b => b.id === bookingId);
+    if (!booking) throw new Error('Plan not found');
+    if (action.action === 'record' && action.reference.trim() && action.evidence.trim()) {
+      booking.status = 'recorded'; booking.confirmationNumber = action.reference; booking.confirmationEvidence = action.evidence; booking.confirmationSource = 'manual';
+      return audit(clone(booking));
+    }
+    return { ok: false, auditEventId: '', error: { code: 'demo', safeMessage: 'Direct provider booking is unavailable in demo mode.', retryable: false } };
+  }
+  async chooseTravelOption(tripId: string,resultId: string): Promise<AuditResult<TravelBooking>> {
+    const result=await this.proposeBooking(tripId,resultId);
+    if(result.ok&&result.data){const trip=this.trips.find(t=>t.id===tripId)!;const b=trip.bookings.find(b=>b.id===result.data!.id)!;b.status='approved';const a=trip.approvals.find(a=>a.bookingId===b.id)!;a.status='approved';return audit(clone(b));}
+    return result;
+  }
+  async travelPlaces(query: string): Promise<TravelPlace[]> {
+    return [{id:'arp_bhm_us',name:'Birmingham-Shuttlesworth International',city:'Birmingham',country:'US',code:'BHM'}, {id:'arp_btr_us',name:'Baton Rouge Metropolitan',city:'Baton Rouge',country:'US',code:'BTR'}, {id:'arp_jfk_us',name:'John F. Kennedy International',city:'New York',country:'US',code:'JFK'}].filter(p=>`${p.city} ${p.name} ${p.code}`.toLowerCase().includes(query.toLowerCase()));
+  }
+  async travelRecommendations(tripId: string): Promise<TravelShortlist[]> {
+    const trip=this.trips.find(t=>t.id===tripId);
+    return Promise.all((['flight','hotel','restaurant',...(trip?.needsCar?['car' as const]:[])] as const).map(async kind=>({kind,options:shortlist(await this.searchTravel({kind}),kind==='flight'?trip?.preferredAirlines:kind==='hotel'?trip?.preferredHotels:trip?.diningPreferences,trip?.budgetUsd),notice:'Demo examples; no verified availability.'})));
+  }
+  async updateTravelTrip(tripId:string,input:CreateTripInput):Promise<AuditResult<TravelTrip>> {
+    const trip=this.trips.find(t=>t.id===tripId);if(!trip)throw new Error('Trip not found');Object.assign(trip,input);return audit(clone(trip));
+  }
   async listTrips(): Promise<TravelTrip[]> {
     return clone(this.trips);
   }
@@ -42,6 +76,7 @@ export class MockTravelAdapter {
 
   async createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>> {
     const trip: TravelTrip = {
+      ...input,
       id: uid('trip'),
       name: input.name,
       destination: input.destination,
@@ -72,6 +107,7 @@ export class MockTravelAdapter {
       status: 'proposed' as const,
       provider: result.provider,
       costUsd: result.priceUsd,
+      offerId: result.id,
     };
 
     if (result.kind === 'flight') {
@@ -144,7 +180,7 @@ export class MockTravelAdapter {
         app.status = decision.decision === 'approved' ? 'approved' : decision.decision === 'rejected' ? 'rejected' : 'changes_requested';
         if (app.status === 'approved' && app.bookingId) {
           const booking = trip.bookings.find((b: TravelBooking) => b.id === app.bookingId);
-          if (booking) booking.status = 'confirmed';
+          if (booking) booking.status = 'approved';
         }
         return audit();
       }

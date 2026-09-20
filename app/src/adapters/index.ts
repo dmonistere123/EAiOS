@@ -1,3 +1,4 @@
+import {liveTravel} from './live/LiveTravelAdapter';
 /**
  * Adapter entry — the ONLY adapter import pages/state are allowed to use.
  * Live mode when VITE_HERMES_LIVE=1 (with per-method mock fallback inside
@@ -15,7 +16,13 @@ import { podcasts as mockPodcasts } from './mock/MockPodcastAdapter';
 
 const useLive = import.meta.env.VITE_HERMES_LIVE === '1';
 
-export const hermes: HermesAdapter = useLive ? live : mock;
+const travelOnly = import.meta.env.VITE_TRAVEL_LIVE === '1';
+export const travelMode = useLive || travelOnly ? 'live' : 'mock';
+const travelMethods = new Set(['chooseTravelOption','travelPlaces','travelRecommendations','updateTravelTrip','listTrips','getTrip','searchTravel','travelAgent','createTrip','proposeBooking','decideTravelApproval','addTravelPlan','travelAction']);
+export const hermes: HermesAdapter = travelOnly ? new Proxy(mock, {get(target, property, receiver) {
+  if (travelMethods.has(String(property))) {const value = Reflect.get(liveTravel, property); return typeof value === 'function' ? value.bind(liveTravel) : value;}
+  const value = Reflect.get(target, property, receiver); return typeof value === 'function' ? value.bind(target) : value;
+}}) : useLive ? live : mock;
 export const adapterMode: 'live' | 'mock' = useLive ? 'live' : 'mock';
 // LiveComposioAdapter self-detects a missing/invalid key and falls back to mock.
 export const composio = liveComposio;

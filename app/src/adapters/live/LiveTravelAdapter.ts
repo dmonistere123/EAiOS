@@ -1,114 +1,37 @@
-/**
- * LiveTravelAdapter — EAiOS travel search + trip state via the dev/prod server
- * at /api/travel/*. Falls back to the mock adapter when the server returns a
- * 503/404 or when no live travel provider is available (spec §2 honest
- * degradation). Note: Amadeus Self-Service was decommissioned July 2026.
- */
+import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
+/** Live travel never substitutes demonstration data after a failure. */
 import type { TravelTrip, TravelBooking, ApprovalDecision, AuditResult, TravelAgentResult } from '../../domain/types';
 import type { CreateTripInput, TravelSearchParams, TravelSearchResult } from '../interfaces';
-import { hermes as mock } from '../mock/MockHermesAdapter';
-
-class LiveTravelAdapter {
-  private useMock = false;
-
-  private async api<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`/api/travel${path}`, init);
+import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
+export class LiveTravelAdapter {
+  private async api<T>(path: string, body?: unknown): Promise<T> {
+    const res = await fetch(`/api/travel${path}`, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? `travel HTTP ${res.status}`);
+      const response = await res.json().catch(() => ({}));
+      throw new Error(response.error ?? `Travel service unavailable (HTTP ${res.status}). Try again.`);
     }
-    return (await res.json()) as T;
+    return res.json() as Promise<T>;
   }
-
-  private async call<T>(fn: () => Promise<T>, fallback: () => Promise<T>): Promise<T> {
-    if (this.useMock) return fallback();
-    try {
-      return await fn();
-    } catch {
-      this.useMock = true;
-      return fallback();
-    }
+  private async mutation<T>(path: string, body: unknown): Promise<AuditResult<T>> {
+    try { return await this.api<AuditResult<T>>(path, body); }
+    catch (error) { return { ok: false, auditEventId: '', error: { code: 'travel_error', safeMessage: error instanceof Error ? error.message : 'Travel request failed.', retryable: false } }; }
   }
-
-  listTrips(): Promise<TravelTrip[]> {
-    return this.call(
-      async () => (await this.api<{ trips: TravelTrip[] }>('/trips')).trips,
-      () => mock.listTrips(),
-    );
+  chooseTravelOption(tripId: string,resultId: string): Promise<AuditResult<TravelBooking>> { return this.mutation(`/trips/${encodeURIComponent(tripId)}/choices`,{resultId}); }
+  async travelPlaces(query: string): Promise<TravelPlace[]> { return (await this.api<{places:TravelPlace[]}>(`/places?query=${encodeURIComponent(query)}`)).places; }
+  async travelRecommendations(tripId: string): Promise<TravelShortlist[]> { return (await this.api<{shortlists:TravelShortlist[]}>(`/trips/${encodeURIComponent(tripId)}/recommendations`)).shortlists; }
+  updateTravelTrip(tripId: string,input:CreateTripInput): Promise<AuditResult<TravelTrip>> { return this.mutation(`/trips/${encodeURIComponent(tripId)}/details`,input); }
+  async listTrips(): Promise<TravelTrip[]> { return (await this.api<{trips: TravelTrip[]}>('/trips')).trips; }
+  async getTrip(id: string): Promise<TravelTrip | null> { return (await this.api<{trip: TravelTrip | null}>(`/trips/${encodeURIComponent(id)}`)).trip; }
+  async searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]> {
+    const qs = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') qs.set(key, String(value));
+    return (await this.api<{results: TravelSearchResult[]}>(`/search?${qs}`)).results;
   }
-
-  getTrip(id: string): Promise<TravelTrip | null> {
-    return this.call(
-      async () => (await this.api<{ trip: TravelTrip | null }>(`/trips/${encodeURIComponent(id)}`)).trip,
-      () => mock.getTrip(id),
-    );
-  }
-
-  searchTravel(params: TravelSearchParams): Promise<TravelSearchResult[]> {
-    return this.call(
-      async () => {
-        const qs = new URLSearchParams();
-        for (const [k, v] of Object.entries(params)) {
-          if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
-        }
-        return (await this.api<{ results: TravelSearchResult[] }>(`/search?${qs.toString()}`)).results;
-      },
-      () => mock.searchTravel(params),
-    );
-  }
-
-  createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>> {
-    return this.call(
-      async () =>
-        this.api<AuditResult<TravelTrip>>('/trips', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(input),
-        }),
-      () => mock.createTrip(input),
-    );
-  }
-
-  proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>> {
-    return this.call(
-      async () =>
-        this.api<AuditResult<TravelBooking>>(`/trips/${encodeURIComponent(tripId)}/proposals`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ resultId, note }),
-        }),
-      () => mock.proposeBooking(tripId, resultId, note),
-    );
-  }
-
-  decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
-    return this.call(
-      async () =>
-        this.api<AuditResult>(`/approvals/${encodeURIComponent(approvalId)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(decision),
-        }),
-      () => mock.decideTravelApproval(approvalId, decision),
-    );
-  }
-
-  /**
-   * Live travelAgent — POST the NL query to /api/travel/agent.
-   * The server parses intent via LLM and executes the search.
-   */
-  travelAgent(query: string): Promise<TravelAgentResult> {
-    return this.call(
-      async () =>
-        this.api<TravelAgentResult>('/agent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query }),
-        }),
-      () => mock.travelAgent(query),
-    );
-  }
-
+  createTrip(input: CreateTripInput): Promise<AuditResult<TravelTrip>> { return this.mutation('/trips', input); }
+  proposeBooking(tripId: string, resultId: string, note?: string): Promise<AuditResult<TravelBooking>> { return this.mutation(`/trips/${encodeURIComponent(tripId)}/proposals`, {resultId, note}); }
+  decideTravelApproval(id: string, decision: ApprovalDecision): Promise<AuditResult> { return this.mutation(`/approvals/${encodeURIComponent(id)}`, decision); }
+  travelAgent(query: string): Promise<TravelAgentResult> { return this.api('/agent', {query}); }
+  addTravelPlan(tripId: string, input: TravelPlanInput): Promise<AuditResult<TravelBooking>> { return this.mutation(`/trips/${encodeURIComponent(tripId)}/plans`, input); }
+  travelAction(tripId: string, bookingId: string, action: TravelAction): Promise<AuditResult<TravelBooking>> { return this.mutation(`/trips/${encodeURIComponent(tripId)}/bookings/${encodeURIComponent(bookingId)}/action`, action); }
 }
-
 export const liveTravel = new LiveTravelAdapter();
