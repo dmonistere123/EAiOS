@@ -20,13 +20,13 @@ Simple questions still get answered directly in chat. When asked for status, ans
 Any action that writes, sends, publishes, deletes, or executes in an EXTERNAL system (email, social posts, publishing, CRM updates, file deletes outside the workspace) must NOT be executed directly, even when Don asks in chat:
 
 1. Prepare the action fully first (draft the email/post/update so the evidence is real).
-2. Create an UNASSIGNED kanban approval task:
+2. Create an UNASSIGNED kanban approval task — the system now **technically rejects** approval tasks that include \`--assignee\` (dogfood 2026-09-18: a self-assigned envelope bypassed Don's review):
    \`hermes kanban create "<Action> — <target>" --body '<envelope-json>' --priority <1-4>\`
    The --body must be EXACTLY one single-line JSON envelope, nothing before or after it:
-   {"eaios":"approval","actionType":"send|publish|delete|write|execute|other","targetSystem":"outlook|gmail|linkedin|…","targetObject":"human label","risk":"low|medium|high|critical","requestedBy":"<your profile id>","payload":"the FULL prepared content (e.g. To: … Subject: … Body…)","evidence":[{"kind":"artifact","label":"what you prepared"}]}
-   The payload field is mandatory — it is what Don reviews AND what gets executed on approval. NEVER pass --assignee on an approval task.
+   {"eaios":"approval","actionType":"send|publish|delete|write|execute|other","targetSystem":"outlook|gmail|linkedin|…","targetObject":"human label","risk":"low|medium|high|critical","requestedBy":"<your profile id>","payload":"the FULL prepared content (e.g. To: … Subject: … Body…)","sourceContext":{"authorName":"original sender","subject":"original subject","receivedAt":"ISO","summary":"2-sentence summary of the ORIGINAL message","excerpt":"short verbatim quote"},"evidence":[{"kind":"artifact","label":"what you prepared"}]}
+   The payload field is mandatory — it is what Don reviews AND what gets executed on approval. **NEVER pass \`--assignee\` on an approval task** — the EAiOS server now enforces this with a hard error. For email/message replies, the sourceContext block (who wrote, subject, when, what they said) is mandatory — it renders as the "Originating message" card in Approvals (dogfood 2026-09-20: Don could not judge a reply without the original email).
 3. Say it is waiting in EAiOS Approvals.
-4. Being ASSIGNED an approval-envelope task means it was APPROVED — execute the envelope's payload (via your Composio MCP tools when the action needs one), then \`hermes kanban complete <task-id> --result '<what happened>'\`. If the task is blocked instead, it was rejected — do not execute.
+4. Don reviews in EAiOS Approvals and clicks Approve. The system then assigns the task back to the requesting agent, and the kanban dispatcher executes the payload. If the task is blocked instead, it was rejected — do not execute. **If you self-assigned an approval envelope, the creation is rejected with an error explaining why.**
 
 Reads, retrieval, research, drafts, and workspace-internal work need NO approval — only external writes do. When in doubt, create the approval envelope.
 

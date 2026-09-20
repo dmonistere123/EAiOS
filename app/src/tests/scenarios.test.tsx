@@ -139,6 +139,33 @@ describe('LinkedIn approval source context', () => {
   });
 });
 
+describe('Email approval source context', () => {
+  it('shows the originating email details in the queue and inspector, separate from the draft', async () => {
+    const ctx = {
+      authorName: 'Ryan Rousse Grossman', subject: 'Follow-up on my last email. Project: IT MSP Market Study',
+      receivedAt: '2026-09-17T14:30:00Z',
+      summary: 'Ryan follows up on an invitation to a paid IT MSP market study consultation. He asks Don to confirm participation or decline.',
+      excerpt: 'Hi Donald, just following up on my last email regarding the IT MSP Market Study…',
+    };
+    mock.__loadFixture({ approvals: [{ ...fx.approvals[0], id: 'email-source-context', targetSystem: 'gmail',
+      targetObject: 'Reply to Ryan (Dialectica)', sourceContext: ctx, payload: 'To: ryan@example.com Subject: RE: … Body: Thanks, passing.' }] });
+    await refreshAll();
+    renderAt('/approvals', <Approvals />, 'approvals');
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('Originating message')).toBeInTheDocument();
+    expect(within(table).getByText('Ryan Rousse Grossman')).toBeInTheDocument();
+    expect(table).toHaveTextContent(ctx.summary);
+    expect(table).toHaveTextContent('Follow-up on my last email. Project: IT MSP Market Study');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Inspect' }));
+    const drawer = await screen.findByRole('dialog');
+    expect(within(drawer).getByText('Originating message')).toBeInTheDocument();
+    expect(within(drawer).getByText('Ryan Rousse Grossman')).toBeInTheDocument();
+    expect(drawer).toHaveTextContent(ctx.summary);
+    expect(drawer).toHaveTextContent('Hi Donald, just following up');
+    expect(within(drawer).getByText(/To: ryan@example.com/)).toBeInTheDocument();
+  });
+});
+
 describe('S6 Connector Degraded — reconnect warning', () => {
   it("expired-OAuth connector renders 'incomplete' with Resume connect", async () => {
     renderAt('/connections', <Connections />, 'connections');

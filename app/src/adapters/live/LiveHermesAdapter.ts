@@ -194,6 +194,7 @@ interface KanbanTask {
 interface ApprovalEnvelope {
   eaios: 'approval';
   linkedinComment?: Approval['linkedinComment'];
+  sourceContext?: Approval['sourceContext'];
   actionType: Approval['actionType'];
   targetSystem: string;
   targetObject?: string;
@@ -294,6 +295,7 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
     linkedinComment: env.linkedinComment,
+    sourceContext: env.sourceContext,
     risk: env.risk,
     status,
     submittedAt: epochToIso(t.created_at) ?? new Date().toISOString(),
@@ -902,6 +904,29 @@ class LiveHermesAdapter implements HermesAdapter {
    * that IS the delegation. Unassigned tasks sit in the executive queue. */
   async createWorkItem(input: CreateWorkItem): Promise<AuditResult> {
     try {
+      // Guard: approval-envelope tasks must NEVER have an assignee — assignment
+      // triggers the kanban dispatcher to auto-execute the payload, bypassing
+      // executive review. The agent MUST leave approval envelopes unassigned
+      // so they sit in EAiOS Approvals for Don to review (dogfood 2026-09-18:
+      // self-assigned envelope to Jeff Mitchell was auto-executed without review).
+      if (input.agentId && input.summary?.trim()) {
+        let isEnvelope = false;
+        try {
+          const maybe = JSON.parse(input.summary.trim());
+          isEnvelope = maybe?.eaios === 'approval';
+        } catch { /* not JSON — safe */ }
+        if (isEnvelope) {
+          return {
+            ok: false,
+            auditEventId: `kb-reject-${Date.now()}`,
+            error: {
+              code: 'approval_cannot_be_assigned',
+              safeMessage: 'Approval-envelope tasks cannot be assigned to an agent — they must sit unassigned for executive review. Remove the assignee.',
+              retryable: false,
+            },
+          };
+        }
+      }
       const prioNum = { critical: 1, high: 2, medium: 3, low: 4 }[input.priority ?? 'medium'];
       const argv = ['create', input.title, '--priority', String(prioNum), '--created-by', 'eaios-executive', '--json'];
       if (input.summary?.trim()) argv.push('--body', input.summary.trim());
@@ -979,8 +1004,19 @@ class LiveHermesAdapter implements HermesAdapter {
       }
 
       if (decision.decision === 'approved') {
-        // Approve means execute. Assign to the original requester.
-        const assignee = env.requestedBy ?? task.assignee ?? 'default';
+        // Approve means execute. Assign to the agent who created the envelope
+        // (env.requestedBy) so the kanban dispatcher executes it. Never fall
+        // back to task.assignee — for approval envelopes the assignee was
+        // intentionally left empty (the guard in createWorkItem rejects
+        // assigned envelopes), but if a legacy envelope somehow has a stale
+        // self-assignee, we MUST NOT re-use it (dogfood 2026-09-18: the
+        // kanban dispatcher ran the payload without Don ever reviewing).
+        const assignee = env.requestedBy;
+        if (!assignee) {
+          await this.kanban<unknown>(['comment', approvalId, 'Approved but no agent assigned to execute — mark done manually or re-create the envelope.']).catch(() => undefined);
+          await this.kanban<unknown>(['complete', approvalId, 'approved-no-executor']).catch(() => undefined);
+          return { ok: true, auditEventId: `kb-decision-${approvalId}` };
+        }
         await this.kanban<unknown>(['assign', approvalId, assignee]);
       } else {
         // Rejected / changes requested: block the task. request-changes only

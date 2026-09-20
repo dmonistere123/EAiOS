@@ -23,6 +23,35 @@ function PostSource({ approval }: { approval: Approval }) {
   );
 }
 
+/** Originating-message context for non-LinkedIn approvals (email, messages) —
+ *  what the other party said, so the reply can be judged in place. */
+function SourceContext({ approval }: { approval: Approval }) {
+  const ctx = approval.sourceContext;
+  if (!ctx) return null;
+  let url: string | undefined;
+  if (ctx.sourceUrl) {
+    try {
+      const parsed = new URL(ctx.sourceUrl);
+      if (parsed.protocol === 'https:') url = parsed.href;
+    } catch { /* Ignore unusable source links. */ }
+  }
+  return (
+    <div className="mt-2 space-y-1 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-ink-dim">
+      <div className="font-medium uppercase tracking-wider text-ink-faint">Originating message</div>
+      {(ctx.authorName || ctx.subject) && (
+        <div>
+          {ctx.authorName && <span>From <span className="font-medium text-ink">{ctx.authorName}</span></span>}
+          {ctx.receivedAt && <span> · <RelativeTime iso={ctx.receivedAt} /></span>}
+          {ctx.subject && <div className="mt-0.5">Subject: <span className="font-medium text-ink">{ctx.subject}</span></div>}
+        </div>
+      )}
+      {ctx.summary && <div><span className="font-medium text-ink">Summary: </span>{ctx.summary}</div>}
+      {ctx.excerpt && <div className="whitespace-pre-wrap border-l-2 border-edge pl-2 italic">{ctx.excerpt}</div>}
+      {url && <a href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="inline-block text-signal underline">View original message</a>}
+    </div>
+  );
+}
+
 function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
   const [busy, setBusy] = useState(false);
@@ -67,6 +96,7 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
         <div>
           <div className="text-lg font-semibold text-ink">{approval.targetObject ?? approval.targetSystem}</div>
           <PostSource approval={approval} />
+          <SourceContext approval={approval} />
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
             <RiskBadge risk={approval.risk} />
             <StateBadge label={approval.actionType} tone="signal" />
@@ -194,6 +224,7 @@ export default function Approvals() {
                   <td className="px-4 py-3">
                     <div className="font-medium text-ink">{a.targetObject ?? a.targetSystem}</div>
                     <PostSource approval={a} />
+                    <SourceContext approval={a} />
                     <div className="mt-0.5 text-xs text-ink-faint">{a.actionType} · {a.targetSystem}</div>
                   </td>
                   <td className="px-4 py-3"><RiskBadge risk={a.risk} /></td>

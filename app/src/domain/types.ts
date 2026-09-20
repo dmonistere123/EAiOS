@@ -104,6 +104,26 @@ export interface Approval {
     /** Two-sentence summary of the original post, separate from the reply. */
     postSummary?: string;
   };
+  /**
+   * Originating-message context for any approval (email, message, post) —
+   * what the other party actually said, so the executive can judge the reply
+   * without hunting down the thread. Generalizes linkedinComment (f654eb6 was
+   * LinkedIn-only; dogfood 2026-09-20: email approvals showed only the draft).
+   */
+  sourceContext?: {
+    /** Sender/original author, verified from the source message. */
+    authorName?: string;
+    /** Original subject line or thread title. */
+    subject?: string;
+    /** When the original message was received (ISO). */
+    receivedAt?: string;
+    /** Two-sentence summary of the original message, separate from the reply. */
+    summary?: string;
+    /** Short verbatim excerpt of the original message (a few lines max). */
+    excerpt?: string;
+    /** Link to the original message/thread (https only, rendered when safe). */
+    sourceUrl?: string;
+  };
   risk: RiskLevel;
   status: 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'expired' | 'blocked';
   submittedAt: string;
