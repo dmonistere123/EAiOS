@@ -123,6 +123,22 @@ describe('useVoice', () => {
     expect(result.current.listening).toBe(false);
   });
 
+  it('does not try to speak a blank reply', () => {
+    const { result } = renderHook(() => useVoice(() => {}));
+    act(() => result.current.speak('   '));
+    expect(globalThis.speechSynthesis.speak).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('no reply text');
+  });
+
+  it('reports playback errors instead of silently stopping', () => {
+    const { result } = renderHook(() => useVoice(() => {}));
+    act(() => result.current.speak('An answer'));
+    const utterance = vi.mocked(globalThis.speechSynthesis.speak).mock.calls[0][0];
+    act(() => utterance.onerror?.({ error: 'audio-busy' } as SpeechSynthesisErrorEvent));
+    expect(result.current.error).toContain('Read aloud is unavailable');
+    expect(result.current.speaking).toBe(false);
+  });
+
   it('speaks text through speechSynthesis', () => {
     const { result } = renderHook(() => useVoice(() => undefined));
     act(() => result.current.speak('hello'));

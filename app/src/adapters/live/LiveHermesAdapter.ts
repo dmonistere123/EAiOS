@@ -1649,29 +1649,26 @@ class LiveHermesAdapter implements HermesAdapter {
   async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
     const agentId = opts.agentId ?? 'default';
 
-    // Default lane: use the REST gateway bridge instead of spawning a fresh
-    // gateway agent. POST to /api/chat-ally, get the response, emit events.
-    // Falls back to WS RPC when the endpoint is unreachable (tests, dev gaps).
+    // Default lane uses the SSE bridge. Never resubmit over WS after a bridge
+    // failure: Hermes may already be running the original request.
     if (agentId === 'default') {
+      const lane = this.assistantLane('default');
+      const emit = (e: AssistantEvent) => lane.handlers.forEach((h) => h(e));
+      const ac = new AbortController();
+      const timeout = setTimeout(() => ac.abort(), 150_000);
       try {
-        const lane = this.assistantLane('default');
-        const emit = (e: AssistantEvent) => lane.handlers.forEach((h) => h(e));
         emit({ kind: 'start' });
 
-        const ac = new AbortController();
-        const timeout = setTimeout(() => ac.abort(), 120_000);
         const res = await fetch('/api/chat-ally/stream', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ text, attachments: opts.attachments }),
           signal: ac.signal,
         });
-        clearTimeout(timeout);
 
         if (!res.ok || !res.body) {
           const err = await res.json().catch(() => ({ error: res.statusText }));
-          emit({ kind: 'error', message: err.error ?? `HTTP ${res.status}` });
-          throw new Error('stream request failed');
+          throw new Error(err.error ?? `Could not contact Ally (HTTP ${res.status}).`);
         }
 
         // Parse the SSE stream and emit tokens as they arrive.
@@ -1703,10 +1700,16 @@ class LiveHermesAdapter implements HermesAdapter {
                 } catch {
                   // ignore malformed delta
                 }
+              } else if (currentEvent === 'progress') {
+                try {
+                  const parsed = JSON.parse(data) as { text?: string };
+                  if (typeof parsed.text === 'string') emit({ kind: 'progress', text: parsed.text });
+                } catch { /* ignore malformed progress */ }
               } else if (currentEvent === 'complete') {
                 try {
                   const parsed = JSON.parse(data) as { text?: string; finishReason?: string };
-                  responseText = parsed.text ?? responseText;
+                  if (parsed.text?.trim()) responseText = parsed.text;
+                  if (parsed.finishReason && parsed.finishReason !== 'complete') errorMsg = 'Ally could not finish this response. Check Conversations before retrying.';
                   finished = true;
                 } catch {
                   // ignore malformed complete
@@ -1737,6 +1740,8 @@ class LiveHermesAdapter implements HermesAdapter {
           return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_stream_incomplete', safeMessage: 'Stream ended without completion.', retryable: true } };
         }
 
+        if (!responseText.trim()) throw new Error('Ally returned no text. Please try again or check Conversations.');
+
         // Store the exchange locally so getAssistantHistory returns it.
         const now = new Date().toISOString();
         const bridge = this.loadBridgeMessages();
@@ -1748,9 +1753,12 @@ class LiveHermesAdapter implements HermesAdapter {
         emit({ kind: 'complete', text: responseText });
         return { ok: true, auditEventId: `chat-send-${Date.now()}` };
       } catch (e) {
-        // Fall through to WS RPC path if the REST endpoint is unreachable
-        // (tests, dev server down, etc.)
-        // Intentionally not returning an error — let the WS path try.
+        const message = e instanceof Error && e.name !== 'AbortError' ? e.message : 'The connection to Ally timed out. Check Conversations before retrying.';
+        emit({ kind: 'error', message });
+        return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: message, retryable: true } };
+      } finally {
+        clearTimeout(timeout);
+        ac.abort();
       }
     }
 

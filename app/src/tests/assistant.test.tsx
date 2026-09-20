@@ -6,7 +6,7 @@
  * thread from the adapter and the orchestration panel from REAL work items.
  */
 import { describe, expect, it, beforeAll, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import Assistant, { parseCitations } from '../pages/Assistant';
@@ -104,7 +104,7 @@ describe('live assistant session lifecycle', () => {
       }
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.sendAssistantMessage('are you there?');
+    const res = await live.sendAssistantMessage('are you there?', { agentId: 'concierge' });
     expect(res.ok).toBe(true);
     expect(submits).toBe(2);
     const resume = calls.find((c) => c.method === 'session.resume');
@@ -117,7 +117,7 @@ describe('live assistant session lifecycle', () => {
       if (m === 'prompt.submit') throw new Error('provider overloaded');
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.sendAssistantMessage('hello');
+    const res = await live.sendAssistantMessage('hello', { agentId: 'concierge' });
     expect(res.ok).toBe(false);
     expect(res.error?.safeMessage).toContain('provider overloaded');
   });
@@ -180,6 +180,34 @@ describe('live assistant session lifecycle', () => {
 
     unsub();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('bridge response failures', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it.each(['empty', 'timeout', 'network'])('does not store a blank bubble or resubmit after %s', async kind => {
+    const { calls } = stubRpc(async () => { throw new Error('must not resubmit'); });
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (kind === 'network') throw new Error('connection lost');
+      return new Response(`event: complete\ndata: ${JSON.stringify({ text: '', finishReason: kind === 'timeout' ? 'timeout' : 'complete' })}\n\n`);
+    }));
+    const result = await live.sendAssistantMessage('my question');
+    expect(result.ok).toBe(false);
+    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toBeNull();
+    expect(calls).toEqual([]);
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('preserves streamed text when complete contains an empty string and forwards activity', async () => {
+    holder.assistantWired = true;
+    const events: AssistantEvent[] = [];
+    const unsub = live.subscribeAssistant(e => events.push(e));
+    vi.stubGlobal('fetch', async () => new Response('event: progress\ndata: {"text":"Using web search"}\n\nevent: delta\ndata: {"text":"Here is your answer."}\n\nevent: complete\ndata: {"text":"","finishReason":"complete"}\n\n'));
+    expect((await live.sendAssistantMessage('question')).ok).toBe(true);
+    expect(events).toContainEqual({ kind: 'progress', text: 'Using web search' });
+    expect(events.at(-1)).toEqual({ kind: 'complete', text: 'Here is your answer.' });
+    expect((await live.getAssistantHistory()).at(-1)?.text).toBe('Here is your answer.');
+    unsub();
   });
 });
 
@@ -303,6 +331,25 @@ describe('Assistant page (mock mode)', () => {
     expect(await screen.findByText('status on the investor update')).toBeInTheDocument();
     // streamed reply completes and history re-pulls
     expect(await screen.findByText(/On it — "status on the investor update"/, undefined, { timeout: 6000 })).toBeInTheDocument();
+  });
+
+  it('renders completion immediately even when history is stale, with activity while waiting', async () => {
+    let emit: (event: AssistantEvent) => void = () => {};
+    const history = vi.spyOn(hermes, 'getAssistantHistory').mockResolvedValue([]);
+    const subscription = vi.spyOn(hermes, 'subscribeAssistant').mockImplementation(handler => { emit = handler; return () => {}; });
+    try {
+      render(<MemoryRouter><Assistant /></MemoryRouter>);
+      await act(async () => {});
+      act(() => { emit({ kind: 'start' }); emit({ kind: 'progress', text: 'Using web search' }); });
+      expect(screen.getByText('Using web search')).toBeInTheDocument();
+      act(() => emit({ kind: 'complete', text: 'The answer appears here immediately.' }));
+      expect(screen.getByText('The answer appears here immediately.')).toBeInTheDocument();
+      await act(async () => {});
+      expect(history).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('The answer appears here immediately.')).toBeInTheDocument();
+      act(() => { emit({ kind: 'start' }); emit({ kind: 'error', message: 'Connection interrupted. Check Conversations.' }); });
+      expect(screen.getByRole('alert')).toHaveTextContent('Connection interrupted');
+    } finally { history.mockRestore(); subscription.mockRestore(); }
   });
 
   it('selector switches context only — the chat target stays Ally (D-B1)', async () => {

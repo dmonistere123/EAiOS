@@ -404,6 +404,7 @@ export interface ChatMessage {
 export type AssistantEvent =
   | { kind: 'start' }
   | { kind: 'delta'; text: string }
+  | { kind: 'progress'; text: string }
   | { kind: 'complete'; text: string }
   | { kind: 'error'; message: string };
 

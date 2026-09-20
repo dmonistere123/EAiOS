@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 export interface VoiceState {
   supported: boolean;
+  playbackSupported: boolean;
   listening: boolean;
   speaking: boolean;
   interim: string;
@@ -112,6 +113,10 @@ export function useVoice(onTranscript: (text: string) => void): VoiceState {
       setError('Speech synthesis is not supported in this browser.');
       return;
     }
+    if (!text.trim()) {
+      setError('There is no reply text to read aloud.');
+      return;
+    }
     setError(null);
     synth.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -120,7 +125,10 @@ export function useVoice(onTranscript: (text: string) => void): VoiceState {
     utterance.pitch = 1;
     utterance.onstart = () => setSpeaking(true);
     utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
+    utterance.onerror = (event) => {
+      setSpeaking(false);
+      if (event.error !== 'canceled' && event.error !== 'interrupted') setError('Read aloud is unavailable. You can still read Ally’s reply above.');
+    };
     utteranceRef.current = utterance;
     synth.speak(utterance);
   }, [synth]);
@@ -130,5 +138,5 @@ export function useVoice(onTranscript: (text: string) => void): VoiceState {
     setSpeaking(false);
   }, [synth]);
 
-  return { supported, listening, speaking, interim, error, startListening, stopListening, speak, stopSpeaking };
+  return { supported, playbackSupported: !!synth && typeof SpeechSynthesisUtterance === 'function', listening, speaking, interim, error, startListening, stopListening, speak, stopSpeaking };
 }

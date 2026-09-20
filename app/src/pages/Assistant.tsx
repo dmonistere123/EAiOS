@@ -93,6 +93,8 @@ export default function Assistant() {
   const approvals = selectPendingApprovals(s);
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
+  const [progress, setProgress] = useState('');
+  const [chatError, setChatError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const draftRef = useRef(draft);
   useEffect(() => {
@@ -121,19 +123,44 @@ export default function Assistant() {
 
   // Chat is ALWAYS Ally (D-B1): hydrate once, then ride streaming events.
   useEffect(() => {
-    void hermes.getAssistantHistory().then(setThread);
+    let active = true;
+    let receivedEvent = false;
+    let revision = 0;
+    void hermes.getAssistantHistory().then((rows) => {
+      if (active && !receivedEvent) setThread(rows);
+    });
     const unsub = hermes.subscribeAssistant((e) => {
-      if (e.kind === 'start') setStreaming('');
-      else if (e.kind === 'delta') setStreaming((t) => (t ?? '') + e.text);
+      receivedEvent = true;
+      const eventRevision = ++revision;
+      if (e.kind === 'start') {
+        setStreaming('');
+        setProgress('Working on your question…');
+        setChatError(null);
+      } else if (e.kind === 'delta') setStreaming((t) => (t ?? '') + e.text);
+      else if (e.kind === 'progress') setProgress(e.text);
       else if (e.kind === 'complete') {
         setStreaming(null);
-        void hermes.getAssistantHistory().then(setThread); // authoritative, deduped by row_id
+        setProgress('');
+        // Render the delivered answer immediately. History may still be saving,
+        // or belong to the separate WS lane rather than this SSE conversation.
+        if (e.text.trim()) {
+          setThread((rows) => [...rows, { id: `reply-${Date.now()}`, role: 'ally', text: e.text, at: new Date().toISOString() }]);
+          void hermes.getAssistantHistory().then((rows) => {
+            // Reconcile row IDs and messages sent by another local UI only once
+            // history includes this answer; stale history must never erase it.
+            const last = rows.at(-1);
+            if (active && revision === eventRevision && last?.role === 'ally' && last.text === e.text) setThread(rows);
+          }).catch(() => { /* the delivered reply remains visible */ });
+        } else {
+          setChatError('Ally returned no text. Please try again or check Conversations.');
+        }
       } else if (e.kind === 'error') {
         setStreaming(null);
-        toast('error', e.message);
+        setProgress('');
+        setChatError(e.message);
       }
     });
-    return unsub;
+    return () => { active = false; unsub(); };
   }, []);
 
   // Keep the latest exchange in view, but only if the user is already near
@@ -141,7 +168,7 @@ export default function Assistant() {
   useEffect(() => {
     if (!scrollRef.current || !atBottom) return;
     scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [thread, streaming, atBottom]);
+  }, [thread, streaming, progress, chatError, atBottom]);
 
   // Auto-grow the textarea as the user types so long messages stay visible.
   useEffect(() => {
@@ -298,6 +325,7 @@ export default function Assistant() {
     const text = draftRef.current.trim();
     if ((!text && attachments.length === 0) || sending || streaming !== null) return;
     setSending(true);
+    setChatError(null);
     setDraft('');
     draftRef.current = '';
     setAtBottom(true);
@@ -310,8 +338,9 @@ export default function Assistant() {
     setSending(false);
     textareaRef.current?.focus();
     if (!res.ok) {
-      setThread((t) => t.filter((m) => m.id !== optimistic.id)); // never pretend it sent
-      toast('error', res.error?.safeMessage ?? 'Message failed to send.');
+      setStreaming(null);
+      setProgress('');
+      setChatError(res.error?.safeMessage ?? 'Message failed to send.');
     }
   };
 
@@ -355,6 +384,8 @@ export default function Assistant() {
     }
     setStreaming(null);
     setThread([]);
+    setChatError(null);
+    setProgress('');
     void hermes.getAssistantHistory().then(setThread);
   };
 
@@ -405,14 +436,14 @@ export default function Assistant() {
             {thread.length === 0 && streaming === null && (
               <p className="text-xs text-ink-faint">Starting a conversation with {AGENT_NAME}…</p>
             )}
-            {thread.map((m) => (
+            {thread.filter((m) => m.text.trim()).map((m) => (
               <div key={m.id} className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm ${m.role === 'you' ? 'ml-auto bg-signal/15 text-ink' : 'bg-canvas-overlay text-ink'}`}>
                 <div className="mb-0.5 flex items-center justify-between gap-2">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'You' : AGENT_NAME}</span>
-                  {m.role === 'ally' && voice.supported && (
+                  {m.role === 'ally' && voice.playbackSupported && m.text.trim() && (
                     <button
                       type="button"
-                      onClick={() => voice.speak(m.text)}
+                      onClick={() => voice.speaking ? voice.stopSpeaking() : voice.speak(m.text)}
                       title="Read aloud"
                       aria-label="Read aloud"
                       className="text-[10px] text-ink-faint hover:text-signal"
@@ -436,10 +467,13 @@ export default function Assistant() {
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
+                    <span className="ml-2 text-xs text-ink-dim">{progress || 'Waiting for Ally…'}</span>
                   </div>
                 )}
               </div>
             )}
+            {streaming && progress && <p role="status" className="text-xs text-ink-dim">{progress}</p>}
+            {chatError && <p role="alert" className="rounded-lg border border-risk/30 px-3 py-2 text-sm text-risk">{chatError}</p>}
           </div>
           <form
             className="mt-4 space-y-2"

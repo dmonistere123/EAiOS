@@ -133,20 +133,26 @@ export class GatewayRpcClient {
 
       sock.setTimeout(timeoutMs);
       let upgradeDone = false;
-      let upgradeBuf = '';
+      let upgradeBuf = Buffer.alloc(0);
 
       sock.on('data', (data) => {
         if (!upgradeDone) {
-          upgradeBuf += data.toString();
-          if (upgradeBuf.includes('\r\n\r\n')) {
-            upgradeDone = true;
-            if (upgradeBuf.includes('101 Switching Protocols')) {
-              this.connected = true;
-              resolve();
-            } else {
-              reject(new Error(`upgrade failed: ${upgradeBuf.slice(0, 200)}`));
+          upgradeBuf = Buffer.concat([upgradeBuf, data]);
+          const boundary = upgradeBuf.indexOf('\r\n\r\n');
+          if (boundary !== -1) {
+            const headers = upgradeBuf.subarray(0, boundary).toString();
+            if (!headers.startsWith('HTTP/1.1 101 ')) {
+              sock.destroy();
+              reject(new Error('gateway WebSocket upgrade failed'));
+              return;
             }
-            this.buf = Buffer.alloc(0);
+            upgradeDone = true;
+            // The connect deadline must not become a five-second thinking deadline.
+            sock.setTimeout(0);
+            this.connected = true;
+            this.buf = upgradeBuf.subarray(boundary + 4);
+            this.processFrames();
+            resolve();
           }
           return;
         }
@@ -156,6 +162,7 @@ export class GatewayRpcClient {
 
       sock.on('close', () => {
         this.connected = false;
+        if (!upgradeDone) reject(new Error('gateway connection closed'));
         this.rejectAll(new Error('gateway connection closed'));
       });
 
@@ -239,8 +246,10 @@ export class GatewayRpcClient {
     this.pending.clear();
   }
 
+  get isConnected(): boolean { return this.connected; }
+
   disconnect(): void {
-    if (!this.connected) return;
+    this.onEvent = null;
     this.sock?.destroy();
     this.sock = null;
     this.connected = false;
@@ -261,18 +270,14 @@ function loadGatewayToken(): string {
   }
 }
 
-// ─── Singleton RPC client ────────────────────────────────────────────
-
-let _client: GatewayRpcClient | null = null;
+// ─── Per-request RPC client ────────────────────────────────────────────
 
 function getClient(): GatewayRpcClient | null {
-  if (_client) return _client;
   const host = process.env.EAIOS_HERMES_WS_HOST ?? '127.0.0.1';
   const port = Number(process.env.EAIOS_HERMES_WS_PORT ?? 9119);
   const token = loadGatewayToken();
   if (!token) return null;
-  _client = new GatewayRpcClient(host, port, token);
-  return _client;
+  return new GatewayRpcClient(host, port, token);
 }
 
 // ─── Public API ───────────────────────────────────────────────────────
@@ -287,6 +292,7 @@ export interface AllyChatResult {
 export interface AllyChatStreamCallbacks {
   onStart?: () => void;
   onDelta?: (text: string) => void;
+  onProgress?: (text: string) => void;
   onComplete?: (result: AllyChatResult) => void;
   onError?: (error: string) => void;
 }
@@ -296,170 +302,85 @@ export interface AllyChatStreamCallbacks {
  * Creates a new session on the default profile each call (no shared history).
  */
 export async function allyChat(text: string, attachments?: BridgeAttachment[], timeoutMs = 120_000): Promise<AllyChatResult> {
-  const client = getClient();
-  if (!client) return { text: '', finishReason: 'error', error: 'gateway token not configured' };
-
-  try {
-    await client.connect(5_000);
-  } catch (e) {
-    return { text: '', finishReason: 'error', error: `gateway connect failed: ${e instanceof Error ? e.message : String(e)}` };
-  }
-
-  try {
-    // Create a new session on the default profile
-    const createResult = await client.call('session.create', {
-      title: 'EAiOS — My Assistant',
-    }) as { session_id?: string };
-    if (!createResult?.session_id) {
-      return { text: '', finishReason: 'error', error: 'failed to create gateway session' };
-    }
-    const sessionId = createResult.session_id;
-
-    // Collect response events
-    let responseText = '';
-    let complete = false;
-    let finishReason = 'complete';
-
-    client.onEvent = (params) => {
-      const type = String(params.type ?? '');
-      const payload = (params.payload ?? {}) as Record<string, unknown>;
-      if (type === 'message.delta') {
-        responseText += String(payload.text ?? '');
-      } else if (type === 'message.complete') {
-        responseText = String(payload.text ?? responseText);
-        complete = true;
-      } else if (type === 'turn.error') {
-        finishReason = 'error';
-        complete = true;
-      }
-    };
-
-    // Build prompt text from message + attachments (mirrors the WS RPC path).
-    const attachmentBlock = attachments?.length
-      ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
-      : '';
-    const fullText = text + attachmentBlock;
-    if (!fullText.trim()) {
-      return { text: '', finishReason: 'error', error: 'text or attachments are required' };
-    }
-
-    // Submit the prompt
-    await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
-
-    // Wait for completion
-    const deadline = Date.now() + timeoutMs;
-    while (!complete && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-
-    // Close the session
-    try {
-      await client.call('session.close', { session_id: sessionId }, 5_000);
-    } catch {
-      // best-effort close
-    }
-
-    client.onEvent = null;
-    client.disconnect();
-
-    return {
-      text: responseText,
-      finishReason: complete ? finishReason : 'timeout',
-      sessionId,
-    };
-  } catch (e) {
-    client.disconnect();
-    return { text: '', finishReason: 'error', error: `gateway RPC failed: ${e instanceof Error ? e.message : String(e)}` };
-  }
+  let result: AllyChatResult = { text: '', finishReason: 'error', error: 'No response received.' };
+  await allyChatStream(text, {
+    onComplete: (value) => { result = value; },
+    onError: (error) => { result = { text: '', finishReason: 'error', error }; },
+  }, attachments, timeoutMs);
+  return result;
 }
 
-/**
- * Streaming variant of allyChat: invokes callbacks as tokens arrive from the
- * gateway. Useful for spiking/prototyping SSE streaming in the UI without
- * changing the legacy full-response path.
- */
+/** Stream one isolated gateway turn. Only events belonging to its session are forwarded. */
 export async function allyChatStream(
   text: string,
   callbacks: AllyChatStreamCallbacks,
   attachments?: BridgeAttachment[],
   timeoutMs = 120_000,
 ): Promise<void> {
+  const attachmentBlock = attachments?.length
+    ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
+    : '';
+  const fullText = text + attachmentBlock;
+  if (!fullText.trim()) {
+    callbacks.onError?.('text or attachments are required');
+    return;
+  }
   const client = getClient();
   if (!client) {
     callbacks.onError?.('gateway token not configured');
     return;
   }
-
+  let sessionId: string | undefined;
+  let complete = false;
   try {
     await client.connect(5_000);
-  } catch (e) {
-    callbacks.onError?.(`gateway connect failed: ${e instanceof Error ? e.message : String(e)}`);
-    return;
-  }
-
-  try {
-    const createResult = (await client.call('session.create', {
-      title: 'EAiOS — My Assistant',
-    })) as { session_id?: string };
-    if (!createResult?.session_id) {
-      callbacks.onError?.('failed to create gateway session');
-      return;
-    }
-    const sessionId = createResult.session_id;
+    const created = await client.call('session.create', { title: 'EAiOS — My Assistant' }) as { session_id?: string };
+    sessionId = created.session_id;
+    if (!sessionId) throw new Error('failed to create gateway session');
 
     let responseText = '';
-    let complete = false;
-    let finishReason: AllyChatResult['finishReason'] = 'complete';
-
+    let failure: string | undefined;
     client.onEvent = (params) => {
+      if (String(params.session_id ?? params.sid ?? '') !== sessionId) return;
       const type = String(params.type ?? '');
       const payload = (params.payload ?? {}) as Record<string, unknown>;
-      if (type === 'message.delta') {
-        const delta = String(payload.text ?? '');
-        responseText += delta;
-        callbacks.onDelta?.(delta);
+      if (type === 'message.delta' && typeof payload.text === 'string') {
+        responseText += payload.text;
+        callbacks.onDelta?.(payload.text);
       } else if (type === 'message.complete') {
-        responseText = String(payload.text ?? responseText);
+        if (typeof payload.text === 'string' && payload.text.trim()) responseText = payload.text;
+        if (payload.status && payload.status !== 'complete') failure = 'Ally could not finish this response.';
         complete = true;
-      } else if (type === 'turn.error') {
-        finishReason = 'error';
+      } else if (type === 'turn.error' || type === 'error') {
+        failure = String(payload.message ?? params.message ?? 'Ally could not finish this response.');
         complete = true;
+      } else if (type === 'tool.start' || type === 'tool.complete') {
+        const name = typeof payload.name === 'string' ? payload.name.replace(/_/g, ' ').slice(0, 80) : 'a tool';
+        callbacks.onProgress?.(`${type === 'tool.start' ? 'Using' : 'Finished'} ${name}`);
+      } else if (type === 'status.update' || type === 'message.interim') {
+        if (typeof payload.text === 'string' && payload.text.trim()) callbacks.onProgress?.(payload.text.slice(0, 500));
+      } else if (type === 'reasoning.delta' || type === 'thinking.delta') {
+        callbacks.onProgress?.('Thinking through your question…');
       }
     };
-
-    const attachmentBlock = attachments?.length
-      ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
-      : '';
-    const fullText = text + attachmentBlock;
-    if (!fullText.trim()) {
-      callbacks.onError?.('text or attachments are required');
-      return;
-    }
-
     callbacks.onStart?.();
-    await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
-
     const deadline = Date.now() + timeoutMs;
+    await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
     while (!complete && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 100));
+      if (!client.isConnected) throw new Error('The connection to Ally was interrupted. Check Conversations for a saved reply before retrying.');
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
-
-    try {
-      await client.call('session.close', { session_id: sessionId }, 5_000);
-    } catch {
-      // best-effort close
+    if (!complete) throw new Error('Ally is taking longer than expected. Check Conversations for a saved reply before retrying.');
+    if (failure) throw new Error(failure);
+    if (!responseText.trim()) throw new Error('Ally returned no text. Please try again or check Conversations.');
+    callbacks.onComplete?.({ text: responseText, finishReason: 'complete', sessionId });
+  } catch (error) {
+    callbacks.onError?.(error instanceof Error ? error.message : String(error));
+  } finally {
+    // Do not close a still-running turn on timeout; its saved reply can be recovered.
+    if (sessionId && complete && client.isConnected) {
+      try { await client.call('session.close', { session_id: sessionId }, 5_000); } catch { /* best effort */ }
     }
-
-    client.onEvent = null;
     client.disconnect();
-
-    callbacks.onComplete?.({
-      text: responseText,
-      finishReason: complete ? finishReason : 'timeout',
-      sessionId,
-    });
-  } catch (e) {
-    client.disconnect();
-    callbacks.onError?.(`gateway RPC failed: ${e instanceof Error ? e.message : String(e)}`);
   }
 }

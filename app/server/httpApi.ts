@@ -606,6 +606,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         res.write('event: start\ndata: {}\n\n');
         await allyChatStream(text, {
           onDelta: (delta) => res.write(`event: delta\ndata: ${JSON.stringify({ text: delta })}\n\n`),
+          onProgress: (text) => res.write(`event: progress\ndata: ${JSON.stringify({ text })}\n\n`),
           onComplete: (result) => {
             res.write(`event: complete\ndata: ${JSON.stringify(result)}\n\n`);
             res.end();
