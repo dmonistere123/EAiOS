@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { TodaySummary, WorkItem } from '../domain/types';
 import { hermes } from '../adapters';
-import { AGENT_NAME } from '../config';
+import { AGENT_NAME, EXECUTIVE_NAME } from '../config';
 import { useRuntime, agentName, toast } from '../state/runtime';
 import { Card, Drawer, EmptyState, KpiCard, PriorityBadge, SectionTitle, StateBadge, TimeUntil, RelativeTime } from '../components/ui';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
@@ -161,7 +161,7 @@ export default function Today() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{summary.greeting}, Don.</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{summary.greeting}, {EXECUTIVE_NAME}.</h1>
           <p className="mt-1 text-sm text-ink-dim">{summary.date} — {summary.headline}</p>
         </div>
         <button

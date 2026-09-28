@@ -35,7 +35,9 @@
 #   SKIP_TESTS           Set to 1 to skip the optional npm test run.
 #   SKIP_DESKTOP         Set to 1 to skip Hermes Desktop installation prompt.
 #   NONINTERACTIVE       Set to 1 to never prompt (default: 0).
-#   EAIOS_AGENT_NAME     Display name for the orchestration agent (default: Ally).
+#   EAIOS_AGENT_NAME     Display name for the existing default Hermes orchestrator (default: Ally).
+#   EAIOS_EXECUTIVE_NAME Display name for the executive (default: Executive).
+#   EAIOS_TELEGRAM_HOME_CHAT_ID Optional numeric Telegram delivery chat id.
 #
 # The script is idempotent: re-running it pulls the repo, rebuilds, and
 # restarts services without clobbering an existing .env.local.
@@ -109,6 +111,10 @@ while [[ $# -gt 0 ]]; do
     --non-interactive)       NONINTERACTIVE=1; shift ;;
     --agent-name)            EAIOS_AGENT_NAME="$2"; shift 2 ;;
     --agent-name=*)          EAIOS_AGENT_NAME="${1#*=}"; shift ;;
+    --executive-name)        EAIOS_EXECUTIVE_NAME="$2"; shift 2 ;;
+    --executive-name=*)      EAIOS_EXECUTIVE_NAME="${1#*=}"; shift ;;
+    --telegram-home-chat-id) EAIOS_TELEGRAM_HOME_CHAT_ID="$2"; shift 2 ;;
+    --telegram-home-chat-id=*) EAIOS_TELEGRAM_HOME_CHAT_ID="${1#*=}"; shift ;;
     -h|--help)               sed -n '2,45p' "$0"; exit 0 ;;
     *)                       fail "Unknown argument: $1" ;;
   esac
@@ -296,8 +302,13 @@ ENV_LOCAL="$EAIOS_ROOT/app/.env.local"
 if [[ -f "$ENV_LOCAL" ]]; then
   log_info "Keeping existing $ENV_LOCAL"
 else
-  [[ -z "${EAIOS_AGENT_NAME:-}" && "$NONINTERACTIVE" != "1" ]] && { echo -n "Agent name [Ally]: "; read -r EAIOS_AGENT_NAME; }
+  [[ -z "${EAIOS_AGENT_NAME:-}" && "$NONINTERACTIVE" != "1" ]] && { echo -n "Orchestrator name [Ally]: "; read -r EAIOS_AGENT_NAME; }
+  [[ -z "${EAIOS_EXECUTIVE_NAME:-}" && "$NONINTERACTIVE" != "1" ]] && { echo -n "Executive name [Executive]: "; read -r EAIOS_EXECUTIVE_NAME; }
   EAIOS_AGENT_NAME="${EAIOS_AGENT_NAME:-Ally}"
+  EAIOS_EXECUTIVE_NAME="${EAIOS_EXECUTIVE_NAME:-Executive}"
+  EAIOS_TELEGRAM_HOME_CHAT_ID="${EAIOS_TELEGRAM_HOME_CHAT_ID:-}"
+  [[ -z "$EAIOS_TELEGRAM_HOME_CHAT_ID" || "$EAIOS_TELEGRAM_HOME_CHAT_ID" =~ ^-?[0-9]+$ ]] || fail "Telegram home chat id must be numeric"
+  EAIOS_TELEGRAM_HOME_DELIVERY="${EAIOS_TELEGRAM_HOME_CHAT_ID:+telegram:$EAIOS_TELEGRAM_HOME_CHAT_ID}"
   log_info "Creating $ENV_LOCAL with all provider key placeholders"
 
   cat > "$ENV_LOCAL" << ENVEOF
@@ -309,6 +320,8 @@ else
 VITE_HERMES_LIVE=1
 VITE_HERMES_TOKEN=$DEV_TOKEN
 VITE_AGENT_NAME=$EAIOS_AGENT_NAME
+VITE_EXECUTIVE_NAME=$EAIOS_EXECUTIVE_NAME
+VITE_TELEGRAM_HOME_DELIVERY=$EAIOS_TELEGRAM_HOME_DELIVERY
 
 # Composio connector key - required for Connections/Composio integrations
 COMPOSIO_API_KEY=

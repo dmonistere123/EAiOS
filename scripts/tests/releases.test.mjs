@@ -138,3 +138,13 @@ test('installation enables a weekly timer without enabling or starting the check
   const service = readFileSync(join(units, 'eaios-update-check.service'), 'utf8');
   assert.doesNotMatch(service, /install-release|@[A-Z_]+@/); assert.ok(service.includes(join(dir, 'customer-data')));
 });
+
+test('fresh installer configures the existing orchestrator without creating agents', () => {
+  const installer = readFileSync(join(scripts, '..', 'install/install.sh'), 'utf8');
+  assert.match(installer, /Orchestrator name \[Ally\]/);
+  assert.match(installer, /VITE_AGENT_NAME=\$EAIOS_AGENT_NAME/);
+  assert.match(installer, /VITE_EXECUTIVE_NAME=\$EAIOS_EXECUTIVE_NAME/);
+  assert.match(installer, /VITE_TELEGRAM_HOME_DELIVERY=\$EAIOS_TELEGRAM_HOME_DELIVERY/);
+  assert.doesNotMatch(installer, /profiles\.create|hermes\s+(?:profile|agent)\s+(?:create|add)/);
+  assert.doesNotMatch(installer, /telegram:-1004268167166/);
+});

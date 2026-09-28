@@ -13,6 +13,7 @@ import { Drawer, AgentStatusBadge, StateBadge, IndeterminateBar, RelativeTime, C
 import { OrgChart } from '../components/OrgChart';
 import { AGENT_GOVERNANCE_SOUL } from '../domain/governance';
 import { useAgentChannel } from '../components/AgentChannel';
+import { AGENT_NAME } from '../config';
 
 /** Add Agent drawer (Phase 6.5) — profile creation via the live model catalog. */
 
@@ -438,17 +439,17 @@ export default function Staff() {
       },
       {
         key: 'agent-chat',
-        title: `Ally ↔ ${selectedName}`,
+        title: `${AGENT_NAME} ↔ ${selectedName}`,
         count: channel?.agentChat?.length,
         node: !channel ? (
           <p className="px-2 text-xs text-ink-faint">Loading…</p>
         ) : channel.agentChat === null ? (
-          <p className="px-2 text-xs text-ink-faint">No Ally↔{selectedName} chat yet — one appears here the first time Ally messages {selectedName}.</p>
+          <p className="px-2 text-xs text-ink-faint">No {AGENT_NAME}↔{selectedName} chat yet — one appears here the first time {AGENT_NAME} messages {selectedName}.</p>
         ) : (
           <ul className="space-y-2">
             {channel.agentChat.map((m) => (
               <li key={m.id} className="rounded-lg bg-canvas px-2 py-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? 'Ally' : selectedName}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{m.role === 'you' ? AGENT_NAME : selectedName}</div>
                 <div className="whitespace-pre-wrap text-xs text-ink-dim">{m.text}</div>
               </li>
             ))}

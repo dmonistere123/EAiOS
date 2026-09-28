@@ -9,6 +9,7 @@ import type { KnowledgeSource } from '../domain/types';
 import type { KnowledgeSearchResult } from '../adapters/interfaces';
 import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
 import { ChunkDrawer } from '../components/ChunkDrawer';
+import { AGENT_NAME } from '../config';
 
 const statusTone = { pending: 'warn', processing: 'signal', ready: 'ok', failed: 'risk', stale: 'warn' } as const;
 const typeIcon = { file: '▤', url: '⬡', connector: '⬢', transcript: '❝', text: '¶' } as const;
@@ -246,7 +247,7 @@ export default function Knowledge() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Knowledge</h1>
-          <p className="mt-1 text-sm text-ink-dim">What Ally and staff are allowed to know. Scope is enforced by the runtime, not hidden in the UI.</p>
+          <p className="mt-1 text-sm text-ink-dim">What {AGENT_NAME} and staff are allowed to know. Scope is enforced by the runtime, not hidden in the UI.</p>
         </div>
         <button onClick={() => setAdding(true)} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90">Add source</button>
       </header>
@@ -254,7 +255,7 @@ export default function Knowledge() {
       <RetrievalPanel />
 
       {s.knowledge.length === 0 ? (
-        <EmptyState title="No knowledge sources" hint="Upload files or add URLs to ground Ally's answers." />
+        <EmptyState title="No knowledge sources" hint={`Upload files or add URLs to ground ${AGENT_NAME}'s answers.`} />
       ) : (
         <div className="space-y-4">
           {groups.map(

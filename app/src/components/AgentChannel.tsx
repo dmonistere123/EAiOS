@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentChannel as AgentChannelData } from '../domain/types';
 import { hermes } from '../adapters';
+import { AGENT_NAME } from '../config';
 import { Card, SectionTitle, StateBadge } from './ui';
 
 /** Shared data path for an agent's channel (W1) — used by the AgentChannel
@@ -59,16 +60,16 @@ export function AgentChannel({ agentId, agentName }: { agentId: string; agentNam
         <SectionTitle
           right={<span className="rounded-full border border-edge px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-ink-faint">read-only</span>}
         >
-          Ally ↔ {agentName}
+          {AGENT_NAME} ↔ {agentName}
         </SectionTitle>
         {channel.agentChat === null ? (
-          <p className="text-xs text-ink-dim">No Ally↔{agentName} chat yet — one appears here the first time Ally messages {agentName}.</p>
+          <p className="text-xs text-ink-dim">No {AGENT_NAME}↔{agentName} chat yet — one appears here the first time {AGENT_NAME} messages {agentName}.</p>
         ) : (
           <ul className="space-y-2.5">
             {channel.agentChat.map((m) => (
               <li key={m.id} className="rounded-lg bg-canvas px-3 py-2 text-xs">
                 <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
-                  {m.role === 'you' ? 'Ally' : agentName}
+                  {m.role === 'you' ? AGENT_NAME : agentName}
                 </div>
                 <div className="whitespace-pre-wrap text-ink-dim">{m.text}</div>
               </li>

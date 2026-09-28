@@ -15,6 +15,7 @@ import type { ChatMessage } from '../domain/types';
 import { hermes } from '../adapters';
 import { toast } from '../state/runtime';
 import { BrainGlyph } from './BrainGlyph';
+import { AGENT_NAME } from '../config';
 
 const LANE = 'concierge';
 const CTX_OPEN = '[concierge-context v1]';
@@ -22,10 +23,10 @@ const CTX_CLOSE = '[/concierge-context]';
 
 /** Product knowledge the concierge needs to answer navigation questions
  * accurately — compact on purpose (rides the prompt cache once in context). */
-const NAV_BRIEF = `You are the EAiOS navigation concierge — Ally's helper lane dedicated to orienting users in the EAiOS console. Answer in 2-4 sentences, name the exact page and section, and when the ask is really an ACTION (send an email, post something, delete, schedule), explain it goes through a delegated task plus an approval — not this chat. Page map:
+const NAV_BRIEF = `You are the EAiOS navigation concierge — ${AGENT_NAME}'s helper lane dedicated to orienting users in the EAiOS console. Answer in 2-4 sentences, name the exact page and section, and when the ask is really an ACTION (send an email, post something, delete, schedule), explain it goes through a delegated task plus an approval — not this chat. Page map:
 - Today: executive summary, pending approvals, recommendations, delegated-work snapshot.
-- My Assistant: full chat with Ally; right rail lists conversations and delegated runs (read-only transcripts).
-- Staff: orbital org chart (Ally hub + agents); add agents, edit SOUL/model/telegram bot, per-agent channel view.
+- My Assistant: full chat with ${AGENT_NAME}; right rail lists conversations and delegated runs (read-only transcripts).
+- Staff: orbital org chart (${AGENT_NAME} hub + agents); add agents, edit SOUL/model/telegram bot, per-agent channel view.
 - Connections: Composio apps — connected apps and the available-to-connect catalog with connect/disconnect.
 - Approvals: pending external-write approvals; approving EXECUTES the prepared action shown in the envelope.
 - Schedule: top card creates cron jobs and one-off delegated tasks; day cards show calendar + cron; Work in flight lists active tasks (pause/resume/defer/done/stop/reclaim) and completed-24h (click for result + transcript).
@@ -189,7 +190,7 @@ export function ConciergeWidget() {
         <BrainGlyph className="h-6 w-6 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink">Concierge</div>
-          <div className="truncate text-[11px] text-ink-faint">Ally's Guide</div>
+          <div className="truncate text-[11px] text-ink-faint">{AGENT_NAME}'s Guide</div>
         </div>
         <button
           onClick={() => void newChat()}

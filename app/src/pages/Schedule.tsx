@@ -151,7 +151,7 @@ function NewCronForm({ onCreated }: { onCreated: () => void }) {
       scheduleExpression,
       actionRef: prompt.trim(),
       approvalPolicy: 'approval_on_result',
-      deliver: deliver ? TELEGRAM_HOME_DELIVERY : undefined,
+      deliver: deliver && TELEGRAM_HOME_DELIVERY ? TELEGRAM_HOME_DELIVERY : undefined,
     });
     setBusy(false);
     if (res.ok) {
@@ -195,8 +195,8 @@ function NewCronForm({ onCreated }: { onCreated: () => void }) {
         <textarea id="cron-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} placeholder="Summarize overnight mentions and draft a digest…" className="mt-1 w-full rounded-lg border border-edge bg-canvas-raised px-3 py-2 text-sm text-ink placeholder:text-ink-faint" />
       </div>
       <label className="flex items-center gap-2 text-sm text-ink-dim">
-        <input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} className="accent-[#32c5ff]" />
-        Deliver results to Telegram ({AGENT_NAME}'s Portal)
+        <input type="checkbox" checked={deliver} onChange={(e) => setDeliver(e.target.checked)} disabled={!TELEGRAM_HOME_DELIVERY} className="accent-[#32c5ff] disabled:opacity-50" />
+        {TELEGRAM_HOME_DELIVERY ? `Deliver results to Telegram (${AGENT_NAME}'s Portal)` : 'Telegram delivery is not configured on this box'}
       </label>
       <div className="flex gap-2">
         <button onClick={submit} disabled={busy} className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">

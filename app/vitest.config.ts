@@ -14,6 +14,6 @@ export default defineConfig({
     fileParallelism: false,
     // Tests always run against the mock adapter — .env.local enables live
     // mode for dev, and must never leak the real gateway into the suite.
-    env: { VITE_HERMES_LIVE: '0' },
+    env: { VITE_HERMES_LIVE: '0', VITE_TELEGRAM_HOME_DELIVERY: 'telegram:-1001234567890' },
   },
 });

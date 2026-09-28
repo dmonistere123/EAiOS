@@ -11,8 +11,8 @@ Runs as a no-agent cron script: prints the report only when there is
 something new (empty stdout = silent tick). Dedup state lives in
 ~/eaios/notify-state.json (gitignored): task id -> completed_at reported.
 
-Chat target: telegramHomeChatId in ~/eaios/settings.local.json — the
-installer sets it per customer; this box falls back to Ally's Portal.
+Chat target: telegramHomeChatId in ~/eaios/settings.local.json. There is no
+cross-box fallback; a missing destination is reported as unconfigured.
 """
 import json
 import os
@@ -34,7 +34,7 @@ def load_settings_chat_id() -> str:
             return str(settings["telegramHomeChatId"])
     except Exception:
         pass
-    return "-1004268167166"  # Ally's Portal (this box; installer overrides)
+    return ""
 
 
 def main() -> int:
@@ -71,7 +71,8 @@ def main() -> int:
         return 0  # silent tick
 
     chat_id = load_settings_chat_id()
-    lines = [f"📬 Delegated work report (→ telegram:{chat_id})", ""]
+    target = f" → telegram:{chat_id}" if chat_id else " — delivery destination unconfigured"
+    lines = [f"📬 Delegated work report ({target.strip()})", ""]
     for task_id, title, assignee, completed_at, result, files in fresh:
         agent = assignee or "staff"
         excerpt = (result or "Completed without a result note.").strip()

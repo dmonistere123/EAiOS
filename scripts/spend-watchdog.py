@@ -132,7 +132,7 @@ def main() -> int:
     lines += [
         '',
         'Estimate = fresh input + output at public rates (cache excluded; matches billing within ~5%).',
-        'Full breakdown: ask Ally "what did we spend on <date>?"',
+        'Full breakdown: ask your orchestrator "what did we spend on <date>?"',
     ]
     print('\n'.join(lines))
     return 0

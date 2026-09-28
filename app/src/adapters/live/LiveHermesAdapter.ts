@@ -20,6 +20,7 @@ import type {
 } from '../interfaces';
 import { hermes as mock } from '../mock/MockHermesAdapter';
 import { liveTravel } from './LiveTravelAdapter';
+import { AGENT_NAME } from '../../config';
 
 // ---------- JSON-RPC over WebSocket client ----------
 
@@ -395,7 +396,7 @@ function mapProfile(p: HermesProfile, activeProfileNames: Set<string>): Agent {
   const active = activeProfileNames.has(p.name);
   return {
     id: p.name,
-    name: p.display_name || (isAlly ? 'Ally' : p.name.charAt(0).toUpperCase() + p.name.slice(1)),
+    name: p.display_name || (isAlly ? AGENT_NAME : p.name.charAt(0).toUpperCase() + p.name.slice(1)),
     role: p.description || (isAlly ? 'Chief of Staff / Orchestrator' : 'Specialist agent'),
     reportsToAgentId: isAlly ? undefined : 'default',
     model: { provider: p.provider ?? 'unknown', model: p.model ?? 'unknown' },
@@ -1969,7 +1970,7 @@ class LiveHermesAdapter implements HermesAdapter {
       const res = await this.rpc.call<{ profiles: HermesProfile[] }>('profiles.list');
       return (res.profiles ?? []).map((p) => ({
         id: `soul-${p.name}`,
-        name: p.is_default ? 'SOUL.md (Ally — default profile)' : `SOUL.md (${p.display_name || p.name})`,
+        name: p.is_default ? `SOUL.md (${AGENT_NAME} — default profile)` : `SOUL.md (${p.display_name || p.name})`,
         path: p.is_default ? '~/.hermes/SOUL.md' : `~/.hermes/profiles/${p.name}/SOUL.md`,
       }));
     } catch {

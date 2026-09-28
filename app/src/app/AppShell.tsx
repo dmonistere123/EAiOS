@@ -12,6 +12,7 @@ import {
 import { useRailDeclaration } from '../state/rail';
 import { RelativeTime, RiskBadge, TimeUntil, ToastHost } from '../components/ui';
 import { ConciergeWidget } from '../components/ConciergeWidget';
+import { EXECUTIVE_NAME } from '../config';
 
 const LIMITS = { left: { min: 208, max: 360, def: 264 }, right: { min: 280, max: 440, def: 340 } };
 const STORE_KEY = 'eaios.panes.v1';
@@ -282,8 +283,8 @@ export default function AppShell() {
           {pending > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-warn" aria-label={`${pending} pending approvals`} />}
         </button>
         <div className="flex items-center gap-2 rounded-lg border border-edge bg-canvas-raised px-3 py-1.5">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal/20 text-xs font-semibold text-signal">DM</span>
-          <span className="hidden text-xs text-ink-dim lg:inline">Don M. — CEO</span>
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal/20 text-xs font-semibold text-signal">{EXECUTIVE_NAME.slice(0, 2).toUpperCase()}</span>
+          <span className="hidden text-xs text-ink-dim lg:inline">{EXECUTIVE_NAME} — Executive</span>
         </div>
       </header>
 

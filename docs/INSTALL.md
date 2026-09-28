@@ -45,6 +45,18 @@ Name your orchestration agent [Ally]:
 
 Whatever you enter becomes the display name throughout the EAiOS UI (chat header, placeholders, travel assistant, cron prompts, etc.). It is written to `app/.env.local` as `VITE_AGENT_NAME`.
 
+The installer uses the existing default Hermes profile as the orchestrator. It does not create specialist profiles. New agents are created only later through an explicit Staff → Add agent action.
+
+Per-box identity and delivery values live in the gitignored `app/.env.local`, never in application source:
+
+```dotenv
+VITE_AGENT_NAME=Pepper
+VITE_EXECUTIVE_NAME=Austin
+VITE_TELEGRAM_HOME_DELIVERY=telegram:-1001234567890
+```
+
+The Telegram destination is optional. If it is absent, scheduled Telegram delivery stays disabled rather than falling back to another box's recipient.
+
 To skip the prompt in automation:
 
 ```bash
@@ -84,6 +96,8 @@ To skip the prompt in automation:
 | `--branch <name>` | Branch to checkout (default: master). |
 | `--root <path>` | Install location (default: `~/eaios`). |
 | `--agent-name <name>` | Display name for the orchestration agent. |
+| `--executive-name <name>` | Executive display name (default: Executive). |
+| `--telegram-home-chat-id <id>` | Optional numeric Telegram chat id for scheduled delivery. |
 | `--non-interactive` | Never prompt; use defaults or flags. |
 | `--skip-node` | Skip Node installation check. |
 | `--skip-hermes` | Skip Hermes installation check. |
