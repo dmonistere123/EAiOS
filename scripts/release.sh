@@ -52,6 +52,11 @@ echo "==> Releasing EAiOS $VERSION"
 # Keep the lockfile consistent and validate before publishing a release.
 cd "$REPO_ROOT/app"
 npm test
+cd "$REPO_ROOT"
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+[[ -n "$PYTHON_BIN" ]] || { echo "python3 or python is required for release preservation tests" >&2; exit 1; }
+"$PYTHON_BIN" scripts/tests/test_install_linkedin_workflow.py
+cd "$REPO_ROOT/app"
 if [[ "$(node -p 'require("./package.json").version')" != "$PLAIN_VERSION" ]]; then
   npm version "$PLAIN_VERSION" --no-git-tag-version
 fi

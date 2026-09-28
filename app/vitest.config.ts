@@ -9,6 +9,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/tests/setup.ts'],
     css: false,
+    // Runtime polling uses process-level timers and singleton adapters. Keep
+    // files serial so a completed file cannot race another file's fixtures.
+    fileParallelism: false,
     // Tests always run against the mock adapter — .env.local enables live
     // mode for dev, and must never leak the real gateway into the suite.
     env: { VITE_HERMES_LIVE: '0' },

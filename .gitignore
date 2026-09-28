@@ -1,4 +1,7 @@
 node_modules/
+output/
+__pycache__/
+*.pyc
 sidecar/.venv/
 sidecar/data/
 sidecar/__pycache__/

@@ -30,7 +30,9 @@ describe('setProfileEnvKey + hasProfileEnvKey', () => {
     setProfileEnvKey(profiles, 'quill', 'TELEGRAM_BOT_TOKEN', 'tok-abc-1');
     expect(hasProfileEnvKey(profiles, 'quill', 'TELEGRAM_BOT_TOKEN')).toBe(true);
     expect(readFileSync(join(profiles, 'quill', '.env'), 'utf8')).toContain('TELEGRAM_BOT_TOKEN=tok-abc-1');
-    expect(statSync(join(profiles, 'quill', '.env')).mode & 0o777).toBe(0o600);
+    // Windows does not expose POSIX chmod bits faithfully; the production
+    // Linux path must still enforce owner-only read/write permissions.
+    if (process.platform !== 'win32') expect(statSync(join(profiles, 'quill', '.env')).mode & 0o777).toBe(0o600);
   });
 
   it('replaces the key in place without duplicating or touching other lines', () => {
