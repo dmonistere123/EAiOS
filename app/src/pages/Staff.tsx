@@ -205,6 +205,9 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
   const [botBound, setBotBound] = useState<boolean | null>(null);
   const [botToken, setBotToken] = useState('');
   const [botBusy, setBotBusy] = useState(false);
+  // Agent deletion confirmation.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   // Live mode: the agent's own allowed list has only its current model —
   // enrich from the catalog so the picker is real (6.5).
@@ -285,6 +288,22 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
       toast('error', res.error?.safeMessage ?? 'SOUL save failed.');
     }
   };
+
+  const deleteAgent = async () => {
+    setDeleteBusy(true);
+    const res = await hermes.deleteAgent(agent.id);
+    setDeleteBusy(false);
+    if (res.ok) {
+      toast('ok', `${agent.name} deleted from EAiOS and Hermes Desktop.`);
+      await refreshAgents();
+      onClose();
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Agent deletion failed.');
+      setConfirmDelete(false);
+    }
+  };
+
+  const canDelete = agent.id !== 'default' && agent.id !== 'ally';
 
   return (
     <Drawer title={`${agent.name} — properties`} onClose={onClose}>
@@ -390,6 +409,49 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
         <button onClick={save} disabled={busy} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
           {busy ? 'Saving…' : 'Save changes'}
         </button>
+
+        {canDelete && (
+          <div className="rounded-lg border border-risk/30 bg-risk/5 p-3">
+            {!confirmDelete ? (
+              <>
+                <div className="text-xs font-medium text-risk">Delete agent</div>
+                <p className="mt-1 text-[11px] text-ink-dim">
+                  This removes <strong>{agent.name}</strong> from EAiOS and deletes its Hermes Desktop profile. Cannot be undone.
+                </p>
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="mt-2 w-full rounded-lg border border-risk px-3 py-2 text-xs font-medium text-risk hover:bg-risk/10"
+                >
+                  Delete {agent.name}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-xs font-medium text-risk">Are you sure?</div>
+                <p className="mt-1 text-[11px] text-ink-dim">
+                  Confirm to permanently delete the <code className="font-mono">{agent.id}</code> profile from EAiOS and Hermes Desktop.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleteBusy}
+                    className="flex-1 rounded-lg border border-edge px-3 py-2 text-xs font-medium text-ink-dim hover:bg-canvas-overlay disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => void deleteAgent()}
+                    disabled={deleteBusy}
+                    className="flex-1 rounded-lg bg-risk px-3 py-2 text-xs font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50"
+                  >
+                    {deleteBusy ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <p className="text-[11px] text-ink-faint">Provider credentials are never shown here — only safe metadata.</p>
       </div>
     </Drawer>

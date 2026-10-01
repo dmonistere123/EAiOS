@@ -553,12 +553,28 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   /**
-   * Telegram bot binding (dogfood 2026-08-29) via /api/profile-env. GET is
-   * existence-only; the POST writes the allowlisted key server-side. The
-   * token is NEVER read back — a WRITE, so failure returns an honest error
-   * instead of falling back to the mock (which would pretend to persist).
+   * Delete a staff agent and its Hermes Desktop profile. The EAiOS server
+   * owns the operation so it can also clear EAiOS-local references (e.g.
+   * allyProfile). This is a WRITE — failures return honest errors, no mock
+   * fallback.
    */
-  async getTelegramBotStatus(profile: string): Promise<{ bound: boolean }> {
+  async deleteAgent(agentId: string): Promise<AuditResult> {
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+      const data = (typeof res.json === 'function' ? await res.json().catch(() => ({})) : {}) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? `DELETE /api/agents/${agentId} HTTP ${res.status}`);
+      return { ok: true, auditEventId: `agent-delete-${agentId}-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `agent-delete-err-${Date.now()}`, error: { code: 'agent_delete_failed', safeMessage: e instanceof Error ? e.message : 'Agent deletion failed.', retryable: true } };
+    }
+  }
+
+   /** Telegram bot binding (dogfood 2026-08-29) via /api/profile-env. GET is
+    * existence-only; the POST writes the allowlisted key server-side. The
+    * token is NEVER read back — a WRITE, so failure returns an honest error
+    * instead of falling back to the mock (which would pretend to persist).
+    */
+   async getTelegramBotStatus(profile: string): Promise<{ bound: boolean }> {
     try {
       const res = await fetch(`/api/profile-env?profile=${encodeURIComponent(profile)}&key=TELEGRAM_BOT_TOKEN`);
       const data = (await res.json().catch(() => ({}))) as { present?: boolean; error?: string };

@@ -112,7 +112,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ProdConfig {
     port: Number(env.EAIOS_PORT ?? 5200),
     host: env.EAIOS_HOST ?? '127.0.0.1',
     distDir: env.EAIOS_DIST ?? join(APP_ROOT, 'dist'),
-    apiCtx: { hermesHome, eaiosRoot: env.EAIOS_ROOT ?? resolve(APP_ROOT, '..'), dataRoot: env.EAIOS_DATA_ROOT ?? env.EAIOS_ROOT ?? resolve(APP_ROOT, '..') },
+    apiCtx: {
+      hermesHome,
+      eaiosRoot: env.EAIOS_ROOT ?? resolve(APP_ROOT, '..'),
+      dataRoot: env.EAIOS_DATA_ROOT ?? env.EAIOS_ROOT ?? resolve(APP_ROOT, '..'),
+      hermesGatewayUrl: `http://${wsHost || '127.0.0.1'}:${wsPortRaw ?? 9119}`,
+      hermesGatewayToken: token,
+    },
     hermesWsHost: wsHost || '127.0.0.1',
     hermesWsPort: Number(wsPortRaw ?? 9119),
     hermesToken: token,
@@ -238,6 +244,15 @@ export function createEaiosServer(config: ProdConfig) {
       }
       if (path.startsWith('/podcasts-api')) {
         await proxyHttp(req, res, config.knowledgeUrl, '/podcasts-api', {});
+        return;
+      }
+      // EAiOS marketing landing page (www.allygnment.com content)
+      if (path.startsWith('/eaios')) {
+        const eaiosWww = resolve(resolve(APP_DIR, '../..'), 'www');
+        const originalUrl = req.url ?? '/';
+        const marketingUrl = originalUrl.replace(/^\/eaios/, '');
+        req.url = marketingUrl || '/';
+        serveStatic(eaiosWww, req, res);
         return;
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') {

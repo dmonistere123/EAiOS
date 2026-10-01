@@ -155,6 +155,43 @@ describe('ally profile (F-local-model)', () => {
   });
 });
 
+describe('agent deletion', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('live deleteAgent DELETEs /api/agents/:id and returns ok', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/agents/scout') return { ok: true, status: 200, json: async () => ({ ok: true, agentId: 'scout' }) };
+      throw new Error(`unexpected ${url}`);
+    }));
+    const res = await live.deleteAgent('scout');
+    expect(res.ok).toBe(true);
+  });
+
+  it('live deleteAgent reports errors honestly', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false, status: 403,
+      json: async () => ({ error: 'cannot delete the default orchestrator profile' }),
+    })));
+    const res = await live.deleteAgent('default');
+    expect(res.ok).toBe(false);
+    expect(res.error?.safeMessage).toContain('cannot delete');
+  });
+
+  it('mock deleteAgent removes the agent and forbids default/ally', async () => {
+    const agentsBefore = (await hermes.listAgents()).map((a) => a.id);
+    expect(agentsBefore).toContain('scout');
+    const ok = await hermes.deleteAgent('scout');
+    expect(ok.ok).toBe(true);
+    const agentsAfter = (await hermes.listAgents()).map((a) => a.id);
+    expect(agentsAfter).not.toContain('scout');
+
+    const def = await hermes.deleteAgent('default');
+    expect(def.ok).toBe(false);
+    const ally = await hermes.deleteAgent('ally');
+    expect(ally.ok).toBe(false);
+  });
+});
+
 describe('backup media and jobs', () => {
   afterEach(() => vi.unstubAllGlobals());
 

@@ -197,6 +197,8 @@ export interface HermesAdapter {
   listModelOptions(): Promise<ModelOptionGroup[]>;
   /** Spin up a new staff agent (profile). Config write — audited, no approval gate (D3). */
   createAgent(input: CreateAgent): Promise<AuditResult>;
+  /** Permanently delete a staff agent and its Hermes Desktop profile. Config write — audited, no approval gate (D3). */
+  deleteAgent(agentId: string): Promise<AuditResult>;
   /** Telegram bot binding: EXISTENCE only — token values are never returned (dogfood 2026-08-29). */
   getTelegramBotStatus(profile: string): Promise<{ bound: boolean }>;
   /** Bind a bot token to a profile: allowlisted .env write server-side (chmod 600, never read back). */

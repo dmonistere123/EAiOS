@@ -62,6 +62,10 @@ export interface ApiContext {
   dataRoot?: string;
   /** Production captures its manifest at startup; null means unavailable. */
   buildVersion?: BuildVersion | null;
+  /** Hermes gateway HTTP base for server-to-server calls (default http://127.0.0.1:9119). */
+  hermesGatewayUrl?: string;
+  /** Hermes gateway auth token; loaded from EAIOS_HERMES_TOKEN_FILE by default. */
+  hermesGatewayToken?: string;
 }
 
 interface CacheEntry {
@@ -102,6 +106,27 @@ function json(res: ServerResponse, status: number, body: string) {
 
 function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** Issue a server-to-server request to the Hermes gateway. Falls back to
+ * 127.0.0.1:9119 when no override is provided so tests and the prod server
+ * both resolve the same default. */
+async function hermesGatewayFetch(ctx: ApiContext, path: string, init?: RequestInit & { timeoutMs?: number }): Promise<Response> {
+  const base = (ctx.hermesGatewayUrl ?? 'http://127.0.0.1:9119').replace(/\/$/, '');
+  const token = ctx.hermesGatewayToken ?? '';
+  const headers: Record<string, string> = {};
+  if (token) headers['authorization'] = `Bearer ${token}`;
+  const upstreamHeaders = init?.headers as Record<string, string> | undefined;
+  if (upstreamHeaders) {
+    for (const [k, v] of Object.entries(upstreamHeaders)) headers[k] = v;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), init?.timeoutMs ?? 10_000);
+  try {
+    return await fetch(`${base}${path}`, { ...init, headers, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /** Route one request. Returns true when the path was handled (response
@@ -247,6 +272,40 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       } catch (e) {
         const code = (e as { code?: string }).code === 'already_exists' ? 409 : 400;
         json(res, code, JSON.stringify({ error: errMessage(e) }));
+      }
+      return true;
+    }
+
+    /* agent lifecycle: delete a staff agent and its Hermes profile */
+    const agentDeleteMatch = path.match(/^\/api\/agents\/([^/]+)$/);
+    if (agentDeleteMatch && req.method === 'DELETE') {
+      try {
+        const agentId = agentDeleteMatch[1];
+        if (!agentId || agentId === 'default' || agentId === 'ally') {
+          json(res, 403, JSON.stringify({ error: 'cannot delete the default orchestrator profile' }));
+          return true;
+        }
+        if (!/^[a-z0-9_-]+$/.test(agentId)) {
+          json(res, 400, JSON.stringify({ error: 'invalid agent id' }));
+          return true;
+        }
+
+        // Clear EAiOS-local references first so a failed Hermes call still leaves EAiOS consistent.
+        const currentSettings = readSettings(settingsFile) as { allyProfile?: string | null };
+        if (currentSettings.allyProfile === agentId) {
+          writeSettings(settingsFile, { allyProfile: null });
+        }
+
+        // Ask Hermes Desktop to delete the linked profile.
+        const upstream = await hermesGatewayFetch(ctx, `/api/profiles/${encodeURIComponent(agentId)}`, { method: 'DELETE', timeoutMs: 15_000 });
+        if (!upstream.ok) {
+          const text = await upstream.text().catch(() => 'Hermes gateway error');
+          json(res, upstream.status >= 400 && upstream.status < 500 ? upstream.status : 502, JSON.stringify({ error: text }));
+          return true;
+        }
+        json(res, 200, JSON.stringify({ ok: true, agentId }));
+      } catch (e) {
+        json(res, 500, JSON.stringify({ error: errMessage(e) }));
       }
       return true;
     }

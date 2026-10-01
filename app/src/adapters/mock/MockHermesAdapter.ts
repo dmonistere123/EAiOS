@@ -186,6 +186,21 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  async deleteAgent(agentId: string): Promise<AuditResult> {
+    await delay(200);
+    if (agentId === 'default' || agentId === 'ally') {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'protected_agent', safeMessage: 'The orchestrator agent cannot be deleted.', retryable: false } };
+    }
+    const before = this.agents.length;
+    this.agents = this.agents.filter((a) => a.id !== agentId);
+    if (this.agents.length === before) {
+      return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: `Agent "${agentId}" not found.`, retryable: false } };
+    }
+    this.botBindings.delete(agentId);
+    this.emit('config.changed', agentId, `Agent deleted: ${agentId}`);
+    return audit();
+  }
+
   /** Mock Telegram binding (dogfood 2026-08-29): a Set of bound profile ids. */
   private botBindings = new Set<string>();
 

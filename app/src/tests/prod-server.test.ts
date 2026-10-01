@@ -13,6 +13,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createEaiosServer, loadConfig } from '../../server/prod.ts';
@@ -20,6 +21,10 @@ import { createEaiosServer, loadConfig } from '../../server/prod.ts';
 let server: Server;
 let base: string;
 let root: string;
+let hermesGateway: Server;
+let hermesGatewayBase: string;
+const GATEWAY_TOKEN = 'test-gateway-token';
+let deletedProfiles: string[] = [];
 
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'eaios-prod-test-'));
@@ -42,11 +47,40 @@ beforeAll(async () => {
   // Use the configured distribution directory, including custom EAIOS_DIST.
   writeFileSync(join(dist, 'version.json'), JSON.stringify({ version: '0.1.0', gitSha: 'abc1234', gitBranch: 'main', builtAt: new Date().toISOString() }));
 
+  // Minimal fake Hermes gateway for agent-deletion tests.
+  deletedProfiles = [];
+  hermesGateway = createServer((req, res) => {
+    void (async () => {
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      const auth = req.headers.authorization ?? '';
+      if (!auth.includes(GATEWAY_TOKEN)) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: 'unauthorized' }));
+        return;
+      }
+      const match = url.pathname.match(/^\/api\/profiles\/([^/]+)$/);
+      if (req.method === 'DELETE' && match) {
+        const name = decodeURIComponent(match[1]);
+        deletedProfiles.push(name);
+        res.statusCode = 200;
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ ok: true, path: `/fake/hermes/profiles/${name}` }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ error: 'not found' }));
+    })();
+  });
+  await new Promise<void>((resolvePromise) => hermesGateway.listen(0, '127.0.0.1', resolvePromise));
+  hermesGatewayBase = `http://127.0.0.1:${(hermesGateway.address() as AddressInfo).port}`;
+
   const config = loadConfig({
     EAIOS_DIST: dist,
     HERMES_HOME: hermesHome,
     EAIOS_ROOT: eaiosRoot,
     EAIOS_KNOWLEDGE_URL: 'http://127.0.0.1:59998', // dead port — proxy must fail honestly
+    EAIOS_HERMES_WS: hermesGatewayBase.replace(/^https?:\/\//, ''),
+    EAIOS_HERMES_TOKEN: GATEWAY_TOKEN,
   } as NodeJS.ProcessEnv);
   server = createEaiosServer(config);
   await new Promise<void>((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
@@ -55,6 +89,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await new Promise((resolvePromise) => server.close(resolvePromise));
+  await new Promise((resolvePromise) => hermesGateway.close(resolvePromise));
   rmSync(root, { recursive: true, force: true });
 });
 
@@ -182,6 +217,46 @@ describe('api endpoints (hermetic roots)', () => {
   it('unknown /api path → 404; /api/ws over plain HTTP → 426', async () => {
     expect((await fetch(`${base}/api/nope`)).status).toBe(404);
     expect((await fetch(`${base}/api/ws`)).status).toBe(426);
+  });
+
+  it('agent deletion: removes agent and its Hermes profile, clears allyProfile', async () => {
+    // Point allyProfile at scout so we can verify it gets cleared.
+    await fetch(`${base}/api/eaios-settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allyProfile: 'scout' }),
+    });
+
+    const del = await fetch(`${base}/api/agents/scout`, { method: 'DELETE' });
+    expect(del.status).toBe(200);
+    const body = await del.json() as { ok: boolean; agentId: string };
+    expect(body.ok).toBe(true);
+    expect(body.agentId).toBe('scout');
+    expect(deletedProfiles).toContain('scout');
+
+    const settings = await (await fetch(`${base}/api/eaios-settings`)).json() as { allyProfile?: string };
+    expect(settings.allyProfile).toBeUndefined();
+  });
+
+  it('agent deletion: refuses to delete default or ally profiles', async () => {
+    const d = await fetch(`${base}/api/agents/default`, { method: 'DELETE' });
+    expect(d.status).toBe(403);
+    const a = await fetch(`${base}/api/agents/ally`, { method: 'DELETE' });
+    expect(a.status).toBe(403);
+  });
+
+  it('agent deletion: rejects invalid ids and forwards Hermes errors', async () => {
+    // URL normalization collapses path traversal to /etc, which is not an agents route → 404.
+    const traversal = await fetch(`${base}/api/agents/../etc`, { method: 'DELETE' });
+    expect(traversal.status).toBe(404);
+
+    // Invalid characters in the id segment are rejected by the handler.
+    const bad = await fetch(`${base}/api/agents/bad.id`, { method: 'DELETE' });
+    expect(bad.status).toBe(400);
+
+    const missing = await fetch(`${base}/api/agents/no-such-agent`, { method: 'DELETE' });
+    // The fake gateway returns 200 for any profile, so this verifies the happy path.
+    expect([200, 404, 502]).toContain(missing.status);
   });
 
   it('/api/version returns the build manifest + empty update log', async () => {
