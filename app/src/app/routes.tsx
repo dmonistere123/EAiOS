@@ -13,6 +13,7 @@ import Skills from '../pages/Skills';
 import Artifacts from '../pages/Artifacts';
 import Usage from '../pages/Usage';
 import Settings from '../pages/Settings';
+import Backup from '../pages/Backup';
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: 'skills', element: <Skills /> },
       { path: 'artifacts', element: <Artifacts /> },
       { path: 'usage', element: <Usage /> },
+      { path: 'backup', element: <Backup /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

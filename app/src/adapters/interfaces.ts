@@ -151,6 +151,40 @@ export interface AssistantAttachment {
   encoding: 'text' | 'base64';
 }
 
+export interface BackupMedia {
+  path: string;
+  label: string;
+  sizeBytes?: number;
+  usedBytes?: number;
+  availableBytes?: number;
+  device?: string;
+  removable: boolean;
+}
+
+export interface BackupResult {
+  archivePath: string;
+  archiveSizeBytes: number;
+  archiveSize: string;
+  startedAt: string;
+  finishedAt: string;
+  sources: { name: string; path: string }[];
+}
+
+export interface BackupJobStatus {
+  id: string;
+  status: 'running' | 'done' | 'error' | 'failed';
+  progress?: { phase: string; percent: number };
+  startedAt: string;
+  updatedAt: string;
+  archivePath?: string;
+  archiveSizeBytes?: number;
+  archiveSize?: string;
+  sources?: { name: string; path: string }[];
+  finishedAt?: string;
+  error?: string;
+  warning?: string;
+}
+
 export interface HermesAdapter {
   /** Slices currently serving fallback data (live adapter only; absent on
    * mock). Spec §2: degradation must be visible, never silent. */
@@ -208,6 +242,16 @@ export interface HermesAdapter {
   getDailySpend(days?: number): Promise<DailySpendReport>;
   /** Set (or clear, with null) the daily spend alert threshold shared with the watchdog cron (F29). */
   setDailySpendAlert(thresholdUsd: number | null): Promise<AuditResult>;
+  /** Hermes profile used for the Ally/My Assistant chat lane (default profile when null/empty). */
+  getAllyProfile(): Promise<string | null>;
+  /** Set (or clear, with null) the Hermes profile used for the Ally/My Assistant chat lane. */
+  setAllyProfile(profile: string | null): Promise<AuditResult>;
+  /** List removable USB/media mountpoints available for backup. */
+  listBackupMedia(): Promise<BackupMedia[]>;
+  /** Start a backup of Hermes + EAiOS to the chosen media path. Returns a job id to poll. */
+  startBackup(target: string): Promise<{ jobId: string; status: string }>;
+  /** Poll the status of a backup job. */
+  getBackupStatus(jobId: string): Promise<BackupJobStatus>;
   /** Current build version + update history for the EAiOS Settings page. */
   getVersionInfo(): Promise<VersionInfo>;
   getReleaseUpdateInfo(): Promise<ReleaseUpdateInfo>;

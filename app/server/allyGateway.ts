@@ -297,16 +297,23 @@ export interface AllyChatStreamCallbacks {
   onError?: (error: string) => void;
 }
 
+export interface AllyChatOptions {
+  /** Hermes profile to run Ally on (default profile when omitted). */
+  profile?: string;
+  attachments?: BridgeAttachment[];
+  timeoutMs?: number;
+}
+
 /**
  * Send a prompt to the Ally gateway session and return the complete response.
- * Creates a new session on the default profile each call (no shared history).
+ * Creates a new session on the configured profile each call (no shared history).
  */
-export async function allyChat(text: string, attachments?: BridgeAttachment[], timeoutMs = 120_000): Promise<AllyChatResult> {
+export async function allyChat(text: string, options: AllyChatOptions = {}): Promise<AllyChatResult> {
   let result: AllyChatResult = { text: '', finishReason: 'error', error: 'No response received.' };
   await allyChatStream(text, {
     onComplete: (value) => { result = value; },
     onError: (error) => { result = { text: '', finishReason: 'error', error }; },
-  }, attachments, timeoutMs);
+  }, options);
   return result;
 }
 
@@ -314,9 +321,9 @@ export async function allyChat(text: string, attachments?: BridgeAttachment[], t
 export async function allyChatStream(
   text: string,
   callbacks: AllyChatStreamCallbacks,
-  attachments?: BridgeAttachment[],
-  timeoutMs = 120_000,
+  options: AllyChatOptions = {},
 ): Promise<void> {
+  const { profile, attachments, timeoutMs = 120_000 } = options;
   const attachmentBlock = attachments?.length
     ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
     : '';
@@ -334,7 +341,9 @@ export async function allyChatStream(
   let complete = false;
   try {
     await client.connect(5_000);
-    const created = await client.call('session.create', { title: 'EAiOS — My Assistant' }) as { session_id?: string };
+    const createParams: Record<string, unknown> = { title: 'EAiOS — My Assistant' };
+    if (profile) createParams.profile = profile;
+    const created = await client.call('session.create', createParams) as { session_id?: string };
     sessionId = created.session_id;
     if (!sessionId) throw new Error('failed to create gateway session');
 

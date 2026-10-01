@@ -1451,6 +1451,65 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  /** Hermes profile used for the Ally/My Assistant chat lane (default profile when null/empty). */
+  async getAllyProfile(): Promise<string | null> {
+    try {
+      const res = await fetch('/api/eaios-settings');
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      const settings = (await res.json()) as { allyProfile?: string | null };
+      return settings.allyProfile ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Set (or clear, with null) the Hermes profile used for the Ally/My Assistant chat lane. */
+  async setAllyProfile(profile: string | null): Promise<AuditResult> {
+    try {
+      const res = await fetch('/api/eaios-settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ allyProfile: profile }),
+      });
+      if (!res.ok) throw new Error(`settings ${res.status}`);
+      return { ok: true, auditEventId: `settings-ally-profile-${Date.now()}` };
+    } catch (e) {
+      return { ok: false, auditEventId: `settings-err-${Date.now()}`, error: { code: 'settings_write_failed', safeMessage: e instanceof Error ? e.message : 'Profile save failed.', retryable: true } };
+    }
+  }
+
+  /** Discover removable USB/media mountpoints for backup. */
+  async listBackupMedia(): Promise<import('../interfaces.ts').BackupMedia[]> {
+    const res = await fetch('/api/backup/media');
+    if (!res.ok) throw new Error(`backup media ${res.status}`);
+    const body = (await res.json()) as { media: import('../interfaces.ts').BackupMedia[] };
+    return body.media;
+  }
+
+  /** Start a backup of Hermes + EAiOS to the chosen media path. Returns a job id to poll. */
+  async startBackup(target: string): Promise<{ jobId: string; status: string }> {
+    const res = await fetch('/api/backup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target }),
+    });
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `backup ${res.status}`);
+    }
+    return (await res.json()) as { jobId: string; status: string };
+  }
+
+  /** Poll the status of a backup job. */
+  async getBackupStatus(jobId: string): Promise<import('../interfaces.ts').BackupJobStatus> {
+    const res = await fetch(`/api/backup/status?jobId=${encodeURIComponent(jobId)}`);
+    if (!res.ok) {
+      const err = (await res.json()) as { error?: string };
+      throw new Error(err.error ?? `backup status ${res.status}`);
+    }
+    return (await res.json()) as import('../interfaces.ts').BackupJobStatus;
+  }
+
   /** Update-path visibility: current build version + tail of update history. */
   async getVersionInfo(): Promise<VersionInfo> {
     try {

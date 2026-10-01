@@ -88,7 +88,7 @@ describe('Ally gateway delivery', () => {
       send('message.complete', { text: '', status: 'complete' });
     });
     const onComplete = vi.fn(), onError = vi.fn(), onProgress = vi.fn();
-    await allyChatStream('question', { onComplete, onError, onProgress }, undefined, 1000);
+    await allyChatStream('question', { onComplete, onError, onProgress }, { timeoutMs: 1000 });
     expect(onError).not.toHaveBeenCalled();
     expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ text: 'The answer is 42.', finishReason: 'complete' }));
     expect(onProgress).toHaveBeenCalledWith('Using web search');
@@ -99,7 +99,7 @@ describe('Ally gateway delivery', () => {
       if (kind !== 'timeout') send('message.complete', { text: '', status: kind === 'error' ? 'error' : 'complete' });
     });
     const onComplete = vi.fn(), onError = vi.fn();
-    await allyChatStream('question', { onComplete, onError }, undefined, 50);
+    await allyChatStream('question', { onComplete, onError }, { timeoutMs: 50 });
     expect(onComplete).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledOnce();
   });
@@ -108,8 +108,8 @@ describe('Ally gateway delivery', () => {
     await gateway((send, text) => { setTimeout(() => send('message.complete', { text: `Answer to ${text}` }), 20); });
     const first = vi.fn(), second = vi.fn(), onError = vi.fn();
     await Promise.all([
-      allyChatStream('one', { onComplete: first, onError }, undefined, 1000),
-      allyChatStream('two', { onComplete: second, onError }, undefined, 1000),
+      allyChatStream('one', { onComplete: first, onError }, { timeoutMs: 1000 }),
+      allyChatStream('two', { onComplete: second, onError }, { timeoutMs: 1000 }),
     ]);
     expect(onError).not.toHaveBeenCalled();
     expect(first).toHaveBeenCalledWith(expect.objectContaining({ text: 'Answer to one' }));

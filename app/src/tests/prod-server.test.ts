@@ -26,6 +26,11 @@ beforeAll(async () => {
   const hermesHome = join(root, 'hermes');
   const eaiosRoot = join(root, 'eaios');
   const dist = join(root, 'dist');
+  const fakeUsb = join(root, 'usb');
+  mkdirSync(fakeUsb, { recursive: true });
+  // Make the fake USB discoverable by the backup media detector.
+  process.env.EAIOS_BACKUP_MEDIA_ROOTS = fakeUsb;
+
   mkdirSync(join(hermesHome, 'skills', 'productivity', 'demo-skill'), { recursive: true });
   writeFileSync(join(hermesHome, 'skills', 'productivity', 'demo-skill', 'SKILL.md'), '---\nname: demo-skill\ndescription: A test skill\nversion: 1.0.0\n---\nbody\n');
   mkdirSync(join(hermesHome, 'profiles', 'scout'), { recursive: true });
@@ -150,10 +155,18 @@ describe('api endpoints (hermetic roots)', () => {
     const put = await fetch(`${base}/api/eaios-settings`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ usageBudgetUsd: 300 }),
+      body: JSON.stringify({ usageBudgetUsd: 300, allyProfile: 'local-llama' }),
     });
     expect(put.status).toBe(200);
-    expect(await put.json()).toEqual({ usageBudgetUsd: 300 });
+    expect(await put.json()).toEqual({ usageBudgetUsd: 300, allyProfile: 'local-llama' });
+
+    const clearProfile = await fetch(`${base}/api/eaios-settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allyProfile: null }),
+    });
+    expect(clearProfile.status).toBe(200);
+    expect((await clearProfile.json()).allyProfile).toBeUndefined();
 
     const bad = await fetch(`${base}/api/eaios-settings`, {
       method: 'PUT',
@@ -178,6 +191,52 @@ describe('api endpoints (hermetic roots)', () => {
     expect(body.current.version).toBe('0.1.0');
     expect(body.current.gitSha).toMatch(/^[a-f0-9]+$/);
     expect(Array.isArray(body.log)).toBe(true);
+  });
+
+  it('backup: lists media and creates a tar.gz archive excluding node_modules/dist', async () => {
+    const fakeUsb = join(root, 'usb');
+
+    const mediaRes = await fetch(`${base}/api/backup/media`);
+    expect(mediaRes.status).toBe(200);
+    const mediaBody = await mediaRes.json() as { media: { path: string; label: string }[] };
+    expect(mediaBody.media.some((m) => m.path === fakeUsb)).toBe(true);
+
+    const post = await fetch(`${base}/api/backup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ target: fakeUsb }),
+    });
+    expect(post.status).toBe(202);
+    const { jobId } = await post.json() as { jobId: string };
+    expect(jobId).toBeTruthy();
+
+    // Poll until done (with a generous timeout for the small hermetic roots).
+    let status: { status: string; archivePath?: string; archiveSizeBytes?: number; sources?: { name: string }[] } = { status: 'running' };
+    for (let i = 0; i < 60 && status.status === 'running'; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const res = await fetch(`${base}/api/backup/status?jobId=${jobId}`);
+      expect(res.status).toBe(200);
+      status = await res.json() as typeof status;
+    }
+    expect(status.status).toBe('done');
+    expect(status.archivePath).toMatch(/eaios-backup-.*\.tar\.gz$/);
+    expect(status.archiveSizeBytes).toBeGreaterThan(0);
+    expect(status.sources?.some((s) => s.name === 'Hermes home')).toBe(true);
+    expect(require('node:fs').existsSync(status.archivePath!)).toBe(true);
+  });
+
+  it('backup: rejects missing target', async () => {
+    const post = await fetch(`${base}/api/backup`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    expect(post.status).toBe(400);
+  });
+
+  it('backup: returns 404 for unknown job id', async () => {
+    const res = await fetch(`${base}/api/backup/status?jobId=no-such-job`);
+    expect(res.status).toBe(404);
   });
 
   it('dismissed work items: GET/POST/DELETE round-trip to gitignored dismissed.json', async () => {

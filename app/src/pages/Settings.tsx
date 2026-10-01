@@ -153,6 +153,71 @@ function EnvFileEditor() {
   );
 }
 
+function AllyProfileSelector() {
+  const [profile, setProfile] = useState<string | null | undefined>(undefined);
+  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void Promise.all([hermes.getAllyProfile(), hermes.listAgents()])
+      .then(([current, agents]) => {
+        setProfile(current ?? '');
+        setProfiles([
+          { id: '', name: 'Default profile (cloud models)' },
+          ...agents
+            .filter((a) => a.id !== 'default')
+            .map((a) => ({ id: a.id, name: `${a.name}${a.model?.model ? ` (${a.model.model})` : ''}` })),
+        ]);
+      })
+      .catch(() => {
+        setProfile('');
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    if (profile === undefined) return;
+    setSaving(true);
+    const res = await hermes.setAllyProfile(profile || null);
+    setSaving(false);
+    if (res.ok) {
+      toast('ok', `Ally profile saved to ${profile ? profiles.find((p) => p.id === profile)?.name ?? profile : 'Default'}.`);
+    } else {
+      toast('error', res.error?.safeMessage ?? 'Profile save failed.');
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <SectionTitle right={<StateBadge label="live" tone="ok" />}>Ally chat model profile</SectionTitle>
+      <label className="block text-xs text-ink-dim" htmlFor="ally-profile">Profile for the My Assistant chat lane</label>
+      <select
+        id="ally-profile"
+        disabled={loading}
+        value={profile ?? ''}
+        onChange={(e) => setProfile(e.target.value)}
+        className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink disabled:opacity-50"
+      >
+        {profiles.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <p className="mt-2 text-xs text-ink-faint">
+        Switch to <span className="text-signal">local-llama</span> for a private/offline model running on this machine (slower, no cloud dependency).
+        All other profiles use their configured Hermes settings, including reasoning mode.
+      </p>
+      <button
+        onClick={save}
+        disabled={saving || profile === undefined}
+        className="mt-3 rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50"
+      >
+        {saving ? 'Saving…' : 'Save profile'}
+      </button>
+    </Card>
+  );
+}
+
 export default function Settings() {
   return (
     <div className="space-y-6">
@@ -162,14 +227,7 @@ export default function Settings() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <SectionTitle right={<StateBadge label="informational" tone="neutral" />}>Model defaults</SectionTitle>
-          <label className="block text-xs text-ink-dim" htmlFor="def-model">Default model for new agents</label>
-          <select id="def-model" disabled className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink opacity-50">
-            <option>kimi-coding / kimi-k3</option>
-          </select>
-          <p className="mt-2 text-xs text-ink-faint">Model writes are live since the agent factory (6.5): change a model in <code className="text-signal">Staff → agent properties</code>, pick the starting model in the Add Agent drawer — both validated against the live catalog. A persisted default-for-new-agents setting is roadmap polish.</p>
-        </Card>
+        <AllyProfileSelector />
 
         <Card className="p-5">
           <SectionTitle right={<StateBadge label="mock — policy editor not live yet" tone="warn" />}>Approval defaults</SectionTitle>

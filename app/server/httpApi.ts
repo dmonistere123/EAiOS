@@ -22,6 +22,7 @@ import { travelAction } from './travelBooking.ts';
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   listArtifacts,
@@ -50,6 +51,8 @@ import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
 import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
 import { optionsFor, requireSameOriginJson, checkUpdates, getUpdateStatus, launchReleaseInstall } from './updates.ts';
 import { allyChat, allyChatStream } from './allyGateway.ts';
+import { detectMedia, startBackupJob, listJobs, humanSize } from './backupCore.ts';
+import type { BackupJob } from './backupCore.ts';
 
 export interface ApiContext {
   /** Hermes home (default ~/.hermes) — skills/, profiles/, state.db, kanban.db. */
@@ -607,7 +610,8 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
           json(res, 400, JSON.stringify({ error: 'text or attachments are required' }));
           return true;
         }
-        const result = await allyChat(text, attachments);
+        const settings = readSettings(settingsFile) as { allyProfile?: string | null };
+        const result = await allyChat(text, { profile: settings.allyProfile ?? undefined, attachments });
         json(res, result.error ? 503 : 200, JSON.stringify(result));
       } catch (e) {
         json(res, 500, JSON.stringify({ error: errMessage(e) }));
@@ -633,6 +637,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         res.setHeader('cache-control', 'no-cache');
         res.setHeader('connection', 'keep-alive');
         res.write('event: start\ndata: {}\n\n');
+        const streamSettings = readSettings(settingsFile) as { allyProfile?: string | null };
         await allyChatStream(text, {
           onDelta: (delta) => res.write(`event: delta\ndata: ${JSON.stringify({ text: delta })}\n\n`),
           onProgress: (text) => res.write(`event: progress\ndata: ${JSON.stringify({ text })}\n\n`),
@@ -644,12 +649,81 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
             res.write(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
             res.end();
           },
-        }, attachments);
+        }, { profile: streamSettings.allyProfile ?? undefined, attachments });
       } catch (e) {
         res.statusCode = 500;
         res.setHeader('content-type', 'text/event-stream');
         res.setHeader('cache-control', 'no-cache');
         res.end(`event: error\ndata: ${JSON.stringify({ error: errMessage(e) })}\n\n`);
+      }
+      return true;
+    }
+
+    /* backup to removable media (Hermes + EAiOS, excludes Ollama models) */
+    if (path === '/api/backup/media' && req.method === 'GET') {
+      try {
+        const media = await detectMedia();
+        json(res, 200, JSON.stringify({ media }));
+      } catch (e) {
+        json(res, 500, JSON.stringify({ error: errMessage(e) }));
+      }
+      return true;
+    }
+    if (path === '/api/backup' && req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req);
+        const target = String(body.target ?? '').trim();
+        const job = await startBackupJob(target, {
+          hermesHome: ctx.hermesHome,
+          eaiosRoot: ctx.eaiosRoot,
+          eaiosDataRoot: dataRoot,
+          systemdUser: join(homedir(), '.config', 'systemd', 'user'),
+        });
+        json(res, 202, JSON.stringify({
+          jobId: job.id,
+          status: job.status,
+          archivePath: job.archivePath,
+          sources: job.sources,
+        }));
+      } catch (e) {
+        const status = e && typeof e === 'object' && 'status' in e ? Number(e.status) : 500;
+        json(res, status, JSON.stringify({ error: errMessage(e) }));
+      }
+      return true;
+    }
+    if (path === '/api/backup/status' && req.method === 'GET') {
+      try {
+        const jobId = url.searchParams.get('jobId') ?? '';
+        const jobs = await listJobs({
+          hermesHome: ctx.hermesHome,
+          eaiosRoot: ctx.eaiosRoot,
+          eaiosDataRoot: dataRoot,
+          systemdUser: join(homedir(), '.config', 'systemd', 'user'),
+        });
+        const job = jobs.find((j: BackupJob) => j.id === jobId);
+        if (!job) {
+          json(res, 404, JSON.stringify({ error: 'job not found' }));
+          return true;
+        }
+        const payload: Record<string, unknown> = {
+          id: job.id,
+          status: job.status,
+          startedAt: job.startedAt,
+          updatedAt: job.finishedAt ?? job.startedAt,
+        };
+        if (job.archivePath) payload.archivePath = job.archivePath;
+        if (job.archiveSizeBytes !== undefined) {
+          payload.archiveSizeBytes = job.archiveSizeBytes;
+          payload.archiveSize = humanSize(job.archiveSizeBytes);
+        }
+        if (job.sources) payload.sources = job.sources;
+        if (job.exclusions) payload.exclusions = job.exclusions;
+        if (job.finishedAt) payload.finishedAt = job.finishedAt;
+        if (job.warning) payload.warning = job.warning;
+        if (job.error) payload.error = job.error;
+        json(res, 200, JSON.stringify(payload));
+      } catch (e) {
+        json(res, 500, JSON.stringify({ error: errMessage(e) }));
       }
       return true;
     }

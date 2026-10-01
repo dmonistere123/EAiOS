@@ -448,6 +448,65 @@ class MockHermesAdapter implements HermesAdapter {
     return audit();
   }
 
+  private allyProfile: string | null = null;
+  async getAllyProfile(): Promise<string | null> {
+    await delay(50);
+    return this.allyProfile;
+  }
+  async setAllyProfile(profile: string | null): Promise<AuditResult> {
+    await delay(150);
+    this.allyProfile = profile;
+    this.emit('config.changed', undefined, profile === null ? 'Ally profile reset to default' : `Ally profile set to ${profile}`);
+    return audit();
+  }
+
+  private backupMedia: import('../interfaces.ts').BackupMedia[] = [
+    { path: '/media/mock-usb', label: 'MOCK-USB', removable: true, availableBytes: 32_000_000_000, sizeBytes: 64_000_000_000 },
+  ];
+  __setBackupMedia(media: import('../interfaces.ts').BackupMedia[]) {
+    this.backupMedia = media;
+  }
+  async listBackupMedia(): Promise<import('../interfaces.ts').BackupMedia[]> {
+    await delay(100);
+    return [...this.backupMedia];
+  }
+
+  private backupJobId = 0;
+  private backupJobs = new Map<string, import('../interfaces.ts').BackupJobStatus>();
+  async startBackup(target: string): Promise<{ jobId: string; status: string }> {
+    await delay(150);
+    const id = `mock-bak-${++this.backupJobId}`;
+    const job: import('../interfaces.ts').BackupJobStatus = {
+      id,
+      status: 'running',
+      progress: { phase: 'packing', percent: 0 },
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.backupJobs.set(id, job);
+    setTimeout(() => {
+      job.status = 'done';
+      job.progress = { phase: 'packing', percent: 100 };
+      job.archivePath = `${target}/eaios-backup-mock.tar.gz`;
+      job.archiveSizeBytes = 1_234_567;
+      job.archiveSize = '1.2 MB';
+      job.finishedAt = new Date().toISOString();
+      job.sources = [
+        { name: 'Hermes home', path: '~/.hermes' },
+        { name: 'EAiOS application', path: '~/eaios' },
+        { name: 'EAiOS data', path: '~/eaios-data' },
+        { name: 'User systemd services', path: '~/.config/systemd/user' },
+      ];
+      job.updatedAt = job.finishedAt;
+    }, 600);
+    return { jobId: id, status: 'running' };
+  }
+  async getBackupStatus(jobId: string): Promise<import('../interfaces.ts').BackupJobStatus> {
+    await delay(50);
+    const job = this.backupJobs.get(jobId);
+    if (!job) throw new Error('job not found');
+    return job;
+  }
 
   private releaseUpdateInfo: ReleaseUpdateInfo = { repository: 'dmonistere123/EAiOS', checkIntervalDays: 7, status: 'not_checked' };
   async getReleaseUpdateInfo(): Promise<ReleaseUpdateInfo> { await delay(20); return structuredClone(this.releaseUpdateInfo); }

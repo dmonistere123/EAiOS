@@ -51,6 +51,7 @@ const NAV = [
   { to: '/skills', label: 'Skills & Playbooks', icon: '⚒' },
   { to: '/artifacts', label: 'Artifacts', icon: '▤' },
   { to: '/usage', label: 'Usage', icon: '◔' },
+  { to: '/backup', label: 'Backup', icon: '⛃' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ];
 

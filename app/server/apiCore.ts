@@ -440,7 +440,7 @@ export function rawArtifact(dbPath: string, attachRoot: string, idParam: string)
 /** EAiOS-owned settings (Phase 6.2, F15) live in <eaiosRoot>/settings.local.json
  * (gitignored) — the gateway has no generic config-write RPC. Server-side key
  * allowlist; never allowlist anything credential-shaped. */
-export const SETTINGS_ALLOWED_KEYS = new Set(['usageBudgetUsd', 'dailySpendAlertUsd']);
+export const SETTINGS_ALLOWED_KEYS = new Set(['usageBudgetUsd', 'dailySpendAlertUsd', 'allyProfile']);
 
 export function readSettings(file: string): Record<string, unknown> {
   try {
@@ -463,6 +463,9 @@ export function writeSettings(file: string, patch: Record<string, unknown>): Rec
   }
   if (patch.dailySpendAlertUsd !== null && patch.dailySpendAlertUsd !== undefined && (typeof patch.dailySpendAlertUsd !== 'number' || !(patch.dailySpendAlertUsd > 0))) {
     throw new Error('dailySpendAlertUsd must be a positive number or null');
+  }
+  if (patch.allyProfile !== null && patch.allyProfile !== undefined && typeof patch.allyProfile !== 'string') {
+    throw new Error('allyProfile must be a string or null');
   }
   const next = readSettings(file);
   for (const k of keys) {
