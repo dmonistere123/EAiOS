@@ -1,40 +1,15 @@
-/**
- * ConciergeWidget (F26, Don 2026-08-30) — floating navigation helper for new
- * users. BrainGlyph FAB bottom-right → overlay panel docked right; minimizable
- * to a pill. Chat = Ally's 'concierge' LANE: a second session on the DEFAULT
- * profile (D-B1 untouched — still Ally), persistent per browser via the 6.4
- * lane machinery, hydrated lazily on first open (no session litter for users
- * who never open it). The first message of a fresh concierge session carries
- * a compact navigation brief + current page inside [concierge-context v1]
- * markers; later messages carry just the page line; markers are stripped for
- * display. Stacking: drawers (z-40) and toasts (z-50) outrank it (z-30).
- */
+/** Bottom-right navigation guide. Dedicated live profile and packaged context are owned by the adapter. */
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { ChatMessage } from '../domain/types';
 import { hermes } from '../adapters';
 import { toast } from '../state/runtime';
 import { BrainGlyph } from './BrainGlyph';
-import { AGENT_NAME } from '../config';
+import { stripConciergeDocuments } from '../domain/concierge';
 
 const LANE = 'concierge';
 const CTX_OPEN = '[concierge-context v1]';
 const CTX_CLOSE = '[/concierge-context]';
-
-/** Product knowledge the concierge needs to answer navigation questions
- * accurately — compact on purpose (rides the prompt cache once in context). */
-const NAV_BRIEF = `You are the EAiOS navigation concierge — ${AGENT_NAME}'s helper lane dedicated to orienting users in the EAiOS console. Answer in 2-4 sentences, name the exact page and section, and when the ask is really an ACTION (send an email, post something, delete, schedule), explain it goes through a delegated task plus an approval — not this chat. Page map:
-- Today: executive summary, pending approvals, recommendations, delegated-work snapshot.
-- My Assistant: full chat with ${AGENT_NAME}; right rail lists conversations and delegated runs (read-only transcripts).
-- Staff: orbital org chart (${AGENT_NAME} hub + agents); add agents, edit SOUL/model/telegram bot, per-agent channel view.
-- Connections: Composio apps — connected apps and the available-to-connect catalog with connect/disconnect.
-- Approvals: pending external-write approvals; approving EXECUTES the prepared action shown in the envelope.
-- Schedule: top card creates cron jobs and one-off delegated tasks; day cards show calendar + cron; Work in flight lists active tasks (pause/resume/defer/done/stop/reclaim) and completed-24h (click for result + transcript).
-- Knowledge: RAG sources — add files/URLs, reindex, try retrieval, citation drill-down.
-- Skills & Playbooks: skill library and playbook editor; run playbooks with one click.
-- Artifacts: deliverables from completed work — preview, download, governed share.
-- Usage: token/cost usage and the monthly budget editor.
-- Settings: agent env files (SOUL.md per agent).`;
 
 const PAGE_NAMES: Record<string, string> = {
   '/today': 'Today',
@@ -48,13 +23,16 @@ const PAGE_NAMES: Record<string, string> = {
   '/artifacts': 'Artifacts',
   '/usage': 'Usage',
   '/settings': 'Settings',
+  '/travel': 'Travel',
+  '/podcasts': 'Podcasts',
+  '/backup': 'Backup',
 };
 
 const EXAMPLE_PROMPTS = ['How do approvals work?', 'How do I put an agent to work?', 'Where do I find a deliverable?'];
 
 /** Hide the concierge-context envelope the model needs but the user shouldn't read. */
 export function stripConciergeContext(text: string): string {
-  return text.replace(/\[concierge-context v1][\s\S]*?\[\/concierge-context]\s*/g, '').trim();
+  return stripConciergeDocuments(text).replace(/\[concierge-context v1][\s\S]*?\[\/concierge-context]\s*/g, '').trim();
 }
 
 type Mode = 'fab' | 'open' | 'min';
@@ -63,6 +41,8 @@ export function ConciergeWidget() {
   const location = useLocation();
   const pageName = PAGE_NAMES[location.pathname] ?? 'EAiOS';
   const [mode, setMode] = useState<Mode>('fab');
+  const [loadError, setLoadError] = useState('');
+  const [retry, setRetry] = useState(0);
   const [ready, setReady] = useState(false); // history loaded — sends stay gated until then (brief decision depends on real lane history)
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -82,6 +62,9 @@ export function ConciergeWidget() {
       if (stale) return;
       setThread(rows);
       setReady(true);
+      setLoadError('');
+    }).catch(() => {
+      if (!stale) { setReady(false); setThread([]); setLoadError('Concierge is unavailable. Retry, or ask your administrator to check its setup.'); }
     });
     const unsub = hermes.subscribeAssistant((e) => {
       if (e.kind === 'start') {
@@ -94,7 +77,7 @@ export function ConciergeWidget() {
         setSending(false);
         void hermes.getAssistantHistory(LANE).then((rows) => {
           if (!stale) setThread(rows); // authoritative, deduped by row_id
-        });
+        }).catch(() => { if (!stale) setLoadError('Could not load this conversation. Please retry.'); });
       } else if (e.kind === 'error') {
         setStreaming(null);
         setSending(false);
@@ -105,7 +88,7 @@ export function ConciergeWidget() {
       stale = true;
       unsub();
     };
-  }, [mode]);
+  }, [mode, retry]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -131,32 +114,32 @@ export function ConciergeWidget() {
     }
     setStreaming(null);
     setThread([]);
-    void hermes.getAssistantHistory(LANE).then(setThread); // authoritative (empty for a fresh session)
+    void hermes.getAssistantHistory(LANE).then(setThread).catch(() => setLoadError('Could not load this conversation. Please retry.')); // authoritative (empty for a fresh session)
   };
 
   const send = async (text: string) => {
     const q = text.trim();
-    if (!q || sending) return;
+    if (!q || sending || !ready) return;
     setDraft('');
+    setLoadError('');
     setSending(true);
-    const ctx =
-      thread.length === 0
-        ? `${CTX_OPEN}\n${NAV_BRIEF}\nThe user is currently on the "${pageName}" page.\n${CTX_CLOSE}\n\n`
-        : `${CTX_OPEN} The user is currently on the "${pageName}" page. ${CTX_CLOSE}\n\n`;
+    const ctx = `${CTX_OPEN} The user is currently on the "${pageName}" page (${location.pathname}). ${CTX_CLOSE}\n\n`;
     // Optimistic bubble (display-stripped); history rehydration on complete is authoritative.
     setThread((t) => [...t, { id: `optimistic-${Date.now()}`, role: 'you', text: ctx + q, at: new Date().toISOString() }]);
     const res = await hermes.sendAssistantMessage(ctx + q, { agentId: LANE });
     setSending(false);
     textareaRef.current?.focus();
     if (!res.ok) {
-      toast('error', res.error?.safeMessage ?? 'Message failed to send.');
+      setThread(t => t.filter(row => !row.id.startsWith('optimistic-')));
+      setDraft(q);
+      setLoadError(res.error?.safeMessage ?? 'Message failed to send.');
     }
   };
 
   if (mode === 'fab') {
     return (
       <button
-        onClick={() => setMode('open')}
+        onClick={() => { setReady(false); setMode('open'); }}
         aria-label="Open the navigation concierge"
         title="New here? Ask the concierge how to get around"
         className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border-2 border-signal/40 shadow-[0_0_18px_2px_rgba(50,197,255,0.35)] transition-shadow hover:border-signal hover:shadow-[0_0_22px_3px_rgba(50,197,255,0.5)]"
@@ -170,7 +153,7 @@ export function ConciergeWidget() {
   if (mode === 'min') {
     return (
       <button
-        onClick={() => setMode('open')}
+        onClick={() => { setReady(false); setMode('open'); }}
         aria-label="Expand the navigation concierge"
         className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-signal/40 bg-canvas-raised py-2 pl-3 pr-4 shadow-lg hover:border-signal"
       >
@@ -186,11 +169,12 @@ export function ConciergeWidget() {
       aria-label="EAiOS navigation concierge"
       className="eaios-concierge-panel fixed bottom-6 right-6 z-30 flex h-[30rem] max-h-[calc(100vh-4rem)] w-96 max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-edge bg-canvas-raised shadow-2xl"
     >
+      {loadError && <div role="alert" className="px-4 py-2 text-xs text-warn">{loadError} <button onClick={() => { setReady(false); setRetry(n => n + 1); }} className="underline">Retry</button></div>}
       <header className="flex items-center gap-2.5 border-b border-edge px-4 py-3">
         <BrainGlyph className="h-6 w-6 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink">Concierge</div>
-          <div className="truncate text-[11px] text-ink-faint">{AGENT_NAME}'s Guide</div>
+          <div className="truncate text-[11px] text-ink-faint">EAiOS Guide</div>
         </div>
         <button
           onClick={() => void newChat()}
@@ -211,7 +195,7 @@ export function ConciergeWidget() {
 
       <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
         <div className="rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-ink-dim">
-          New here? Ask me where anything lives or how to get something done — I know every page.
+          Ask where to find a page or how to use EAiOS. I can explain the steps; I cannot see your screen or perform actions.
         </div>
         {ready && thread.length === 0 && (
           <div className="flex flex-wrap gap-1.5">

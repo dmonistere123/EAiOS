@@ -1,11 +1,4 @@
-/**
- * F26 concierge widget (Don 2026-08-30) — floating navigation helper:
- * BrainGlyph FAB → panel → minimized pill; Ally 'concierge' lane isolation
- * (default lane untouched); nav brief + current page on the FIRST message
- * only, page-only context after; concierge-context markers stripped from
- * display; reduced-motion CSS contract. Mock lanes are keyed (F26) — the
- * concierge lane starts empty, the default lane keeps its seeded greeting.
- */
+/** Brain-widget UI contract; full live document delivery is covered by concierge-integration. */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -31,10 +24,10 @@ describe('ConciergeWidget (F26)', () => {
 
     await user.click(fab);
     expect(screen.getByRole('region', { name: 'EAiOS navigation concierge' })).toBeInTheDocument();
-    expect(screen.getByText(/New here\? Ask me where anything lives/)).toBeInTheDocument();
+    expect(screen.getByText(/Ask where to find a page or how to use EAiOS/)).toBeInTheDocument();
     // concierge lane starts empty → example prompt chips show (after hydration)
     expect(await screen.findByRole('button', { name: 'How do approvals work?' })).toBeInTheDocument();
-    expect(screen.getByText("Ally's Guide")).toBeInTheDocument();
+    expect(screen.getByText("EAiOS Guide")).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Minimize concierge' }));
     expect(screen.queryByRole('region', { name: 'EAiOS navigation concierge' })).not.toBeInTheDocument();
@@ -45,7 +38,7 @@ describe('ConciergeWidget (F26)', () => {
     expect(screen.getByRole('button', { name: 'Open the navigation concierge' })).toBeInTheDocument();
   });
 
-  it('first message carries the nav brief + current page; display strips the context; default lane untouched', async () => {
+  it('first message carries the current page; adapter owns documents; display strips the context; default lane untouched', async () => {
     const user = userEvent.setup();
     renderWidget('/schedule');
     await user.click(screen.getByRole('button', { name: 'Open the navigation concierge' }));
@@ -70,7 +63,7 @@ describe('ConciergeWidget (F26)', () => {
     const lane = await hermes.getAssistantHistory('concierge');
     expect(lane[0].role).toBe('you');
     expect(lane[0].text).toContain('[concierge-context v1]');
-    expect(lane[0].text).toContain('Page map:');
+    expect(lane[0].text).not.toContain('Page map:');
     expect(lane[0].text).toContain('currently on the "Schedule" page');
     expect(lane[0].text).toContain('Where are approvals?');
 
@@ -80,7 +73,7 @@ describe('ConciergeWidget (F26)', () => {
     expect(main[0].text).toContain("I'm Ally");
   });
 
-  it('later messages carry page-only context (brief is first-message-only)', async () => {
+  it('later messages still carry current-page context', async () => {
     const user = userEvent.setup();
     renderWidget('/usage');
     await user.click(screen.getByRole('button', { name: 'Open the navigation concierge' }));
@@ -100,7 +93,7 @@ describe('ConciergeWidget (F26)', () => {
     expect(second.role).toBe('you');
     expect(second.text).toContain('[concierge-context v1]');
     expect(second.text).toContain('currently on the "Usage" page');
-    expect(second.text).not.toContain('Page map:');
+    expect(second.text).not.not.toContain('Page map:');
   });
 
   it('stripConciergeContext removes the envelope and keeps the question', () => {
@@ -152,7 +145,7 @@ describe('ConciergeWidget (F26)', () => {
     );
     const lane = await hermes.getAssistantHistory('concierge');
     expect(lane[0].role).toBe('you');
-    expect(lane[0].text).toContain('Page map:');
+    expect(lane[0].text).not.toContain('Page map:');
     expect(lane[0].text).toContain('currently on the "Today" page');
 
     // lane isolation: Ally's main chat still untouched

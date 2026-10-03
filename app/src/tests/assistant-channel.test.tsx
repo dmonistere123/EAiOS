@@ -244,8 +244,8 @@ describe('live sessions + channel (stubbed RPC)', () => {
       if (m === 'session.create') return { session_id: 'rt-new', stored_session_id: 'st-new' };
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.startNewAssistantChat('concierge');
+    const res = await live.startNewAssistantChat('quill');
     expect(res.ok).toBe(true);
-    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — Concierge' } });
+    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — quill', profile: 'quill' } });
   });
 });

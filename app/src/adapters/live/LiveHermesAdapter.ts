@@ -1,3 +1,5 @@
+import { ConciergeSession } from './ConciergeSession';
+import { conciergePrompt, stripConciergeDocuments } from '../../domain/concierge';
 import { AssistantRequestClient } from './AssistantRequestClient';
 import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
 import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
@@ -1578,6 +1580,11 @@ class LiveHermesAdapter implements HermesAdapter {
   private assistantSidToAgent = new Map<string, string>();
   private assistantWired = false;
 
+  private concierge = new ConciergeSession(
+    (method, params) => this.rpc.call(method, params),
+    (sid) => this.bindAssistantLane('concierge', sid),
+  );
+
   private static assistantStoredKey(agentId: string) {
     return agentId === 'default' ? 'eaios.assistant.storedSessionId' : `eaios.assistant.storedSessionId.${agentId}`;
   }
@@ -1592,12 +1599,11 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   private assistantProfileParams(agentId: string) {
-    // 'concierge' (F26) is a second chat LANE on the default profile (Ally),
-    // not a profile — sending profile:'concierge' would 404 the RPC.
-    return agentId && agentId !== 'default' && agentId !== 'concierge' ? { profile: agentId } : {};
+    return agentId === 'concierge' ? { profile: 'eaios-concierge' } : agentId && agentId !== 'default' ? { profile: agentId } : {};
   }
 
   private async ensureAssistantSession(agentId = 'default'): Promise<string> {
+    if (agentId === 'concierge') return (await this.concierge.prepare()).sid;
     const lane = this.assistantLane(agentId);
     if (lane.sid) return lane.sid;
     const storedKey = LiveHermesAdapter.assistantStoredKey(agentId);
@@ -1707,8 +1713,9 @@ class LiveHermesAdapter implements HermesAdapter {
         'session.history',
         { session_id: sid },
       );
-      return LiveHermesAdapter.mapHistoryMessages(h);
-    } catch {
+      return LiveHermesAdapter.mapHistoryMessages(h).map(row => agentId === 'concierge' && row.role === 'you' ? { ...row, text: stripConciergeDocuments(row.text) } : row);
+    } catch (error) {
+      if (agentId === 'concierge') throw error;
       return this.fallback.getAssistantHistory(); // graceful degradation (spec §2)
     }
   }
@@ -1738,8 +1745,9 @@ class LiveHermesAdapter implements HermesAdapter {
       const attachmentBlock = opts.attachments?.length
         ? '\n\n--- attached documents ---\n' + opts.attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
         : '';
-      const fullText = text + attachmentBlock;
-      let sid = await this.ensureAssistantSession(agentId);
+      const prepared = agentId === 'concierge' ? await this.concierge.prepare() : undefined;
+      let fullText = prepared ? conciergePrompt(prepared.context, text) : text + attachmentBlock;
+      let sid = prepared?.sid ?? await this.ensureAssistantSession(agentId);
       try {
         await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       } catch (e) {
@@ -1747,7 +1755,12 @@ class LiveHermesAdapter implements HermesAdapter {
         if (!/4001|session not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
         this.assistantSidToAgent.delete(sid);
         this.assistantLane(agentId).sid = undefined;
-        sid = await this.ensureAssistantSession(agentId);
+        if (agentId === 'concierge') {
+          this.concierge.invalidate();
+          const retry = await this.concierge.prepare();
+          sid = retry.sid;
+          fullText = conciergePrompt(retry.context, text);
+        } else sid = await this.ensureAssistantSession(agentId);
         await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       }
       return { ok: true, auditEventId: `chat-send-${Date.now()}` };
@@ -1910,7 +1923,7 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  /** Fresh chat in a lane: create a new session (bypassing the stored id) and rebind. 'concierge' is a lane on the default profile, not a profile (assistantProfileParams guards the RPC). */
+  /** Fresh chat never deletes previous stored conversations. Concierge owns its dedicated profile. */
   async startNewAssistantChat(agentId = 'default'): Promise<AuditResult> {
     // Default lane is bridge-only: clear the local store and unbind any WS session.
     if (agentId === 'default') {
@@ -1924,8 +1937,12 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `chat-new-${Date.now()}` };
     }
     try {
+      if (agentId === 'concierge') {
+        await this.concierge.prepare(true);
+        return { ok: true, auditEventId: `chat-new-${Date.now()}` };
+      }
       const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-        title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId === 'concierge' ? 'Concierge' : agentId}`,
+        title: `EAiOS — ${agentId}`,
         ...this.assistantProfileParams(agentId),
       });
       if (!c.session_id) throw new Error('create returned no session id');

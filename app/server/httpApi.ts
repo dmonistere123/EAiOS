@@ -1,3 +1,4 @@
+import { readConciergeContext } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
 import {travelPlaces,travelRecommendations} from './travelGuide.ts';
@@ -189,6 +190,14 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         };
         heartbeat = setInterval(tick, 2000); res.on('close', cleanup); tick();
       } else { json(res, 405, JSON.stringify({ error: 'Method not allowed' })); }
+      return true;
+    }
+
+    if (path === '/api/concierge/context') {
+      res.setHeader('Cache-Control', 'no-store');
+      if (req.method !== 'GET') { json(res, 405, JSON.stringify({ error: 'Method not allowed' })); return true; }
+      try { json(res, 200, JSON.stringify(readConciergeContext(ctx.eaiosRoot, ctx.hermesHome))); }
+      catch { json(res, 503, JSON.stringify({ error: 'Concierge instructions or profile are unavailable. Ask your administrator to check its setup.' })); }
       return true;
     }
 
