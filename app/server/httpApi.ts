@@ -696,20 +696,26 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         res.setHeader('cache-control', 'no-cache');
         res.setHeader('connection', 'keep-alive');
         res.write('event: start\ndata: {}\n\n');
+        // Keepalive: real Ally turns run 2-70 min; comment heartbeats stop
+        // proxies/browsers from idle-cutting the SSE stream mid-turn.
+        const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch { /* client gone */ } }, 15_000);
         const streamSettings = readSettings(settingsFile) as { allyProfile?: string | null };
         await allyChatStream(text, {
           onDelta: (delta) => res.write(`event: delta\ndata: ${JSON.stringify({ text: delta })}\n\n`),
           onProgress: (text) => res.write(`event: progress\ndata: ${JSON.stringify({ text })}\n\n`),
           onComplete: (result) => {
+            clearInterval(ka);
             res.write(`event: complete\ndata: ${JSON.stringify(result)}\n\n`);
             res.end();
           },
           onError: (error) => {
+            clearInterval(ka);
             res.write(`event: error\ndata: ${JSON.stringify({ error })}\n\n`);
             res.end();
           },
         }, { profile: streamSettings.allyProfile ?? undefined, attachments });
       } catch (e) {
+        clearInterval(ka);
         res.statusCode = 500;
         res.setHeader('content-type', 'text/event-stream');
         res.setHeader('cache-control', 'no-cache');

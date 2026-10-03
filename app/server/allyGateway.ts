@@ -323,7 +323,7 @@ export async function allyChatStream(
   callbacks: AllyChatStreamCallbacks,
   options: AllyChatOptions = {},
 ): Promise<void> {
-  const { profile, attachments, timeoutMs = 120_000 } = options;
+  const { profile, attachments, timeoutMs = 1_200_000 } = options; // 20 min: real tool-using Ally turns take 2-70 min; 120s watchdog stranded completed replies in orphaned sessions (t_9fea4c72)
   const attachmentBlock = attachments?.length
     ? '\n\n--- attached documents ---\n' + attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
     : '';
