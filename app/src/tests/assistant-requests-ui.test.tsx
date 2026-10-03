@@ -36,3 +36,54 @@ it('manual Send cancels pending voice auto-send while retaining the visible draf
  expect(screen.getByRole('textbox',{name:'New prompt for Ally'})).toHaveValue('send manually');fireEvent.click(screen.getByRole('button',{name:'Send new prompt'}));
  await act(async()=>{rec.dispatchEvent(new Event('end'));await vi.advanceTimersByTimeAsync(6000);});expect(api.createAssistantRequest).toHaveBeenCalledExactlyOnceWith('send manually',[]);expect(rec!.abort).toHaveBeenCalledOnce();view.unmount();
 });
+
+it('New Session clears composition, preserves running work and restores completed requests from History', async () => {
+  const completed = { ...request, id: 'finished', text: 'Earlier completed prompt', state: 'completed' as const, response: 'Saved answer' };
+  api.listAssistantRequests.mockResolvedValue([completed, request]);
+  const view = render(<AssistantRequests />); await act(async () => {});
+  fireEvent.change(screen.getByRole('textbox', { name: 'New prompt for Ally' }), { target: { value: 'Unsent draft' } });
+  const file = new File(['handoff'], 'handoff.md', { type: 'text/markdown' }); Object.assign(file, { text: async () => 'handoff' });
+  fireEvent.change(screen.getByLabelText('Attach handoff or files'), { target: { files: [file] } }); await act(async () => {});
+  expect(screen.getByRole('button', { name: 'handoff.md ×' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'New Session' }));
+  expect(screen.getByRole('textbox', { name: 'New prompt for Ally' })).toHaveValue('');
+  expect(screen.getByRole('textbox', { name: 'New prompt for Ally' })).toHaveFocus();
+  expect(screen.queryByRole('button', { name: 'handoff.md ×' })).not.toBeInTheDocument();
+  expect(screen.queryByText('Saved answer')).not.toBeInTheDocument(); expect(screen.getByText('Original prompt')).toBeInTheDocument();
+  expect(screen.getByText('Earlier session · work continues')).toBeInTheDocument();
+  expect(api.cancelAssistantRequest).not.toHaveBeenCalled(); expect(api.createAssistantRequest).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'History (1)' })); expect(screen.getByText('Saved answer')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Hide history' }));
+  api.listAssistantRequests.mockResolvedValue([completed, { ...request, state: 'completed', response: 'Later completion' }]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  fireEvent.click(screen.getByRole('button', { name: 'History (2)' })); expect(screen.getByText('Later completion')).toBeInTheDocument();
+  view.unmount(); render(<AssistantRequests />); await act(async () => {}); expect(screen.getByText('Saved answer')).toBeInTheDocument();
+});
+
+it('paperclip opens the multiple-file picker, preserves payloads, and is keyboard-accessible', async () => {
+  vi.useRealTimers();
+  const { default: userEvent } = await import('@testing-library/user-event');
+  const user = userEvent.setup();
+  const view = render(<AssistantRequests />); await act(async () => {});
+  const picker = screen.getByLabelText('Attach handoff or files'); expect(picker).toHaveAttribute('multiple');
+  const click = vi.spyOn(picker, 'click'); const button = screen.getByRole('button', { name: 'Attach files' });
+  button.focus(); await user.keyboard('{Enter}'); expect(click).toHaveBeenCalledOnce(); expect(api.createAssistantRequest).not.toHaveBeenCalled();
+  const a = new File(['first'], 'a.md', { type: 'text/markdown' }); Object.assign(a, { text: async () => 'first' });
+  const b = new File(['second'], 'b.txt', { type: 'text/plain' }); Object.assign(b, { text: async () => 'second' });
+  fireEvent.change(picker, { target: { files: [a, b] } }); await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Send new prompt' })); await act(async () => {});
+  expect(api.createAssistantRequest).toHaveBeenCalledExactlyOnceWith('', [
+    { name: 'a.md', mimeType: 'text/markdown', content: 'first', encoding: 'text' },
+    { name: 'b.txt', mimeType: 'text/plain', content: 'second', encoding: 'text' },
+  ]); click.mockRestore(); view.unmount();
+});
+
+it('New Session stops pending dictation without submitting or cancelling running requests', async () => {
+  let rec: VoiceStub; vi.stubGlobal('SpeechRecognition', vi.fn(function () { rec = new VoiceStub(); return rec; }));
+  const view = render(<AssistantRequests />); await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Speak to Ally' })); act(() => rec.result('unfinished dictation'));
+  fireEvent.click(screen.getByRole('button', { name: 'New Session' }));
+  await act(async () => { rec.dispatchEvent(new Event('end')); await vi.advanceTimersByTimeAsync(6000); });
+  expect(rec!.abort).toHaveBeenCalledOnce(); expect(api.createAssistantRequest).not.toHaveBeenCalled(); expect(api.cancelAssistantRequest).not.toHaveBeenCalled();
+  expect(screen.getByRole('textbox', { name: 'New prompt for Ally' })).toHaveValue(''); view.unmount();
+});
