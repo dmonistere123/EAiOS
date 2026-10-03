@@ -1,3 +1,4 @@
+import type { RequestView } from '../domain/assistantRequest.ts';
 import type { TravelPlace, TravelShortlist } from '../domain/travelGuide.ts';
 import type { TravelPlanInput, TravelAction } from '../domain/travelPlan.ts';
 /**
@@ -292,6 +293,9 @@ export interface HermesAdapter {
 
   // ---------- Assistant chat (Phase 6.4a) ----------
   /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */
+  listAssistantRequests?(): Promise<RequestView[]>;
+  createAssistantRequest?(text: string, attachments?: AssistantAttachment[]): Promise<RequestView>;
+  cancelAssistantRequest?(id: string): Promise<RequestView>;
   getAssistantHistory(agentId?: string): Promise<ChatMessage[]>;
   /** Send a message to a staff agent (default = Ally); the reply arrives via subscribeAssistant events. */
   sendAssistantMessage(text: string, opts?: { agentId?: string; attachments?: AssistantAttachment[] }): Promise<AuditResult>;

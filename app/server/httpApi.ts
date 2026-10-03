@@ -1,3 +1,5 @@
+import { assistantRequests, terminal } from './assistantRequests.ts';
+import { requestArtifacts } from './assistantArtifacts.ts';
 import {travelPlaces,travelRecommendations} from './travelGuide.ts';
 import { travelAction } from './travelBooking.ts';
 /// <reference types="node" />
@@ -81,13 +83,16 @@ let artifactsCache: CacheEntry | undefined;
 let kanbanCache: CacheEntry | undefined;
 let kanbanRunsCache: CacheEntry | undefined;
 
-function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+function readJsonBody(req: IncomingMessage, maxBytes = Infinity): Promise<Record<string, unknown>> {
   return new Promise((resolvePromise, reject) => {
-    let body = '';
+    let body = ''; let bytes = 0; let tooLarge = false;
     req.on('data', (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) { tooLarge = true; reject(new Error('Request body too large')); return; }
       body += chunk;
     });
     req.on('end', () => {
+      if (tooLarge) return;
       try {
         resolvePromise(JSON.parse(body || '{}'));
       } catch (e) {
@@ -141,6 +146,51 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+
+    if (path === '/api/assistant/requests' || path.startsWith('/api/assistant/requests/')) {
+      const manager = assistantRequests(dataRoot);
+      const parts = path.slice('/api/assistant/requests'.length).split('/').filter(Boolean);
+      const view = (id: string) => { const row = manager.get(id); return row ? { ...row, ...requestArtifacts(ctx.hermesHome, manager.sessionRoots(id), row.profile) } : undefined; };
+      res.setHeader('cache-control', 'no-store');
+      if (req.method === 'POST') {
+        try {
+          requireSameOriginJson(req);
+          const body = await readJsonBody(req, 4200000);
+          if (!parts.length) {
+            const settings = readSettings(settingsFile) as { allyProfile?: string | null };
+            const attachments = Array.isArray(body.attachments) ? body.attachments : [];
+            if (attachments.some(a => !a || typeof a.name !== 'string' || typeof a.content !== 'string' || typeof a.mimeType !== 'string' || !['text', 'base64'].includes(a.encoding))) throw new Error('Invalid attachments');
+            const receipt = manager.accept(String(body.id ?? ''), String(body.text ?? ''), attachments, settings.allyProfile ?? undefined);
+            json(res, 202, JSON.stringify(receipt));
+          } else if (parts.length === 2 && parts[1] === 'cancel') {
+            const row = manager.cancel(parts[0]); json(res, row ? 200 : 404, JSON.stringify(row ?? { error: 'Request not found' }));
+          } else json(res, 404, JSON.stringify({ error: 'Unknown request route' }));
+        } catch (e) { json(res, 400, JSON.stringify({ error: errMessage(e) })); }
+      } else if (req.method === 'GET' && !parts.length) {
+        json(res, 200, JSON.stringify({ requests: manager.list().map(r => view(r.id)) }));
+      } else if (req.method === 'GET' && parts.length === 1) {
+        const row = view(parts[0]); json(res, row ? 200 : 404, JSON.stringify(row ?? { error: 'Request not found' }));
+      } else if (req.method === 'GET' && parts.length === 2 && parts[1] === 'events') {
+        if (!manager.get(parts[0])) { json(res, 404, JSON.stringify({ error: 'Request not found' })); return true; }
+        res.setHeader('content-type', 'text/event-stream');
+        res.flushHeaders();
+        // Each event is a complete versioned snapshot: reconnect needs no lossy delta replay.
+        let previous = ''; let heartbeat: ReturnType<typeof setInterval> | undefined;
+        const cleanup = () => { clearInterval(heartbeat); res.off('close', cleanup); };
+        const tick = () => {
+          if (res.destroyed) { cleanup(); return; }
+          if (res.writableLength > 1000000) { cleanup(); res.end(); return; }
+          const row = view(parts[0]); if (!row) { cleanup(); res.end(); return; }
+          const payload = JSON.stringify(row);
+          if (payload !== previous) { res.write(`id: ${row.revision}\nevent: snapshot\ndata: ${payload}\n\n`); previous = payload; }
+          else res.write(': heartbeat\n\n');
+          // Completed requests remain pollable for later linked artifacts.
+          if (terminal(row)) { cleanup(); res.end(); }
+        };
+        heartbeat = setInterval(tick, 2000); res.on('close', cleanup); tick();
+      } else { json(res, 405, JSON.stringify({ error: 'Method not allowed' })); }
+      return true;
+    }
 
     if (path === '/api/updates' || path === '/api/updates/check' || path === '/api/updates/install') {
       try {
@@ -680,6 +730,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
     /* ally chat streaming — SSE spike */
     if (path === '/api/chat-ally/stream' && req.method === 'POST') {
+      let ka: ReturnType<typeof setInterval> | undefined;
+      const cleanup = () => clearInterval(ka);
+      res.on('close', cleanup);
       try {
         const body = await readJsonBody(req);
         const text = String(body.text ?? '').trim();
@@ -698,7 +751,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         res.write('event: start\ndata: {}\n\n');
         // Keepalive: real Ally turns run 2-70 min; comment heartbeats stop
         // proxies/browsers from idle-cutting the SSE stream mid-turn.
-        const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch { /* client gone */ } }, 15_000);
+        ka = setInterval(() => { try { res.write(': ka\n\n'); } catch { /* client gone */ } }, 15_000);
         const streamSettings = readSettings(settingsFile) as { allyProfile?: string | null };
         await allyChatStream(text, {
           onDelta: (delta) => res.write(`event: delta\ndata: ${JSON.stringify({ text: delta })}\n\n`),
@@ -720,7 +773,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         res.setHeader('content-type', 'text/event-stream');
         res.setHeader('cache-control', 'no-cache');
         res.end(`event: error\ndata: ${JSON.stringify({ error: errMessage(e) })}\n\n`);
-      }
+      } finally { cleanup(); res.off('close', cleanup); }
       return true;
     }
 

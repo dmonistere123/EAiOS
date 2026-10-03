@@ -1,3 +1,4 @@
+import { AssistantRequestClient } from './AssistantRequestClient';
 import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
 import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
 /**
@@ -1698,18 +1699,7 @@ class LiveHermesAdapter implements HermesAdapter {
     // Default lane: bridge messages are the primary source. When empty (first
     // load, after new chat, or WS RPC fallback path), try WS session history.
     if (agentId === 'default') {
-      const bridge = this.loadBridgeMessages();
-      if (bridge.length > 0) return bridge;
-      try {
-        const sid = await this.ensureAssistantSession(agentId);
-        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
-          'session.history',
-          { session_id: sid },
-        );
-        return LiveHermesAdapter.mapHistoryMessages(h);
-      } catch {
-        return []; // No mock fallback for default lane — bridge is the source.
-      }
+      return this.loadBridgeMessages();
     }
     try {
       const sid = await this.ensureAssistantSession(agentId);
@@ -1723,119 +1713,22 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  private requestClient = new AssistantRequestClient();
+  listAssistantRequests() { return this.requestClient.list(); }
+  createAssistantRequest(text: string, attachments?: AssistantAttachment[]) { return this.requestClient.create(text, attachments); }
+  cancelAssistantRequest(id: string) { return this.requestClient.cancel(id); }
+
   async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
     const agentId = opts.agentId ?? 'default';
 
     // Default lane uses the SSE bridge. Never resubmit over WS after a bridge
     // failure: Hermes may already be running the original request.
     if (agentId === 'default') {
-      const lane = this.assistantLane('default');
-      const emit = (e: AssistantEvent) => lane.handlers.forEach((h) => h(e));
-      const ac = new AbortController();
-      const timeout = setTimeout(() => ac.abort(), 150_000);
       try {
-        emit({ kind: 'start' });
-
-        const res = await fetch('/api/chat-ally/stream', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text, attachments: opts.attachments }),
-          signal: ac.signal,
-        });
-
-        if (!res.ok || !res.body) {
-          const err = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error(err.error ?? `Could not contact Ally (HTTP ${res.status}).`);
-        }
-
-        // Parse the SSE stream and emit tokens as they arrive.
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let responseText = '';
-        let finished = false;
-        let errorMsg: string | undefined;
-        let currentEvent: string | null = null;
-
-        while (!finished) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-          for (const line of lines) {
-            if (line.startsWith('event: ')) {
-              currentEvent = line.slice(7);
-            } else if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (currentEvent === 'delta') {
-                try {
-                  const parsed = JSON.parse(data) as { text?: string };
-                  const delta = parsed.text ?? '';
-                  responseText += delta;
-                  emit({ kind: 'delta', text: delta });
-                } catch {
-                  // ignore malformed delta
-                }
-              } else if (currentEvent === 'progress') {
-                try {
-                  const parsed = JSON.parse(data) as { text?: string };
-                  if (typeof parsed.text === 'string') emit({ kind: 'progress', text: parsed.text });
-                } catch { /* ignore malformed progress */ }
-              } else if (currentEvent === 'complete') {
-                try {
-                  const parsed = JSON.parse(data) as { text?: string; finishReason?: string };
-                  if (parsed.text?.trim()) responseText = parsed.text;
-                  if (parsed.finishReason && parsed.finishReason !== 'complete') errorMsg = 'Ally could not finish this response. Check Conversations before retrying.';
-                  finished = true;
-                } catch {
-                  // ignore malformed complete
-                }
-              } else if (currentEvent === 'error') {
-                try {
-                  const parsed = JSON.parse(data) as { error?: string };
-                  errorMsg = parsed.error ?? 'stream error';
-                  finished = true;
-                } catch {
-                  errorMsg = 'stream error';
-                  finished = true;
-                }
-              }
-            } else if (line === '') {
-              currentEvent = null;
-            }
-          }
-        }
-
-        if (errorMsg) {
-          emit({ kind: 'error', message: errorMsg });
-          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: errorMsg, retryable: true } };
-        }
-
-        if (!finished) {
-          emit({ kind: 'error', message: 'stream ended without completion' });
-          return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_stream_incomplete', safeMessage: 'Stream ended without completion.', retryable: true } };
-        }
-
-        if (!responseText.trim()) throw new Error('Ally returned no text. Please try again or check Conversations.');
-
-        // Store the exchange locally so getAssistantHistory returns it.
-        const now = new Date().toISOString();
-        const bridge = this.loadBridgeMessages();
-        bridge.push(
-          { id: `user-bridge-${Date.now()}`, role: 'you' as const, text, at: now },
-          { id: `ally-bridge-${Date.now()}`, role: 'ally' as const, text: responseText, at: now },
-        );
-        this.saveBridgeMessages(bridge);
-        emit({ kind: 'complete', text: responseText });
-        return { ok: true, auditEventId: `chat-send-${Date.now()}` };
-      } catch (e) {
-        const message = e instanceof Error && e.name !== 'AbortError' ? e.message : 'The connection to Ally timed out. Check Conversations before retrying.';
-        emit({ kind: 'error', message });
-        return { ok: false, auditEventId: `chat-err-${Date.now()}`, error: { code: 'chat_bridge_error', safeMessage: message, retryable: true } };
-      } finally {
-        clearTimeout(timeout);
-        ac.abort();
+        const receipt = await this.createAssistantRequest(text, opts.attachments);
+        return { ok: true, auditEventId: receipt.id };
+      } catch {
+        return { ok: false, auditEventId: `chat-local-${Date.now()}`, error: { code: 'receipt_storage', safeMessage: 'Could not save a recovery receipt. The request was not sent.', retryable: true } };
       }
     }
 

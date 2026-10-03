@@ -135,79 +135,33 @@ describe('live assistant session lifecycle', () => {
     expect(calls[1]).toEqual({ method: 'prompt.submit', params: { session_id: 'rt-quill', text: 'hello quill' } });
   });
 
-  it('default lane: REST bridge stores exchange, persists to localStorage, and clears on new chat', async () => {
-    const fetchCalls: { url: string; body: unknown }[] = [];
-    vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-      fetchCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
-      const text = `Bridge reply to ${(init?.body ? JSON.parse(String(init.body)) : {}).text}`;
-      return new Response(`event: delta\ndata: ${JSON.stringify({ text })}\n\nevent: complete\ndata: ${JSON.stringify({ text, finishReason: 'complete' })}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
-    });
-    // startNewAssistantChat still opens a fresh WS session for the lane, even
-    // though the default send path uses the REST bridge.
-    stubRpc(async (m) => {
-      if (m === 'session.create') return { session_id: 'rt-new', stored_session_id: 'stored-new' };
-      if (m === 'session.history') return { messages: [] };
-      throw new Error(`unexpected ${m}`);
-    });
-
-    const events: AssistantEvent[] = [];
-    // Skip wiring the real RPC onNotify — the bridge emits directly via
-    // lane handlers; we don't want a stale handler on the gateway socket.
-    holder.assistantWired = true;
-    const unsub = live.subscribeAssistant((e) => events.push(e));
-
-    const res = await live.sendAssistantMessage('hello bridge');
-    expect(res.ok).toBe(true);
-    expect(fetchCalls[0].url).toBe('/api/chat-ally/stream');
-    expect(events.map((e) => e.kind)).toEqual(['start', 'delta', 'complete']);
-
-    // History must include both the user message and the bridge reply so the UI
-    // does not replace the exchange with an empty WS session.
-    const history = await live.getAssistantHistory();
-    expect(history.map((m) => ({ role: m.role, text: m.text }))).toEqual([
-      { role: 'you', text: 'hello bridge' },
-      { role: 'ally', text: 'Bridge reply to hello bridge' },
-    ]);
-
-    // Persistence: a fresh adapter instance would reload the same messages.
-    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toContain('hello bridge');
-
-    // New chat must wipe the bridge history.
-    const newChat = await live.startNewAssistantChat();
-    expect(newChat.ok).toBe(true);
-    expect((await live.getAssistantHistory()).length).toBe(0);
-    expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toBeNull();
-
-    unsub();
+  it('default lane accepts a durable receipt without opening or replaying a browser WS session', async () => {
+    const { calls } = stubRpc(async () => { throw new Error('must not submit over browser WS'); });
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return Response.json({ id: body.id, text: body.text, state: 'accepted' });
+    }));
+    const result = await live.sendAssistantMessage('fresh request');
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([]);
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/assistant/requests');
+    expect(localStorage.getItem('eaios.assistant.requestReceipts')).toContain(result.auditEventId);
+    expect(await live.getAssistantHistory()).toEqual([]);
     vi.unstubAllGlobals();
   });
 });
 
-describe('bridge response failures', () => {
+describe('uncertain request acceptance', () => {
   afterEach(() => vi.unstubAllGlobals());
-  it.each(['empty', 'timeout', 'network'])('does not store a blank bubble or resubmit after %s', async kind => {
+  it('preserves a recovery receipt without resubmitting after network failure', async () => {
     const { calls } = stubRpc(async () => { throw new Error('must not resubmit'); });
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      if (kind === 'network') throw new Error('connection lost');
-      return new Response(`event: complete\ndata: ${JSON.stringify({ text: '', finishReason: kind === 'timeout' ? 'timeout' : 'complete' })}\n\n`);
-    }));
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('connection lost'); }));
     const result = await live.sendAssistantMessage('my question');
-    expect(result.ok).toBe(false);
+    expect(result.ok).toBe(true); // accepted locally; server acceptance remains explicitly uncertain
+    expect(localStorage.getItem('eaios.assistant.requestReceipts')).toContain('my question');
     expect(localStorage.getItem('eaios.assistant.bridgeMessages')).toBeNull();
     expect(calls).toEqual([]);
     expect(fetch).toHaveBeenCalledOnce();
-  });
-
-  it('preserves streamed text when complete contains an empty string and forwards activity', async () => {
-    holder.assistantWired = true;
-    const events: AssistantEvent[] = [];
-    const unsub = live.subscribeAssistant(e => events.push(e));
-    vi.stubGlobal('fetch', async () => new Response('event: progress\ndata: {"text":"Using web search"}\n\nevent: delta\ndata: {"text":"Here is your answer."}\n\nevent: complete\ndata: {"text":"","finishReason":"complete"}\n\n'));
-    expect((await live.sendAssistantMessage('question')).ok).toBe(true);
-    expect(events).toContainEqual({ kind: 'progress', text: 'Using web search' });
-    expect(events.at(-1)).toEqual({ kind: 'complete', text: 'Here is your answer.' });
-    expect((await live.getAssistantHistory()).at(-1)?.text).toBe('Here is your answer.');
-    unsub();
   });
 });
 

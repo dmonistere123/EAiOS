@@ -1,3 +1,5 @@
+import { CitationChips } from '../components/CitationChips';
+import { AssistantRequests } from '../components/AssistantRequests';
 /** My Assistant — chat with Ally (the ONLY chat target, D-B1) + per-agent
  * channel views: selecting an agent switches the CONTEXT (delegated work +
  * Ally↔agent chat, read-only), never the chat. Rail = the selected profile's
@@ -17,32 +19,7 @@ import { AGENT_NAME } from '../config';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 
-/** 6.4b: citation refs Ally emits per the Phase 5 contract (`eaios://chunk/<id>`). */
-export function parseCitations(text: string): string[] {
-  const ids = new Set<string>();
-  for (const m of text.matchAll(/eaios:\/\/chunk\/([A-Za-z0-9_-]+)/g)) ids.add(m[1]);
-  return [...ids];
-}
-
-function CitationChips({ text, onOpen }: { text: string; onOpen: (chunkId: string) => void }) {
-  const ids = parseCitations(text);
-  if (!ids.length) return null;
-  return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {ids.map((id, i) => (
-        <button
-          key={id}
-          onClick={() => onOpen(id)}
-          title={`Open source chunk ${id}`}
-          className="rounded-md border border-signal/30 bg-signal/10 px-2 py-0.5 text-[10px] font-medium text-signal hover:bg-signal/20"
-        >
-          ⧉ source {i + 1}
-        </button>
-      ))}
-    </div>
-  );
-}
-
+export { parseCitations } from '../domain/citations';
 /** Read-only transcript of another agent's session (drawer — never a chat target, D-B1). */
 function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onClose }: { session: AssistantSessionRef; profile?: string; agentName: string; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
@@ -123,6 +100,7 @@ export default function Assistant() {
 
   // Chat is ALWAYS Ally (D-B1): hydrate once, then ride streaming events.
   useEffect(() => {
+    if (hermes.listAssistantRequests) return;
     let active = true;
     let receivedEvent = false;
     let revision = 0;
@@ -274,7 +252,7 @@ export default function Assistant() {
             {allSessions.map((sess) => (
               <li key={sess.id}>
                 <button
-                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly ? void resumeSession(sess.id) : setOpenSession(sess))}
+                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly && !hermes.listAssistantRequests ? void resumeSession(sess.id) : setOpenSession(sess))}
                   className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay"
                   title={sess.source === 'kanban' ? 'Delegated run — view result + transcript (read-only)' : contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
                 >
@@ -405,13 +383,13 @@ export default function Assistant() {
           <p className="mt-1 text-sm text-ink-dim">Chat with {AGENT_NAME}, your chief of staff. Pick an agent to see its channel — what {AGENT_NAME} delegated and their {AGENT_NAME}↔agent chat.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
+          {!hermes.listAssistantRequests && <button
             onClick={() => void newChat()}
             disabled={busy}
             className="rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink hover:bg-canvas-overlay disabled:opacity-50"
           >
             New chat
-          </button>
+          </button>}
           <label className="text-xs font-medium uppercase tracking-wider text-ink-faint" htmlFor="assistant-agent">Context</label>
           <select
             id="assistant-agent"
@@ -431,6 +409,7 @@ export default function Assistant() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
         {/* conversation — always Ally */}
         <Card className="flex min-h-0 flex-col h-[calc(100dvh-8rem)] flex-none p-4 xl:flex-[3] xl:h-full">
+          {hermes.listAssistantRequests ? <AssistantRequests /> : <>
           <SectionTitle className="shrink-0">Conversation with {AGENT_NAME}</SectionTitle>
           <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
@@ -528,6 +507,7 @@ export default function Assistant() {
             {voice.error && <p className="text-[10px] text-risk">{voice.error}</p>}
             <p className="text-[10px] text-ink-faint">Text files are read inline; binary files are sent as base64 (2 MB max each).</p>
           </form>
+          </>}
         </Card>
 
         {/* context column — Ally: orchestration; staff agent: channel view */}
@@ -587,7 +567,7 @@ export default function Assistant() {
       </div>
 
       {openChunk && <ChunkDrawer chunkId={openChunk} onClose={() => setOpenChunk(null)} />}
-      {openSession && !contextIsAlly && (
+      {openSession && (!contextIsAlly || hermes.listAssistantRequests) && (
         <SessionTranscriptDrawer session={openSession} profile={contextId} agentName={contextName} onClose={() => setOpenSession(null)} />
       )}
       {openRun && <DelegatedRunDrawer run={openRun} onClose={() => setOpenRun(null)} />}

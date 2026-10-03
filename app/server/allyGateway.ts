@@ -15,6 +15,7 @@
  * conversations). The gateway agent starts fresh each time but loads the
  * same config, skills, and memory as this Telegram session.
  */
+import { randomBytes } from 'node:crypto';
 import { connect } from 'node:net';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -59,29 +60,28 @@ function decodeWsFrame(buf: Buffer): { opcode: number; payload: Buffer; consumed
 }
 
 /** Encode a MASKED WebSocket text frame (RFC 6455 — client-to-server frames MUST be masked). */
-function encodeWsFrame(payload: string): Buffer {
-  const data = Buffer.from(payload, 'utf8');
+function encodeWsFrame(payload: string | Buffer, opcode = 0x1): Buffer {
+  const data = typeof payload === 'string' ? Buffer.from(payload, 'utf8') : payload;
   const len = data.length;
   // Generate random 4-byte mask
-  const mask = Buffer.alloc(4);
-  for (let i = 0; i < 4; i++) mask[i] = Math.floor(Math.random() * 256);
+  const mask = randomBytes(4);
   // Mask the payload
   const masked = Buffer.from(data.map((byte, i) => byte ^ mask[i % 4]));
   let header: Buffer;
   if (len < 126) {
     header = Buffer.alloc(2 + 4);
-    header[0] = 0x81; // FIN + text
+    header[0] = 0x80 | opcode; // FIN + text
     header[1] = 0x80 | len; // MASK bit + length
     header.set(mask, 2);
   } else if (len < 65536) {
     header = Buffer.alloc(4 + 4);
-    header[0] = 0x81;
+    header[0] = 0x80 | opcode;
     header[1] = 0x80 | 126; // MASK bit + 126 (16-bit length follows)
     header.writeUInt16BE(len, 2);
     header.set(mask, 4);
   } else {
     header = Buffer.alloc(10 + 4);
-    header[0] = 0x81;
+    header[0] = 0x80 | opcode;
     header[1] = 0x80 | 127; // MASK bit + 127 (64-bit length follows)
     header.writeBigUInt64BE(BigInt(len), 2);
     header.set(mask, 10);
@@ -194,10 +194,8 @@ export class GatewayRpcClient {
       }
       if (frame.opcode === 0x9) {
         // ping — reply pong
-        const pong = Buffer.alloc(2);
-        pong[0] = 0x8a;
-        pong[1] = 0;
-        this.sock?.write(pong);
+        // Client control frames must be masked and echo the ping payload.
+        this.sock?.write(encodeWsFrame(frame.payload, 0xa));
         continue;
       }
       if (frame.opcode === 0x1) {
@@ -211,7 +209,7 @@ export class GatewayRpcClient {
           if (p) {
             clearTimeout(p.timer);
             this.pending.delete(id);
-            if (msg.error) p.reject(new Error(String((msg.error as Record<string, unknown>).message ?? 'RPC error')));
+            if (msg.error) p.reject(Object.assign(new Error(String((msg.error as Record<string, unknown>).message ?? 'RPC error')), { code: Number((msg.error as Record<string, unknown>).code) }));
             else p.resolve(msg.result);
           }
         }
@@ -272,7 +270,7 @@ function loadGatewayToken(): string {
 
 // ─── Per-request RPC client ────────────────────────────────────────────
 
-function getClient(): GatewayRpcClient | null {
+export function createGatewayClient(): GatewayRpcClient | null {
   const host = process.env.EAIOS_HERMES_WS_HOST ?? '127.0.0.1';
   const port = Number(process.env.EAIOS_HERMES_WS_PORT ?? 9119);
   const token = loadGatewayToken();
@@ -332,7 +330,7 @@ export async function allyChatStream(
     callbacks.onError?.('text or attachments are required');
     return;
   }
-  const client = getClient();
+  const client = createGatewayClient();
   if (!client) {
     callbacks.onError?.('gateway token not configured');
     return;

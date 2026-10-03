@@ -21,3 +21,6 @@ app/public/version.json
 
 # Persistent, box-local travel data
 travel-data/
+
+# Durable private Assistant request receipts (under EAIOS_DATA_ROOT).
+assistant-requests/

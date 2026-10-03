@@ -57,7 +57,7 @@ async function gateway(onPrompt: (send: Send, text: string) => void) {
       }
     });
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const port = (server.address() as { port: number }).port;
   cleanups.push(async () => {
     for (const socket of sockets) socket.destroy();
@@ -69,6 +69,31 @@ async function gateway(onPrompt: (send: Send, text: string) => void) {
 }
 
 describe('Ally gateway delivery', () => {
+  it('answers gateway pings with a masked pong carrying the original payload', async () => {
+    let resolvePong: (value: Buffer) => void;
+    const pong = new Promise<Buffer>(resolve => { resolvePong = resolve; });
+    const sockets = new Set<Socket>();
+    const server = createServer(socket => {
+      sockets.add(socket);
+      let upgraded = false;
+      socket.on('data', data => {
+        if (!upgraded) {
+          upgraded = true;
+          socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+          socket.write(Buffer.from([0x89, 3, 1, 2, 3]));
+        } else resolvePong(data);
+      });
+    });
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    cleanups.push(async () => { for (const socket of sockets) socket.destroy(); await new Promise<void>(resolve => server.close(() => resolve())); });
+    const client = new GatewayRpcClient('127.0.0.1', (server.address() as { port: number }).port, 'fake');
+    try {
+      await client.connect(); const frame = await pong;
+      expect(frame[0]).toBe(0x8a); expect(frame[1]).toBe(0x83);
+      expect([...frame.subarray(6)].map((byte, i) => byte ^ frame[2 + i % 4])).toEqual([1, 2, 3]);
+    } finally { client.disconnect(); }
+  });
+
   it('keeps an upgraded connection alive beyond its connection timeout', async () => {
     const { port } = await gateway(() => {});
     const client = new GatewayRpcClient('127.0.0.1', port, 'test-token');
