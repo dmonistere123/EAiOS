@@ -23,7 +23,7 @@ export function profileStatePath(home: string, profile?: string) {
   if (profile && !/^[a-zA-Z0-9_-]+$/.test(profile)) throw new Error('Invalid profile');
   return join(home, ...(profile ? ['profiles', profile] : []), 'state.db');
 }
-export interface SavedEvidence { response?: string; responseLimited?: boolean; available: boolean; }
+export interface SavedEvidence { response?: string; responseLimited?: boolean; available: boolean; incompleteLineage?: boolean; }
 /** Never invokes session.resume or constructs a runtime. Limit the actual SQL result,
  * not just JS rendering. A saved assistant row does not prove successful completion. */
 export function savedEvidence(home: string, root: string, profile?: string): SavedEvidence {
@@ -32,6 +32,9 @@ export function savedEvidence(home: string, root: string, profile?: string): Sav
     db = new DatabaseSync(profileStatePath(home, profile), { readOnly: true });
     db.exec('PRAGMA busy_timeout=1000');
     const lineage = compressionLineage(db, root);
+    // The bounded last ancestor is not a verified tip. Do not read its answer or
+    // jump to a later stored ID without proving continuity from the original root.
+    if (lineage.length >= 33) return { available: false, incompleteLineage: true };
     const tip = lineage.at(-1); if (!tip) return { available: false };
     const row = db.prepare(`SELECT role,substr(content,1,65536) AS text,length(content)>65536 AS limited
       FROM messages WHERE session_id=? AND role IN ('user','assistant') AND COALESCE(display_kind,'') NOT IN ('hidden','interim')

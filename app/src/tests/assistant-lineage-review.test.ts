@@ -5,6 +5,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {requestArtifacts} from '../../server/assistantArtifacts';
+import {AssistantRequests,type Rpc} from '../../server/assistantRequests';
 import {savedEvidence} from '../../server/assistantEvidence';
 let root:string;
 beforeEach(()=>{vi.useFakeTimers();root=mkdtempSync(join(tmpdir(),'eaios-lineage-'));});
@@ -28,4 +29,33 @@ it('bounds artifact output and caches repeated polling while retaining late-outp
  const first=requestArtifacts(root,['root']);expect(first.taskIds).toHaveLength(200);expect(first.artifacts.length).toBeLessThanOrEqual(200);expect(first.linkageLimited).toBe(true);
  db.prepare('INSERT INTO task_attachments VALUES(?,?,?,?)').run(999,'task-0','late.txt',999);db.close();expect(requestArtifacts(root,['root'])).toBe(first);
  vi.advanceTimersByTime(10001);expect(requestArtifacts(root,['root']).artifacts.some(a=>a.name==='late.txt')).toBe(true);
+});
+
+it.each(['idle','missing'] as const)('preserves newer retained output when a >32-edge lineage is incomplete during %s recovery',async(mode)=>{
+ const state=new DatabaseSync(join(root,'state.db'));state.exec(`CREATE TABLE sessions(id TEXT,parent_session_id TEXT,end_reason TEXT,model_config TEXT,source TEXT,started_at REAL,ended_at REAL,last_activity_at REAL);
+ CREATE TABLE messages(id INTEGER,session_id TEXT,role TEXT,content TEXT,display_kind TEXT);`);
+ for(let n=0;n<=34;n++)state.prepare('INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?)').run(`s${n}`,n?`s${n-1}`:null,n<34?'compression':null,'{}','tui',n,n<34?n+1:null,n+1);
+ state.prepare('INSERT INTO messages VALUES(?,?,?,?,?)').run(1,'s32','assistant','OLD ANCESTOR OUTPUT',null);
+ state.prepare('INSERT INTO messages VALUES(?,?,?,?,?)').run(2,'s34','assistant','NEW CURRENT OUTPUT',null);state.close();
+ expect(savedEvidence(root,'s0')).toEqual({available:false,incompleteLineage:true});
+ expect(savedEvidence(root,'s34').response).toBe('NEW CURRENT OUTPUT');
+ let phase:'running'|'idle'|'missing'='running';let submissions=0;const clients:Rpc[]=[];
+ const manager=new AssistantRequests(root,{pollMs:1000,evidence:(id,profile)=>savedEvidence(root,id,profile),client:()=>{
+  const c:Rpc={isConnected:false,onEvent:null,connect:async()=>{c.isConnected=true;},disconnect:()=>{c.isConnected=false;},call:async(method)=>{
+   if(method==='session.create')return{session_id:'runtime',stored_session_id:'s0'};
+   if(method==='prompt.submit'){submissions++;return{};}
+   if(method==='session.activate'){
+    if(phase==='missing')throw Object.assign(new Error('missing'),{code:4001});
+    return{session_id:'runtime',stored_session_id:'s34',running:phase==='running',status:phase==='running'?'working':'idle'};
+   }
+   throw new Error(`Forbidden RPC ${method}`);
+  }};clients.push(c);return c;
+ }});
+ try{
+  manager.accept('request-long-lineage','single prompt');await vi.advanceTimersByTimeAsync(100);
+  clients[0].onEvent?.({session_id:'runtime',type:'message.delta',payload:{text:'NEW CURRENT OUTPUT'}});await vi.advanceTimersByTimeAsync(300);
+  phase=mode;await vi.advanceTimersByTimeAsync(7500);
+  expect(manager.get('request-long-lineage')).toMatchObject({state:'interrupted',response:'NEW CURRENT OUTPUT',storedSessionId:'s34'});
+  expect(submissions).toBe(1);
+ }finally{manager.close();await vi.advanceTimersByTimeAsync(2500);}
 });

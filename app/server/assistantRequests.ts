@@ -172,7 +172,7 @@ export class AssistantRequests {
         }
         if (snapshot.running === false && !['starting', 'waiting'].includes(snapshot.status ?? '')) {
           const evidence = this.evidence(current.originalStoredSessionId ?? current.storedSessionId!, current.profile);
-          const answer = evidence.response?.trim() ?? '';
+          const answer = evidence.incompleteLineage ? '' : evidence.response?.trim() ?? '';
           this.patch(id, { state: answer ? 'recovered' : current.cancelRequested && (interruptSent || current.cancelAcknowledged) ? 'cancelled' : 'interrupted', response: answer || String(pendingFields.response ?? this.raw(id)!.response), responseLimited: evidence.responseLimited || current.responseLimited, recovered: true, progress: answer ? 'Saved response recovered; original completion status unavailable' : current.cancelRequested && (interruptSent || current.cancelAcknowledged) ? 'Cancelled' : 'Stopped without a final response', error: !answer && !current.cancelRequested ? 'The original session is no longer running. No prompt was replayed.' : undefined });
           break;
         }
@@ -187,7 +187,7 @@ export class AssistantRequests {
         const attempts = (current.reconciliationAttempts ?? 0) + 1;
         if (uncertainIdentity && (attempts >= 3 || [-32601, -32099].includes(code))) {
           const evidence = current.storedSessionId ? this.evidence(current.originalStoredSessionId ?? current.storedSessionId, current.profile) : { available: false };
-          this.patch(id, { state: 'interrupted', response: evidence.response || String(pendingFields.response ?? current.response), responseLimited: evidence.responseLimited || current.responseLimited,
+          this.patch(id, { state: 'interrupted', response: (!evidence.incompleteLineage && evidence.response) || String(pendingFields.response ?? current.response), responseLimited: evidence.responseLimited || current.responseLimited,
             progress: 'Automatic execution recovery stopped',
             error: 'The original live runtime could not be safely reattached. Saved evidence is shown where available; execution/cancellation outcome is uncertain. No cold resume or prompt replay was attempted.' });
         } else this.patch(id, { reconciliationAttempts: uncertainIdentity ? attempts : current.reconciliationAttempts, state: 'reconnecting', progress: 'Connection interrupted; checking the original live runtime', error: 'Delivery is uncertain. No cold resume or prompt replay will be attempted.' });
