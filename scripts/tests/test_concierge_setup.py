@@ -1,6 +1,9 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 import yaml
@@ -57,11 +60,42 @@ class ConciergeSetupTests(unittest.TestCase):
         self.assertFalse((self.target / "state.db").exists())
         self.assertFalse((self.target / "MEMORY.md").exists())
 
-    def test_existing_profile_is_not_overwritten(self):
+    def test_repeated_opt_in_preserves_existing_config_credentials_and_history(self):
         self.run_setup(apply=True)
+        (self.target / "config.yaml").write_text("# user-selected model and settings\n")
+        (self.target / ".env").write_text("# separately provisioned credentials\n")
+        (self.target / "state.db").write_text("existing conversation history")
+        before = {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.target.iterdir()}
+        self.assertIn("already prepared", self.run_setup(apply=True))
+        self.assertIn("already prepared", self.run_setup())
+        self.assertEqual(before, {p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.target.iterdir()})
+        self.assertEqual(len(self.calls), 1)
+
+    def test_existing_unmanaged_profile_is_refused(self):
+        self.target.mkdir(parents=True)
+        (self.target / "SOUL.md").write_text("User's existing agent")
         with self.assertRaises(ValueError):
             self.run_setup(apply=True)
+        self.assertEqual((self.target / "SOUL.md").read_text(), "User's existing agent")
+        self.assertEqual(self.calls, [])
+
+    def test_changed_packaged_soul_requires_explicit_refresh(self):
+        self.run_setup(apply=True)
+        (self.root / "concierge" / "SOUL.md").write_text("Updated instructions")
+        with self.assertRaises(ValueError):
+            self.run_setup(apply=True)
+        self.assertEqual((self.target / "SOUL.md").read_text(), "Guide role")
         self.assertEqual(len(self.calls), 1)
+
+    def test_unattended_cli_without_apply_never_prompts_or_creates_profile(self):
+        result = subprocess.run([sys.executable, str(Path(__file__).parents[1] / "setup-concierge.py"),
+                                 "--hermes-home", str(self.home)], stdin=subprocess.DEVNULL,
+                                env={**os.environ, "PATH": "", "HERMES_HOME": str(self.home)},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("no files changed", result.stdout)
+        self.assertFalse(self.target.exists())
+        self.assertEqual(self.before, {p.name: p.read_bytes() for p in self.home.iterdir()})
 
     def test_explicit_document_refresh_preserves_config_and_history(self):
         self.run_setup(apply=True)

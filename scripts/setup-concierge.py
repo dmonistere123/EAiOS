@@ -31,6 +31,20 @@ def setup(root, home, apply=False, refresh=False, runner=subprocess.run):
         if marker.get("schema") != 1 or marker.get("profile") != PROFILE or marker.get("soulSha256") != soul_hash((target / "SOUL.md").read_text()):
             raise ValueError("Existing Concierge instructions were customized; review manually")
     elif target.exists():
+        # Re-running the explicit opt-in is safe for our matching managed SOUL.
+        # Never refresh instructions or replace profile configuration implicitly.
+        try:
+            marker = json.loads(marker_path.read_text())
+            installed = target / "SOUL.md"
+            config_path = target / "config.yaml"
+            if (not installed.is_symlink() and not marker_path.is_symlink()
+                    and config_path.is_file() and not config_path.is_symlink()
+                    and marker.get("schema") == 1 and marker.get("profile") == PROFILE
+                    and marker.get("soulSha256") == soul_hash(soul)
+                    and installed.read_text() == soul):
+                return "Concierge already prepared; no files changed. Provider access and effective tools still require activation review."
+        except (OSError, ValueError, TypeError):
+            pass
         raise ValueError("Profile already exists; no files were replaced")
     if not apply:
         return "Review only: dedicated profile setup requires --apply; no files changed"
