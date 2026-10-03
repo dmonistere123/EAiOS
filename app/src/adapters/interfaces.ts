@@ -296,10 +296,11 @@ export interface HermesAdapter {
   cachedAssistantRequests?(): RequestView[];
   listAssistantRequests?(): Promise<RequestView[]>;
   createAssistantRequest?(text: string, attachments?: AssistantAttachment[]): Promise<RequestView>;
+  cancelConcierge?(): void;
   cancelAssistantRequest?(id: string): Promise<RequestView>;
   getAssistantHistory(agentId?: string): Promise<ChatMessage[]>;
   /** Send a message to a staff agent (default = Ally); the reply arrives via subscribeAssistant events. */
-  sendAssistantMessage(text: string, opts?: { agentId?: string; attachments?: AssistantAttachment[] }): Promise<AuditResult>;
+  sendAssistantMessage(text: string, opts?: { agentId?: string; attachments?: AssistantAttachment[]; currentRoute?: string }): Promise<AuditResult>;
   /** Streaming chat events for the selected agent session ONLY — other sessions' events never surface here. */
   subscribeAssistant(handler: (event: AssistantEvent) => void, agentId?: string): Unsubscribe;
 

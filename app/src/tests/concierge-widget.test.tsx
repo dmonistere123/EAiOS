@@ -38,7 +38,7 @@ describe('ConciergeWidget (F26)', () => {
     expect(screen.getByRole('button', { name: 'Open the navigation concierge' })).toBeInTheDocument();
   });
 
-  it('first message carries the current page; adapter owns documents; display strips the context; default lane untouched', async () => {
+  it('first message stays plain text; server owns instructions; display strips the context; default lane untouched', async () => {
     const user = userEvent.setup();
     renderWidget('/schedule');
     await user.click(screen.getByRole('button', { name: 'Open the navigation concierge' }));
@@ -62,9 +62,7 @@ describe('ConciergeWidget (F26)', () => {
 
     const lane = await hermes.getAssistantHistory('concierge');
     expect(lane[0].role).toBe('you');
-    expect(lane[0].text).toContain('[concierge-context v1]');
     expect(lane[0].text).not.toContain('Page map:');
-    expect(lane[0].text).toContain('currently on the "Schedule" page');
     expect(lane[0].text).toContain('Where are approvals?');
 
     // lane isolation: Ally's main chat keeps only its seeded greeting
@@ -91,8 +89,7 @@ describe('ConciergeWidget (F26)', () => {
     const lane = await hermes.getAssistantHistory('concierge');
     const second = lane[2];
     expect(second.role).toBe('you');
-    expect(second.text).toContain('[concierge-context v1]');
-    expect(second.text).toContain('currently on the "Usage" page');
+    expect(second.text).toBe('And the budget?');
     expect(second.text).not.not.toContain('Page map:');
   });
 
@@ -146,7 +143,6 @@ describe('ConciergeWidget (F26)', () => {
     const lane = await hermes.getAssistantHistory('concierge');
     expect(lane[0].role).toBe('you');
     expect(lane[0].text).not.toContain('Page map:');
-    expect(lane[0].text).toContain('currently on the "Today" page');
 
     // lane isolation: Ally's main chat still untouched
     const main = await hermes.getAssistantHistory('default');

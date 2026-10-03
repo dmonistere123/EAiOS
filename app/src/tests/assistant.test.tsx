@@ -26,7 +26,6 @@ const holder = live as unknown as {
   assistantLanes?: Map<string, { sid?: string }>;
   assistantSidToAgent?: Map<string, string>;
   assistantWired: boolean;
-  concierge: { invalidate: () => void };
 };
 const realRpc = holder.rpc;
 
@@ -36,7 +35,7 @@ function stubRpc(handler: (method: string, params: Record<string, unknown>) => P
   holder.rpc = {
     call: (method: string, params: Record<string, unknown> = {}) => {
       calls.push({ method, params });
-      return handler(method, params).then(result => method === 'session.create' || method === 'session.resume' ? { ...(result as object), info: { profile_name: 'eaios-concierge' } } : result);
+      return handler(method, params);
     },
     onNotify: (fn: NotifyFn) => notify.push(fn),
   };
@@ -45,8 +44,6 @@ function stubRpc(handler: (method: string, params: Record<string, unknown>) => P
 
 beforeEach(() => {
   localStorage.clear();
-  holder.concierge.invalidate();
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ profile: 'eaios-concierge', revision: 'a'.repeat(64), instructions: 'Guide role' })));
   holder.assistantLanes?.clear();
   holder.assistantSidToAgent?.clear();
   holder.assistantWired = false;
@@ -57,7 +54,6 @@ beforeEach(() => {
 
 afterEach(() => {
   holder.rpc = realRpc;
-  vi.unstubAllGlobals();
 });
 
 describe('live assistant session lifecycle', () => {
@@ -75,24 +71,24 @@ describe('live assistant session lifecycle', () => {
       }
       throw new Error(`unexpected ${m}`);
     });
-    // concierge lane still uses WS RPC for history (unlike default lane which is bridge-only)
-    const history = await live.getAssistantHistory('concierge');
+    // guide-test lane still uses WS RPC for history (unlike default lane which is bridge-only)
+    const history = await live.getAssistantHistory('guide-test');
     expect(calls[0].method).toBe('session.create');
-    expect(calls[0].params.title).toBe('EAiOS — Concierge');
-    expect(localStorage.getItem(`eaios.concierge.v2.${'a'.repeat(64)}.storedSessionId`)).toBe('stored-1');
+    expect(calls[0].params.title).toBe('EAiOS — guide-test');
+    expect(localStorage.getItem('eaios.assistant.storedSessionId.guide-test')).toBe('stored-1');
     expect(history.map((m) => m.role)).toEqual(['you', 'ally']); // tool rows dropped
     expect(history[1].text).toBe('hello');
   });
 
   it('resumes by stored id when present', async () => {
-    localStorage.setItem(`eaios.concierge.v2.${'a'.repeat(64)}.storedSessionId`, 'stored-9');
+    localStorage.setItem('eaios.assistant.storedSessionId.guide-test', 'stored-9');
     const { calls } = stubRpc(async (m) => {
       if (m === 'session.resume') return { session_id: 'rt-9' };
       if (m === 'session.history') return { messages: [] };
       throw new Error(`unexpected ${m}`);
     });
-    await live.getAssistantHistory('concierge');
-    expect(calls[0]).toEqual({ method: 'session.resume', params: { session_id: 'stored-9', profile: 'eaios-concierge' } });
+    await live.getAssistantHistory('guide-test');
+    expect(calls[0]).toEqual({ method: 'session.resume', params: { session_id: 'stored-9', profile: 'guide-test' } });
     expect(calls.some((c) => c.method === 'session.create')).toBe(false);
   });
 
@@ -108,7 +104,7 @@ describe('live assistant session lifecycle', () => {
       }
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.sendAssistantMessage('are you there?', { agentId: 'concierge' });
+    const res = await live.sendAssistantMessage('are you there?', { agentId: 'guide-test' });
     expect(res.ok).toBe(true);
     expect(submits).toBe(2);
     const resume = calls.find((c) => c.method === 'session.resume');
@@ -121,7 +117,7 @@ describe('live assistant session lifecycle', () => {
       if (m === 'prompt.submit') throw new Error('provider overloaded');
       throw new Error(`unexpected ${m}`);
     });
-    const res = await live.sendAssistantMessage('hello', { agentId: 'concierge' });
+    const res = await live.sendAssistantMessage('hello', { agentId: 'guide-test' });
     expect(res.ok).toBe(false);
     expect(res.error?.safeMessage).toContain('provider overloaded');
   });
@@ -176,11 +172,11 @@ describe('live assistant event filter (every session shares the socket)', () => 
       if (m === 'session.history') return { messages: [] };
       throw new Error(`unexpected ${m}`);
     });
-    // Non-default lanes (concierge) still use WS RPC for history, so
+    // Non-default lanes (guide-test) still use WS RPC for history, so
     // getAssistantHistory sets up the SID→agent binding for event routing.
-    await live.getAssistantHistory('concierge'); // assistantSid = rt-mine, agentId = concierge
+    await live.getAssistantHistory('guide-test'); // assistantSid = rt-mine, agentId = guide-test
     const seen: AssistantEvent[] = [];
-    live.subscribeAssistant((e) => seen.push(e), 'concierge'); // subscribe to concierge lane
+    live.subscribeAssistant((e) => seen.push(e), 'guide-test'); // subscribe to guide-test lane
     emit('event', { type: 'message.delta', session_id: 'rt-other', payload: { text: 'LEAK' } });
     emit('event', { type: 'message.delta', session_id: 'rt-mine', payload: { text: 'he' } });
     emit('event', { type: 'message.delta', session_id: 'rt-mine', payload: { text: 'llo' } });

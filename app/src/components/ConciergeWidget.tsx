@@ -1,49 +1,27 @@
-/** Bottom-right navigation guide. Dedicated live profile and packaged context are owned by the adapter. */
+/** Bottom-right navigation guide. App-owned text-only chat; SOUL stays on the server. */
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { ChatMessage } from '../domain/types';
 import { hermes } from '../adapters';
 import { toast } from '../state/runtime';
 import { BrainGlyph } from './BrainGlyph';
-import { stripConciergeDocuments } from '../domain/concierge';
 
 const LANE = 'concierge';
-const CTX_OPEN = '[concierge-context v1]';
-const CTX_CLOSE = '[/concierge-context]';
-
-const PAGE_NAMES: Record<string, string> = {
-  '/today': 'Today',
-  '/assistant': 'My Assistant',
-  '/staff': 'Staff',
-  '/connections': 'Connections',
-  '/approvals': 'Approvals',
-  '/schedule': 'Schedule',
-  '/knowledge': 'Knowledge',
-  '/skills': 'Skills & Playbooks',
-  '/artifacts': 'Artifacts',
-  '/usage': 'Usage',
-  '/settings': 'Settings',
-  '/travel': 'Travel',
-  '/podcasts': 'Podcasts',
-  '/backup': 'Backup',
-};
-
 const EXAMPLE_PROMPTS = ['How do approvals work?', 'How do I put an agent to work?', 'Where do I find a deliverable?'];
 
-/** Hide the concierge-context envelope the model needs but the user shouldn't read. */
+/** Strip legacy display markers without ever loading legacy conversations. */
 export function stripConciergeContext(text: string): string {
-  return stripConciergeDocuments(text).replace(/\[concierge-context v1][\s\S]*?\[\/concierge-context]\s*/g, '').trim();
+  return text.replace(/\[concierge-context v1][\s\S]*?\[\/concierge-context]\s*/g, '').trim();
 }
 
 type Mode = 'fab' | 'open' | 'min';
 
 export function ConciergeWidget() {
   const location = useLocation();
-  const pageName = PAGE_NAMES[location.pathname] ?? 'EAiOS';
   const [mode, setMode] = useState<Mode>('fab');
   const [loadError, setLoadError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [ready, setReady] = useState(false); // history loaded — sends stay gated until then (brief decision depends on real lane history)
+  const [ready, setReady] = useState(false); // sends stay gated until local history and server metadata load
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -81,7 +59,7 @@ export function ConciergeWidget() {
       } else if (e.kind === 'error') {
         setStreaming(null);
         setSending(false);
-        toast('error', e.message);
+        setLoadError(e.message);
       }
     }, LANE);
     return () => {
@@ -102,9 +80,7 @@ export function ConciergeWidget() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [draft]);
 
-  /** Fresh concierge session — drops the old context entirely (new lane
-   * session on the gateway) so the next question carries the full nav brief
-   * again and the example prompts resurface. (Don 2026-08-30) */
+  /** Clear this browser’s Concierge conversation; no model request or gateway session. */
   const newChat = async () => {
     if (sending || streaming !== null) return;
     const res = await hermes.startNewAssistantChat(LANE);
@@ -119,14 +95,13 @@ export function ConciergeWidget() {
 
   const send = async (text: string) => {
     const q = text.trim();
-    if (!q || sending || !ready) return;
+    if (!q || sending || streaming !== null || !ready) return;
     setDraft('');
     setLoadError('');
     setSending(true);
-    const ctx = `${CTX_OPEN} The user is currently on the "${pageName}" page (${location.pathname}). ${CTX_CLOSE}\n\n`;
-    // Optimistic bubble (display-stripped); history rehydration on complete is authoritative.
-    setThread((t) => [...t, { id: `optimistic-${Date.now()}`, role: 'you', text: ctx + q, at: new Date().toISOString() }]);
-    const res = await hermes.sendAssistantMessage(ctx + q, { agentId: LANE });
+    // Only an explicit Send submits. Route and user text are untrusted inputs.
+    setThread((t) => [...t, { id: `optimistic-${Date.now()}`, role: 'you', text: q, at: new Date().toISOString() }]);
+    const res = await hermes.sendAssistantMessage(q, { agentId: LANE, currentRoute: location.pathname });
     setSending(false);
     textareaRef.current?.focus();
     if (!res.ok) {
@@ -188,11 +163,12 @@ export function ConciergeWidget() {
         <button onClick={() => setMode('min')} aria-label="Minimize concierge" title="Minimize" className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-canvas-overlay">
           —
         </button>
-        <button onClick={() => setMode('fab')} aria-label="Close concierge" title="Close" className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-canvas-overlay">
+        <button onClick={() => { hermes.cancelConcierge?.(); setStreaming(null); setSending(false); setMode('fab'); }} aria-label="Close concierge" title="Close" className="rounded px-2 py-1 text-xs text-ink-dim hover:bg-canvas-overlay">
           ✕
         </button>
       </header>
 
+      {(sending || streaming !== null) && hermes.cancelConcierge && <button type="button" onClick={() => hermes.cancelConcierge?.()} className="px-4 py-2 text-xs text-warn">Cancel reply</button>}
       <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
         <div className="rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-ink-dim">
           Ask where to find a page or how to use EAiOS. I can explain the steps; I cannot see your screen or perform actions.
@@ -247,6 +223,7 @@ export function ConciergeWidget() {
           rows={1}
           placeholder="Ask how to get around…"
           aria-label="Ask the concierge"
+          maxLength={4000}
           disabled={!ready}
           className="max-h-24 min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-ink placeholder:text-ink-faint"
         />

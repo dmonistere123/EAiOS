@@ -1,4 +1,4 @@
-import { readConciergeContext } from './concierge.ts';
+import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
 import {travelPlaces,travelRecommendations} from './travelGuide.ts';
@@ -101,6 +101,7 @@ function readJsonBody(req: IncomingMessage, maxBytes = Infinity): Promise<Record
       }
     });
     req.on('error', reject);
+    req.on('aborted', () => reject(new Error('Request aborted')));
   });
 }
 
@@ -193,11 +194,26 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       return true;
     }
 
-    if (path === '/api/concierge/context') {
+    if (path === '/api/concierge/context' || path === '/api/concierge/chat') {
       res.setHeader('Cache-Control', 'no-store');
-      if (req.method !== 'GET') { json(res, 405, JSON.stringify({ error: 'Method not allowed' })); return true; }
-      try { json(res, 200, JSON.stringify(readConciergeContext(ctx.eaiosRoot, ctx.hermesHome))); }
-      catch { json(res, 503, JSON.stringify({ error: 'Concierge instructions or profile are unavailable. Ask your administrator to check its setup.' })); }
+      const controller = new AbortController();
+      const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+      res.on('close', disconnected);
+      req.on('aborted', disconnected);
+      try {
+        if (path === '/api/concierge/context' && req.method === 'GET') {
+          json(res, 200, JSON.stringify(conciergeInfo(ctx.eaiosRoot, ctx.hermesHome)));
+        } else if (path === '/api/concierge/chat' && req.method === 'POST') {
+          try { requireSameOriginJson(req); } catch { throw new ConciergeError(403, 'Same-origin JSON request required'); }
+          const body = await readJsonBody(req, 160000);
+          controller.signal.throwIfAborted();
+          const reply = await conciergeReply(ctx.eaiosRoot, ctx.hermesHome, body, controller.signal);
+          if (!res.destroyed) json(res, 200, JSON.stringify(reply));
+        } else json(res, 405, JSON.stringify({ error: 'Method not allowed' }));
+      } catch (error) {
+        if (!res.destroyed) json(res, error instanceof ConciergeError ? error.status : 400,
+          JSON.stringify({ error: error instanceof ConciergeError ? error.message : 'Invalid or interrupted Concierge request. No retry was sent.' }));
+      } finally { res.off('close', disconnected); req.off('aborted', disconnected); }
       return true;
     }
 

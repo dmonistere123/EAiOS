@@ -1,5 +1,4 @@
-import { ConciergeSession } from './ConciergeSession';
-import { conciergePrompt, stripConciergeDocuments } from '../../domain/concierge';
+import { ConciergeClient } from './ConciergeClient';
 import { AssistantRequestClient } from './AssistantRequestClient';
 import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
 import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
@@ -1580,10 +1579,8 @@ class LiveHermesAdapter implements HermesAdapter {
   private assistantSidToAgent = new Map<string, string>();
   private assistantWired = false;
 
-  private concierge = new ConciergeSession(
-    (method, params) => this.rpc.call(method, params),
-    (sid) => this.bindAssistantLane('concierge', sid),
-  );
+  private concierge = new ConciergeClient();
+  cancelConcierge() { this.concierge.cancel(); }
 
   private static assistantStoredKey(agentId: string) {
     return agentId === 'default' ? 'eaios.assistant.storedSessionId' : `eaios.assistant.storedSessionId.${agentId}`;
@@ -1599,11 +1596,11 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   private assistantProfileParams(agentId: string) {
-    return agentId === 'concierge' ? { profile: 'eaios-concierge' } : agentId && agentId !== 'default' ? { profile: agentId } : {};
+    // Concierge is intercepted before the Hermes session path.
+    return agentId && agentId !== 'default' ? { profile: agentId } : {};
   }
 
   private async ensureAssistantSession(agentId = 'default'): Promise<string> {
-    if (agentId === 'concierge') return (await this.concierge.prepare()).sid;
     const lane = this.assistantLane(agentId);
     if (lane.sid) return lane.sid;
     const storedKey = LiveHermesAdapter.assistantStoredKey(agentId);
@@ -1622,7 +1619,7 @@ class LiveHermesAdapter implements HermesAdapter {
       }
     }
     const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId === 'concierge' ? 'Concierge' : agentId}`,
+      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
       ...profileParams,
     });
     lane.sid = c.session_id;
@@ -1702,6 +1699,7 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   async getAssistantHistory(agentId = 'default'): Promise<ChatMessage[]> {
+    if (agentId === 'concierge') return this.concierge.history();
     // Default lane: bridge messages are the primary source. When empty (first
     // load, after new chat, or WS RPC fallback path), try WS session history.
     if (agentId === 'default') {
@@ -1713,9 +1711,8 @@ class LiveHermesAdapter implements HermesAdapter {
         'session.history',
         { session_id: sid },
       );
-      return LiveHermesAdapter.mapHistoryMessages(h).map(row => agentId === 'concierge' && row.role === 'you' ? { ...row, text: stripConciergeDocuments(row.text) } : row);
-    } catch (error) {
-      if (agentId === 'concierge') throw error;
+      return LiveHermesAdapter.mapHistoryMessages(h);
+    } catch {
       return this.fallback.getAssistantHistory(); // graceful degradation (spec §2)
     }
   }
@@ -1726,8 +1723,9 @@ class LiveHermesAdapter implements HermesAdapter {
   createAssistantRequest(text: string, attachments?: AssistantAttachment[]) { return this.requestClient.create(text, attachments); }
   cancelAssistantRequest(id: string) { return this.requestClient.cancel(id); }
 
-  async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[] } = {}): Promise<AuditResult> {
+  async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[]; currentRoute?: string } = {}): Promise<AuditResult> {
     const agentId = opts.agentId ?? 'default';
+    if (agentId === 'concierge') return this.concierge.send(text, opts.currentRoute ?? '/');
 
     // Default lane uses the SSE bridge. Never resubmit over WS after a bridge
     // failure: Hermes may already be running the original request.
@@ -1740,14 +1738,13 @@ class LiveHermesAdapter implements HermesAdapter {
       }
     }
 
-    // Non-default lanes (concierge, staff agent channels): use the existing WS RPC path.
+    // Staff agent channels use the existing WS RPC path. Concierge returned above.
     try {
       const attachmentBlock = opts.attachments?.length
         ? '\n\n--- attached documents ---\n' + opts.attachments.map((a) => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n')
         : '';
-      const prepared = agentId === 'concierge' ? await this.concierge.prepare() : undefined;
-      let fullText = prepared ? conciergePrompt(prepared.context, text) : text + attachmentBlock;
-      let sid = prepared?.sid ?? await this.ensureAssistantSession(agentId);
+      const fullText = text + attachmentBlock;
+      let sid = await this.ensureAssistantSession(agentId);
       try {
         await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       } catch (e) {
@@ -1755,12 +1752,7 @@ class LiveHermesAdapter implements HermesAdapter {
         if (!/4001|session not found/i.test(e instanceof Error ? e.message : String(e))) throw e;
         this.assistantSidToAgent.delete(sid);
         this.assistantLane(agentId).sid = undefined;
-        if (agentId === 'concierge') {
-          this.concierge.invalidate();
-          const retry = await this.concierge.prepare();
-          sid = retry.sid;
-          fullText = conciergePrompt(retry.context, text);
-        } else sid = await this.ensureAssistantSession(agentId);
+        sid = await this.ensureAssistantSession(agentId);
         await this.rpc.call('prompt.submit', { session_id: sid, text: fullText });
       }
       return { ok: true, auditEventId: `chat-send-${Date.now()}` };
@@ -1770,6 +1762,7 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   subscribeAssistant(handler: (event: AssistantEvent) => void, agentId = 'default'): Unsubscribe {
+    if (agentId === 'concierge') return this.concierge.subscribe(handler);
     this.wireAssistant();
     const lane = this.assistantLane(agentId);
     lane.handlers.add(handler);
@@ -1923,8 +1916,9 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  /** Fresh chat never deletes previous stored conversations. Concierge owns its dedicated profile. */
+  /** Fresh chat in a lane: create a new session (bypassing the stored id) and rebind. Concierge uses its separate HTTP client. */
   async startNewAssistantChat(agentId = 'default'): Promise<AuditResult> {
+    if (agentId === 'concierge') return this.concierge.newChat();
     // Default lane is bridge-only: clear the local store and unbind any WS session.
     if (agentId === 'default') {
       this.clearBridgeMessages();
@@ -1937,12 +1931,8 @@ class LiveHermesAdapter implements HermesAdapter {
       return { ok: true, auditEventId: `chat-new-${Date.now()}` };
     }
     try {
-      if (agentId === 'concierge') {
-        await this.concierge.prepare(true);
-        return { ok: true, auditEventId: `chat-new-${Date.now()}` };
-      }
       const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-        title: `EAiOS — ${agentId}`,
+        title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
         ...this.assistantProfileParams(agentId),
       });
       if (!c.session_id) throw new Error('create returned no session id');

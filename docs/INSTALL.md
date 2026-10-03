@@ -182,22 +182,12 @@ After a failed installation, read Settings and the `eaios-release-install` journ
 
 Once a box runs a staged release, use Settings for application updates. Rerunning bootstrap or the original checkout service installer can overwrite the active release paths. The older branch updater remains available for administrator support and is not the Settings installation mechanism.
 
-### Optional: enable the dedicated navigation Concierge
+### Navigation Concierge
 
-**Activation currently blocked:** the installed Hermes gateway adds operational tools and cold resume can auto-continue work. Resolve the findings in [Concierge activation blockers](CONCIERGE.md#activation-blocked-by-installed-hermes-behavior) before using the prospective setup steps below.
+The bottom-right brain widget uses the application's text-only provider endpoint and packaged `concierge/SOUL.md`. Fresh installs and full Settings releases include both; no Hermes profile setup, migration, or new credentials file is needed.
 
-Releases containing the dedicated Concierge include `concierge/SOUL.md` and `scripts/setup-concierge.py`. Both fresh installs and Settings updates carry these files, but **neither automatically creates a profile**. This is a one-time, explicitly approved setup on each box; it does not replace Ally's instructions, memory or conversations.
+By default it reads `model.provider` and `model.default` from the service's `$HERMES_HOME/config.yaml`. Supported providers are `openrouter` and `openai`, using fixed official API endpoints. It reuses the matching `OPENROUTER_API_KEY` or `OPENAI_API_KEY` already in the server environment or private `$HERMES_HOME/.env`. It does not use Hermes OAuth, pooled credentials, gateway overrides, or fallback models. Unsupported configurations fail visibly rather than switching models.
 
-From the **reviewed release's repository root** (the staged code directory for a Settings update, not the older persistent data checkout), with the Hermes Python environment active and `hermes` on PATH:
+If authentication is missing, an administrator must securely provision the matching key in that existing private server-side `.env` file, or the service environment, through the normal approved secrets process. Never paste keys into the widget, browser configuration, source files, or chat. If a box needs a different supported model/provider, set both `EAIOS_CONCIERGE_PROVIDER` and `EAIOS_CONCIERGE_MODEL` in its server environment. A service-environment change requires the normal reviewed restart; file configuration is read on each request.
 
-```bash
-python scripts/setup-concierge.py --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --apply
-```
-
-Omit `--apply` for a no-write document/profile check. That check does not validate authentication or all runtime prerequisites. Use the actual service's Hermes home if it differs from the default. Python must have PyYAML available; setup installs no dependencies. The installed Hermes must support named profiles, `profile create --no-alias --no-skills`, and profile identity in session responses.
-
-Setup creates only `eaios-concierge`, copies the existing model/provider choice and simple fallback selection, disables memory and coding-context expansion, and selects the clarification toolset. It does **not** copy credential files, clone another profile or restart services. Custom runtime URLs, model-embedded credentials and complex fallback configurations require separate administrator preparation. A repeat call with the identical managed SOUL changes no files, credentials, settings or history. Customized/unmanaged profiles and changed SOULs are refused rather than overwritten.
-
-Before enabling the widget, verify that this profile has authorized provider access through the installed Hermes credential system and that its effective tool list contains no operational tools. Shared credential behavior varies by provider/Hermes version; setup success alone does not prove access. Provision credentials only through the approved profile-scoped process; never paste them into Concierge or copy the entire default profile. Confirm `/api/concierge/context` and the brain widget load without submitting a model prompt. Until preparation is complete, Concierge reports unavailable; other application features remain usable.
-
-Settings invokes the release installer through background systemd, with no reliable interactive terminal; do not add a consent prompt there. Once the activation blockers are resolved, this explicit command can be included in rollout/release instructions without adding an automatic profile migration. Subsequent SOUL changes require a reviewed `--refresh-documents --apply` using the matching release. See [Concierge activation and rollback](CONCIERGE.md) for customization protection, compatibility checks and rollback. Do not invoke setup from routine updater, recovery or service-start scripts.
+Check `/api/concierge/context` and open the widget after the normal approved deployment. Neither action calls a model. A separately authorized test question is needed to verify provider authentication/model compatibility. See [Concierge operation and rollback](CONCIERGE.md) for limits and release checks.
