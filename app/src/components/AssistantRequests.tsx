@@ -9,7 +9,7 @@ import type { AssistantAttachment } from '../adapters/interfaces';
 const done = (r: RequestView) => ['completed', 'recovered', 'cancelled', 'interrupted'].includes(r.state);
 export function AssistantRequests() {
   const [openChunk, setOpenChunk] = useState<string | null>(null);
-  const [rows, setRows] = useState<RequestView[]>([]);
+  const [rows, setRows] = useState<RequestView[]>(() => hermes.cachedAssistantRequests?.() ?? []);
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<AssistantAttachment[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +61,11 @@ export function AssistantRequests() {
       {rows.length === 0 && <p className="text-sm text-ink-dim">Your requests and their progress will appear here.</p>}
       {rows.map(row => <article key={row.id} className="rounded-xl border border-edge p-4" aria-label={`Request ${row.id}`}>
         <p className="whitespace-pre-wrap text-sm">{row.text}</p>
+        {(row.stale || connection) && <p className="text-xs text-warn">Cached state — current execution status is not confirmed.</p>}
+        {row.cacheLimited && <p className="text-xs text-warn">Offline preview shortened; original request context is retained on the server.</p>}
+        {row.responseLimited && <p className="text-xs text-warn">Local response display reached its limit. Inspect the original Hermes session for additional output; execution context was not shortened.</p>}
+        {row.linkageLimited && <p className="text-xs text-warn">Showing a bounded subset of linked outputs. More may be available in Artifacts.</p>}
+        {row.linkageUnavailable && <p className="text-xs text-warn">Artifact linkage is currently unavailable.</p>}
         {!!row.attachmentNames?.length && <p className="text-xs text-ink-dim">Attached: {row.attachmentNames.join(', ')}</p>}
         <div role="status" className="my-2 text-xs text-ink-dim">{row.state} · {row.progress}{!done(row) && ` · ${Math.max(0, Math.floor((now - Date.parse(row.createdAt)) / 1000))}s elapsed`}</div>
         <p className="text-[10px] text-ink-faint">{!done(row) && row.lastActivityAt && `Last activity ${Math.max(0, Math.floor((now - Date.parse(row.lastActivityAt)) / 1000))}s ago · `}Request {row.id}{row.storedSessionId && ` · Session ${row.storedSessionId}`}</p>

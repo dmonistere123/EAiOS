@@ -11,7 +11,7 @@ vi.mock('../../server/allyGateway.ts',()=>({allyChat:vi.fn(),allyChatStream:vi.f
   const client={isConnected:false,onEvent:null,connect:async()=>{client.isConnected=true;},disconnect:()=>{client.isConnected=false;},call:async(m:string,p:Record<string,unknown>)=>{
     if(m==='session.create'){fake.creates++;return{session_id:'http-session',stored_session_id:'http-stored'};}
     if(m==='prompt.submit'){fake.submits++;return{status:'streaming'};}
-    if(m==='session.resume')return{session_id:'http-session',running:true,messages:[]};
+    if(m==='session.activate')return{session_id:'http-session',running:true,messages:[]};
     if(m==='session.interrupt')return{interrupted:true};
     throw new Error(String(p));
   }};return client;

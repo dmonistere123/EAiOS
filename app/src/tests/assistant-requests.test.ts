@@ -25,7 +25,8 @@ class FakeGateway {
         const sid = String(p.session_id); const session = this.sessions.get(sid); if (!session) throw new Error('missing');
         if (method === 'prompt.submit') { session.running = true; session.messages.push({ role: 'user', text: String(p.text) }); this.submissions.push({ sid, text: String(p.text) }); if (this.loseAck) throw new Error('ack lost'); return { status: 'streaming' }; }
         if (method === 'session.history') return { messages: [...session.messages] };
-        if (method === 'session.resume') return { session_id: sid, stored_session_id: sid, running: session.running, inflight: session.inflight, messages: [...session.messages] };
+        if (method === 'session.resume') throw new Error('FORBIDDEN: cold resume may auto-continue');
+        if (method === 'session.activate') return { session_id: sid, stored_session_id: sid, running: session.running, inflight: session.inflight, messages: [...session.messages] };
         if (method === 'session.interrupt') { this.interrupts.push(sid); session.running = false; return { interrupted: true }; }
         throw new Error(`Unexpected ${method}`);
       },
@@ -34,7 +35,7 @@ class FakeGateway {
   finish(sid: string, text: string, emit = true) { const s = this.sessions.get(sid)!; s.running = false; s.messages.push({ role: 'assistant', text }); if (emit) this.event(sid, 'message.complete', { text, status: 'complete' }); }
   event(sid: string, type: string, payload: Record<string, unknown>) { this.clients.filter(c => c.isConnected).forEach(c => c.onEvent?.({ session_id: sid, type, payload })); }
 }
-const manager = (r: string, gateway: FakeGateway) => { const m = new AssistantRequests(r, { client: gateway.client, pollMs: 1000 }); managers.push(m); return m; };
+const manager = (r: string, gateway: FakeGateway) => { const m = new AssistantRequests(r, { client: gateway.client, pollMs: 1000, evidence: sid => { const last=gateway.sessions.get(sid)?.messages.at(-1); return {available:true,response:last?.role==='assistant'?last.text:undefined}; } }); managers.push(m); return m; };
 beforeEach(() => vi.useFakeTimers());
 afterEach(async () => { managers.splice(0).forEach(m => m.close()); await vi.advanceTimersByTimeAsync(2000); vi.useRealTimers(); roots.splice(0).forEach(r => rmSync(r, { recursive: true, force: true })); });
 
@@ -43,7 +44,7 @@ describe('durable Assistant requests', () => {
     const g = new FakeGateway(), m = manager(root(), g); const receipt = m.accept(id(1), 'one');
     expect(receipt.id).toBe(id(1)); await vi.advanceTimersByTimeAsync(180000);
     expect(m.get(id(1))?.state).toBe('running'); expect(g.submissions).toHaveLength(1);
-    g.event('session-1', 'tool.start', { name: 'read_file', args: { secret: 'hidden' } });
+    g.event('session-1', 'tool.start', { name: 'read_file', args: { secret: 'hidden' } }); await vi.advanceTimersByTimeAsync(251);
     expect(m.get(id(1))?.progress).toBe('Using read file'); expect(JSON.stringify(m.get(id(1)))).not.toContain('hidden');
     g.finish('session-1', 'final'); expect(m.get(id(1))?.response).toBe('final'); expect(m.get(id(1))?.state).toBe('completed');
   });
@@ -98,7 +99,7 @@ describe('durable Assistant requests', () => {
   it('stops recovery on an authoritative missing-session response without creating replacement work',async()=>{
     const g=new FakeGateway(),r=root(),a=manager(r,g);a.accept(id(1),'one');await vi.advanceTimersByTimeAsync(100);a.close();managers.splice(managers.indexOf(a),1);await vi.advanceTimersByTimeAsync(1100);
     const original=g.client;g.client=()=>{const c=original();c.call=async()=>{throw Object.assign(new Error('session not found'),{code:4007});};return c;};
-    const b=manager(r,g);await vi.advanceTimersByTimeAsync(100);expect(b.get(id(1))?.state).toBe('interrupted');expect(g.creates).toBe(1);expect(g.submissions).toHaveLength(1);
+    const b=manager(r,g);await vi.advanceTimersByTimeAsync(6500);expect(b.get(id(1))?.state).toBe('interrupted');expect(g.creates).toBe(1);expect(g.submissions).toHaveLength(1);
   });
   it('recovers retained Hermes errors and partial text rather than displaying endless thinking',async()=>{
     const g=new FakeGateway(),m=manager(root(),g);m.accept(id(1),'one');await vi.advanceTimersByTimeAsync(100);
@@ -106,10 +107,10 @@ describe('durable Assistant requests', () => {
     await vi.advanceTimersByTimeAsync(1100);expect(m.get(id(1))).toMatchObject({state:'interrupted',response:'saved partial'});expect(JSON.stringify(m.get(id(1)))).not.toContain('provider failure detail');expect(g.submissions).toHaveLength(1);
   });
   it('links late artifacts using explicit session ancestry, never unrelated timestamps or names', () => {
-    const r=root();const s=new DatabaseSync(join(r,'state.db'));s.exec("CREATE TABLE sessions(id TEXT,parent_session_id TEXT); INSERT INTO sessions VALUES('origin',NULL),('compressed','origin'),('other',NULL)");s.close();
+    const r=root();const s=new DatabaseSync(join(r,'state.db'));s.exec("CREATE TABLE sessions(id TEXT,parent_session_id TEXT,end_reason TEXT,model_config TEXT,source TEXT,started_at REAL,ended_at REAL,last_activity_at REAL); INSERT INTO sessions VALUES('origin',NULL,'compression','{}','tui',0,1,1),('compressed','origin',NULL,'{}','tui',1,NULL,2),('other',NULL,NULL,'{}','tui',1,NULL,2)");s.close();
     const k=new DatabaseSync(join(r,'kanban.db'));k.exec("CREATE TABLE tasks(id TEXT,session_id TEXT);CREATE TABLE task_attachments(id INTEGER,task_id TEXT,filename TEXT,created_at INTEGER);INSERT INTO tasks VALUES('task-a','compressed'),('task-b','other')");
     expect(requestArtifacts(r,['origin']).taskIds).toEqual(['task-a']);expect(requestArtifacts(r,['origin']).artifacts).toEqual([]);
-    k.exec("INSERT INTO task_attachments VALUES(1,'task-a','report.pdf',100),(2,'task-b','report.pdf',100)");k.close();
+    k.exec("INSERT INTO task_attachments VALUES(1,'task-a','report.pdf',100),(2,'task-b','report.pdf',100)");k.close(); vi.advanceTimersByTime(10001);
     expect(requestArtifacts(r,['origin']).artifacts.map(a=>a.id)).toEqual(['att-1']);
   });
 });

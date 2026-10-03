@@ -148,7 +148,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   try {
 
     if (path === '/api/assistant/requests' || path.startsWith('/api/assistant/requests/')) {
-      const manager = assistantRequests(dataRoot);
+      const manager = assistantRequests(dataRoot, ctx.hermesHome);
       const parts = path.slice('/api/assistant/requests'.length).split('/').filter(Boolean);
       const view = (id: string) => { const row = manager.get(id); return row ? { ...row, ...requestArtifacts(ctx.hermesHome, manager.sessionRoots(id), row.profile) } : undefined; };
       res.setHeader('cache-control', 'no-store');
@@ -165,7 +165,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
           } else if (parts.length === 2 && parts[1] === 'cancel') {
             const row = manager.cancel(parts[0]); json(res, row ? 200 : 404, JSON.stringify(row ?? { error: 'Request not found' }));
           } else json(res, 404, JSON.stringify({ error: 'Unknown request route' }));
-        } catch (e) { json(res, 400, JSON.stringify({ error: errMessage(e) })); }
+        } catch (e) { json(res, Number((e as { code?: number })?.code) === 429 ? 429 : 400, JSON.stringify({ error: errMessage(e) })); }
       } else if (req.method === 'GET' && !parts.length) {
         json(res, 200, JSON.stringify({ requests: manager.list().map(r => view(r.id)) }));
       } else if (req.method === 'GET' && parts.length === 1) {

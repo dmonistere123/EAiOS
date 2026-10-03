@@ -1714,6 +1714,7 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   private requestClient = new AssistantRequestClient();
+  cachedAssistantRequests() { return this.requestClient.cached(); }
   listAssistantRequests() { return this.requestClient.list(); }
   createAssistantRequest(text: string, attachments?: AssistantAttachment[]) { return this.requestClient.create(text, attachments); }
   cancelAssistantRequest(id: string) { return this.requestClient.cancel(id); }

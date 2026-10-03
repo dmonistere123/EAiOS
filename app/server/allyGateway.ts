@@ -49,6 +49,7 @@ function decodeWsFrame(buf: Buffer): { opcode: number; payload: Buffer; consumed
     payloadLen = Number(buf.readBigUInt64BE(2));
     offset = 10;
   }
+  if (!Number.isSafeInteger(payloadLen) || payloadLen > 8 * 1024 * 1024) throw Object.assign(new Error('Gateway frame exceeds the local delivery limit'), { code: -32099 });
   const maskLen = masked ? 4 : 0;
   if (buf.length < offset + maskLen + payloadLen) return null;
   let payload = buf.subarray(offset + maskLen, offset + maskLen + payloadLen);
@@ -183,7 +184,8 @@ export class GatewayRpcClient {
 
   private processFrames(): void {
     while (this.buf.length > 0) {
-      const frame = decodeWsFrame(this.buf);
+      let frame: ReturnType<typeof decodeWsFrame>;
+      try { frame = decodeWsFrame(this.buf); } catch (error) { this.rejectAll(error as Error); this.sock?.destroy(); this.buf = Buffer.alloc(0); return; }
       if (!frame) break;
       this.buf = this.buf.subarray(frame.consumed);
       if (frame.opcode === 0x8) {

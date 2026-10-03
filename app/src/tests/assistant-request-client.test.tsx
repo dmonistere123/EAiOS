@@ -35,7 +35,7 @@ describe('request receipts in the browser',()=>{
       if(url==='/api/assistant/requests')return Response.json({requests:[]});
       return Response.json({error:'not found'},{status:404});
     }));
-    const client=new AssistantRequestClient();await client.create('one');expect((await client.list())[0].progress).toBe('Acceptance not confirmed');await client.list();expect(posts).toBe(1);
+    const client=new AssistantRequestClient();await client.create('one');expect((await client.list())[0].stale).toBe(true);await client.list();expect(posts).toBe(1);
   });
   it('keeps the transport deadline active while an acknowledgement body stalls',async()=>{
     vi.stubGlobal('fetch',vi.fn(async(_url:string,init?:RequestInit)=>new Response(new ReadableStream({start(controller){init?.signal?.addEventListener('abort',()=>controller.error(new DOMException('aborted','AbortError')));}}))));
@@ -45,4 +45,24 @@ describe('request receipts in the browser',()=>{
     const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);const spy=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('full');});
     await expect(new AssistantRequestClient().create('one')).rejects.toThrow('full');expect(fetcher).not.toHaveBeenCalled();spy.mockRestore();
   });
+  it('hydrates accepted prompt and partial output offline, then merges revisions without regression',async()=>{
+    let current:RequestView={...row('cached'),revision:5,text:'original question',response:'partial answer'};
+    vi.stubGlobal('fetch',vi.fn(async()=>Response.json({requests:[current]})));
+    await new AssistantRequestClient().list();
+    const refreshed=new AssistantRequestClient();expect(refreshed.cached()[0]).toMatchObject({text:'original question',response:'partial answer',stale:true,revision:5});
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));await expect(refreshed.list()).rejects.toThrow('offline');
+    expect(refreshed.cached()[0].response).toBe('partial answer');
+    current={...current,revision:4,response:'older'};expect((await refreshed.list())[0]).toMatchObject({revision:5,response:'partial answer',stale:true});
+    current={...current,revision:6,response:'complete',state:'completed'};expect((await refreshed.list())[0]).toMatchObject({revision:6,response:'complete',stale:false});
+  });
+  it('bounds cached previews and lookup fanout while preserving active request IDs',async()=>{
+    const active=Array.from({length:16},(_,i)=>({...row(`active-${i}`),text:'q'.repeat(6000),response:'r'.repeat(20000)}));
+    vi.stubGlobal('fetch',vi.fn(async()=>Response.json({requests:active})));
+    const client=new AssistantRequestClient();await client.list();const cached=client.cached();
+    expect(cached).toHaveLength(16);expect(cached.every(r=>r.text.length===4096&&r.response.length===8192&&r.cacheLimited)).toBe(true);
+    vi.mocked(fetch).mockClear().mockImplementation(async(url)=>String(url)==='/api/assistant/requests'?Response.json({requests:[]}):Response.json({error:'missing'},{status:404}));
+    expect(await client.list()).toHaveLength(16);expect(fetch).toHaveBeenCalledTimes(5);
+    expect(client.cached().map(r=>r.id)).toEqual(cached.map(r=>r.id));
+  });
+
 });

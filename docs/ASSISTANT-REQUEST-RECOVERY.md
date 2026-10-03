@@ -8,8 +8,9 @@ attached handoff.md is included only in that submission. The configured Hermes
 profile, skills, and persistent memory are unchanged.
 
 A receipt is saved in the browser before transmission, and durably accepted by
-EAiOS before work starts. Recovery uses GET and session.resume on the original
-stored session ID; it never repeats prompt.submit. Same ID/same input is idempotent;
+EAiOS before work starts. Recovery uses GET and session.activate on the original runtime session ID;
+it never calls session.resume or repeats prompt.submit. Installed Hermes cold
+resume can auto-continue a prompt, so it is deliberately excluded. Same ID/same input is idempotent;
 same ID/different input is rejected. An ambiguous crash between submission and
 acknowledgement is reconciled, never replayed. A crash before a recoverable session
 identity was recorded is shown as interrupted and requires a deliberate new request.
@@ -17,7 +18,7 @@ identity was recorded is shown as interrupted and requires a deliberate new requ
 ## Runtime
 
 - POST /api/assistant/requests accepts `{id,text,attachments}` and returns HTTP 202.
-- GET /api/assistant/requests returns recent 100 receipts plus all active requests.
+- GET /api/assistant/requests returns recent 20 receipts plus all active requests.
 - GET /api/assistant/requests/:id returns a durable snapshot.
 - GET /api/assistant/requests/:id/events emits complete versioned SSE snapshots.
   Reconnect receives current state even if event IDs were missed. Heartbeat/close
@@ -40,8 +41,10 @@ Both dashboard ports use the same store. A 12-second lease, renewed every four
 seconds, fences stale writers; only the inserting process may submit the first
 prompt. A surviving/restarted dashboard resumes after lease expiry, normally before
 Hermes' documented 20-second default orphan-reap grace. Actual Hermes policies
-and process downtime can still interrupt a turn. If Hermes reports the session
-missing, EAiOS preserves existing output and stops recovery without replacing it.
+and process downtime can still interrupt a turn. Missing-runtime and transient 4007 responses receive at most three attach attempts.
+If attachment cannot be established, EAiOS reads bounded saved evidence through
+read-only SQLite and marks the request interrupted without recreating a runtime.
+A missing running/status field is never interpreted as running or complete.
 
 Recovered saved text is labeled `recovered`, rather than claiming a successful
 terminal event when Hermes history does not carry that proof. Progress includes
@@ -51,8 +54,8 @@ not endless thinking indicators. Pending input/approval points
 the user to the named session in Hermes Desktop. This change does not add a second
 approval or clarification response surface.
 
-Artifacts are linked using tasks.session_id and stored-session ancestry, including
-compression descendants, then task_attachments. There is no timestamp/filename
+Artifacts are linked using tasks.session_id and a single proven compression continuation chain, then
+task_attachments. Branch, reset, delegate, and tool children are excluded. There is no timestamp/filename
 matching. Late attachments continue to appear on terminal request cards. Artifacts
 without origin-session provenance remain available in the existing Artifacts page,
 without being guessed into a request. Requests created before this feature are not
@@ -64,6 +67,27 @@ Their old timeout architecture is not silently presented as the new lifecycle.
 The legacy stream's heartbeat scope/cleanup is repaired. The shared gateway client
 now sends RFC-compliant masked pong frames echoing the ping payload, and preserves
 RPC error codes for authoritative missing-session handling.
+
+## Bounds and offline recovery
+
+Accepted browser receipts remain cached across refresh, including prompt and partial
+output. Hydration labels them stale; versioned merging prevents an older server
+snapshot from overwriting newer cached output. Local display previews are bounded
+(4,096 prompt characters, 8,192 response characters, 20 artifacts), visibly labeled,
+and refreshed from the authoritative server. Up to 32 active IDs are retained;
+only terminal display copies are evicted. Cache admission fails before submission
+if active receipts would exceed the 1.5 MB budget. Unconfirmed prompts retain their
+full text. Recovery performs at most four additional ID lookups per poll.
+
+New server admission is bounded at 500 receipts, 16 active requests and a 64 MiB
+serialized record budget with response capacity reserved for active work. Capacity
+returns 429; existing production records are never automatically deleted. New
+responses cap at 65,536 characters with a visible limit flag; existing oversized
+records remain stored. Progress writes coalesce over 250 ms; terminal evidence
+flushes immediately. Gateway frames over 8 MiB fail safely. Artifact queries cap
+at 200 tasks/attachments and 32 compression steps, with visible limit flags and a
+10-second, 128-entry cache. These are application bounds; SQLite/WAL overhead is
+additional and the WAL size setting is a checkpoint hint, not a hard disk quota.
 
 ## Isolated validation
 
@@ -80,7 +104,7 @@ backend restart, expired ownership, duplicate IDs, cancellation, missing session
 concurrent isolation, explicit handoff context, late artifacts, and SSE reconnect.
 These are synthetic checks, not end-to-end verification against live Ally.
 
-Verified October 3, 2026:
+Initial candidate validation on October 3, 2026 (before independent review):
 
 - Full suite: 391 tests passed across 50 files (148 seconds).
 - After final ownership/UI preservation changes: 62 focused tests passed across
@@ -92,6 +116,22 @@ Verified October 3, 2026:
   actual audible playback and live Hermes integration were not exercised.
 - Local evidence: .local/full-tests.log, .local/focused-tests.log, .local/lint.log,
   and .local/build.log (ignored, not committed).
+
+Independent-review revision additionally verifies installed-Hermes contracts using
+`app/src/tests/fixtures/hermes-request-contract.json`. The capture script extracts
+selected function ASTs from the installed source and executes them with in-memory
+stubs, without importing Hermes or contacting its gateway. The fixture records
+source paths, lines and SHA-256 hashes. It demonstrates enabled cold continuation,
+the incomplete lazy-resume reply, exact transient 4007 error, and safe activate
+payload. Tests deliberately make any accidental cold resume schedule continuation.
+
+Full review suite: 402 tests passed across 52 files (145 seconds). After the final
+partial-output and lineage-limit refinements, 30 focused tests passed across four
+files. TypeScript passed. Oxlint passed with zero errors and 23 existing warnings.
+Final complete-suite and build evidence is recorded in `.local/review-full-tests.log`,
+`.local/review-focused-tests.log`, `.local/review-lint.log`, and
+`.local/review-build.log`. These checks use synthetic fixtures only; live activation
+and real-provider validation remain a separate review decision.
 
 Commands (from app, existing Node 26 and installed dependencies):
 

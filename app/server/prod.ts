@@ -313,7 +313,7 @@ export function createEaiosServer(config: ProdConfig) {
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   const config = loadConfig();
-  assistantRequests(config.apiCtx.dataRoot ?? config.apiCtx.eaiosRoot);
+  assistantRequests(config.apiCtx.dataRoot ?? config.apiCtx.eaiosRoot, config.apiCtx.hermesHome);
   const server = createEaiosServer(config);
   server.listen(config.port, config.host, () => {
     console.log(`eaios-server listening on http://${config.host}:${config.port}`);

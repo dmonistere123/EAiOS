@@ -1,0 +1,102 @@
+{
+  "source": {
+    "_auto_continue_config": {
+      "path": "tui_gateway/session_auto_continue.py",
+      "line": 21,
+      "sha256": "1b9b2ddce261a29815ce159f5662e71a93bbd2b31dc07b1b289bbb4e8b144b33"
+    },
+    "_inflight_snapshot": {
+      "path": "tui_gateway/session_auto_continue.py",
+      "line": 325,
+      "sha256": "1b9b2ddce261a29815ce159f5662e71a93bbd2b31dc07b1b289bbb4e8b144b33"
+    },
+    "_resume_response": {
+      "path": "tui_gateway/methods_session.py",
+      "line": 651,
+      "sha256": "cf88d39afebeb58dffd4b5d765be59da7d541627fbde1c526fc4ee21a01e229e"
+    },
+    "_resume_cold": {
+      "path": "tui_gateway/methods_session.py",
+      "line": 712,
+      "sha256": "cf88d39afebeb58dffd4b5d765be59da7d541627fbde1c526fc4ee21a01e229e"
+    },
+    "_resume_live_unpersisted": {
+      "path": "tui_gateway/methods_session.py",
+      "line": 520,
+      "sha256": "cf88d39afebeb58dffd4b5d765be59da7d541627fbde1c526fc4ee21a01e229e"
+    },
+    "_resume_reuse_live": {
+      "path": "tui_gateway/methods_session.py",
+      "line": 630,
+      "sha256": "cf88d39afebeb58dffd4b5d765be59da7d541627fbde1c526fc4ee21a01e229e"
+    },
+    "activate": {
+      "path": "tui_gateway/methods_session.py",
+      "line": 891,
+      "sha256": "cf88d39afebeb58dffd4b5d765be59da7d541627fbde1c526fc4ee21a01e229e"
+    },
+    "_live_session_payload": {
+      "path": "tui_gateway/server.py",
+      "line": 2689,
+      "sha256": "2d1c91e86a126e05bec1930d375df600785aae4ba073803bb29099d289efd536"
+    },
+    "_session_lookup_key": {
+      "path": "tui_gateway/server.py",
+      "line": 2618,
+      "sha256": "2d1c91e86a126e05bec1930d375df600785aae4ba073803bb29099d289efd536"
+    },
+    "_session_live_status": {
+      "path": "tui_gateway/server.py",
+      "line": 2577,
+      "sha256": "2d1c91e86a126e05bec1930d375df600785aae4ba073803bb29099d289efd536"
+    }
+  },
+  "defaultAutoContinue": true,
+  "coldResume": {
+    "session_id": "cold-runtime",
+    "resumed": "stored-fixture",
+    "message_count": 0,
+    "messages": [],
+    "messages_omitted": true,
+    "info": {},
+    "inflight": null,
+    "running": false,
+    "session_key": "stored-fixture",
+    "started_at": 0,
+    "status": "idle",
+    "auto_continue": {
+      "scheduled": true,
+      "attempt": 1
+    }
+  },
+  "coldContinuationCalls": 1,
+  "lazyUnpersistedResume": {
+    "session_id": "lazy-runtime",
+    "stored_session_id": "stored-fixture",
+    "message_count": 0,
+    "messages": [],
+    "info": {
+      "model": "fixture-model",
+      "lazy": true,
+      "profile_name": ""
+    }
+  },
+  "activateLazy": {
+    "info": {
+      "lazy": true
+    },
+    "message_count": 0,
+    "messages": [],
+    "messages_omitted": true,
+    "running": false,
+    "turn_started_at": 0,
+    "session_id": "lazy-runtime",
+    "session_key": "stored-fixture",
+    "started_at": 100.0,
+    "status": "idle"
+  },
+  "resumeRace": {
+    "code": 4007,
+    "message": "session no longer live; retry resume"
+  }
+}
