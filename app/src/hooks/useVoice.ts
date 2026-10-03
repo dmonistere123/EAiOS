@@ -3,7 +3,9 @@
  * Provides speech-to-text (STT) input and text-to-speech (TTS) playback.
  * Falls back gracefully when the API is unavailable.
  */
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { VoiceCapture } from './voiceCapture';
 
 export interface VoiceState {
   supported: boolean;
@@ -14,6 +16,7 @@ export interface VoiceState {
   error: string | null;
   startListening: () => void;
   stopListening: () => void;
+  cancelListening: (preserveDraft?: boolean) => void;
   speak: (text: string) => void;
   stopSpeaking: () => void;
 }
@@ -28,78 +31,33 @@ function getSpeechRecognition(): { new (): SpeechRecognition } | null {
   return null;
 }
 
-export function useVoice(onTranscript: (text: string) => void): VoiceState {
-  const [supported] = useState(() => {
-    const SR = getSpeechRecognition();
-    const g = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : undefined;
-    const ss = !!g && typeof (g as unknown as { speechSynthesis?: unknown }).speechSynthesis === 'object' && (g as unknown as { speechSynthesis?: object }).speechSynthesis !== null;
-    return !!SR || ss;
-  });
+export function useVoice(onTranscript: (text: string) => void, onDraft?: (text: string) => void): VoiceState {
+  const [supported] = useState(() => !!getSpeechRecognition());
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const captureRef = useRef<VoiceCapture | null>(null);
+  const callbacks = useRef({ onTranscript, onDraft });
+  useEffect(() => { callbacks.current = { onTranscript, onDraft }; }, [onTranscript, onDraft]);
+  useEffect(() => () => { captureRef.current?.cancel(false); }, []);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   const startListening = useCallback(() => {
     const SR = getSpeechRecognition();
-    if (!SR) {
-      setError('Speech recognition is not supported in this browser.');
-      return;
-    }
-    setError(null);
-    setInterim('');
-    try {
-      const rec = new SR();
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.lang = 'en-US';
-      let finalTranscript = '';
-      const onResult = (event: SpeechRecognitionEvent) => {
-        let currentInterim = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            currentInterim += transcript;
-          }
-        }
-        setInterim(currentInterim);
-      };
-      const onError = (event: SpeechRecognitionErrorEvent) => {
-        if (event.error === 'aborted' || event.error === 'no-speech') return;
-        setError(`Speech error: ${event.error}`);
-        setListening(false);
-      };
-      const onEnd = () => {
-        setListening(false);
-        setInterim('');
-        if (finalTranscript) {
-          onTranscript(finalTranscript.trim());
-        }
-      };
-      rec.addEventListener('result', onResult as EventListener);
-      rec.addEventListener('error', onError as EventListener);
-      rec.addEventListener('end', onEnd as EventListener);
-      recognitionRef.current = rec;
-      rec.start();
-      setListening(true);
-    } catch (e) {
-      setError(`Could not start microphone: ${e instanceof Error ? e.message : String(e)}`);
-      setListening(false);
-    }
-  }, [onTranscript]);
-
-  const stopListening = useCallback(() => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      // ignore
-    }
-    setListening(false);
+    if (!SR) { setError('Speech recognition is not supported in this browser.'); return; }
+    captureRef.current?.cancel(false);
+    setError(null); setInterim('');
+    const capture = new VoiceCapture(() => new SR(), {
+      final: text => callbacks.current.onTranscript(text),
+      draft: text => { setInterim(text); callbacks.current.onDraft?.(text); },
+      listening: value => { setListening(value); if (!value) setInterim(''); },
+      error: setError,
+    });
+    captureRef.current = capture; capture.start();
   }, []);
+  const stopListening = useCallback(() => captureRef.current?.stop(), []);
+  const cancelListening = useCallback((preserveDraft = true) => captureRef.current?.cancel(preserveDraft), []);
 
   const synth = useMemo(() => {
     const g = typeof globalThis !== 'undefined' ? globalThis : typeof window !== 'undefined' ? window : undefined;
@@ -138,5 +96,5 @@ export function useVoice(onTranscript: (text: string) => void): VoiceState {
     setSpeaking(false);
   }, [synth]);
 
-  return { supported, playbackSupported: !!synth && typeof SpeechSynthesisUtterance === 'function', listening, speaking, interim, error, startListening, stopListening, speak, stopSpeaking };
+  return { supported, playbackSupported: !!synth && typeof SpeechSynthesisUtterance === 'function', listening, speaking, interim, error, startListening, stopListening, cancelListening, speak, stopSpeaking };
 }

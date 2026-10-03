@@ -90,13 +90,8 @@ export default function Assistant() {
   const voice = useVoice((text) => {
     setDraft(text);
     draftRef.current = text;
-    // Auto-send after a short delay so the user sees the transcribed text.
-    setTimeout(() => {
-      if (draftRef.current.trim()) {
-        void send();
-      }
-    }, 300);
-  });
+    void send();
+  }, text => { setDraft(text); draftRef.current = text; });
 
   // Chat is ALWAYS Ally (D-B1): hydrate once, then ride streaming events.
   useEffect(() => {
@@ -300,6 +295,7 @@ export default function Assistant() {
   usePageRail(railSections);
 
   const send = async () => {
+    voice.cancelListening(false);
     const text = draftRef.current.trim();
     if ((!text && attachments.length === 0) || sending || streaming !== null) return;
     setSending(true);
@@ -477,6 +473,7 @@ export default function Assistant() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
+                  if (e.key === 'Escape') { voice.cancelListening(); return; }
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     void send();

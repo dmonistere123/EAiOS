@@ -17,7 +17,7 @@ export function AssistantRequests() {
   const [connection, setConnection] = useState('');
   const [error, setError] = useState('');
   const [now, setNow] = useState(() => Date.now());
-  const voice = useVoice(text => { setDraft(text); void send(text); });
+  const voice = useVoice(text => { setDraft(text); void send(text); }, setDraft);
   useEffect(() => {
     let active = true; let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
@@ -30,6 +30,7 @@ export function AssistantRequests() {
   }, []);
   async function send(text = draft) {
     if (submitting || loadingFiles || (!text.trim() && !attachments.length)) return;
+    voice.cancelListening(false);
     setSubmitting(true); setError('');
     try {
       const row = await hermes.createAssistantRequest!(text.trim(), attachments);
@@ -79,10 +80,11 @@ export function AssistantRequests() {
       </article>)}
     </div>
     <form onSubmit={e => { e.preventDefault(); void send(); }} className="space-y-2">
-      <textarea aria-label={`New prompt for ${AGENT_NAME}`} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Start a fresh request…" className="w-full rounded-lg border border-edge bg-canvas p-3 text-sm" rows={3} />
+      <textarea aria-label={`New prompt for ${AGENT_NAME}`} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { voice.cancelListening(); return; } if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Start a fresh request…" className="w-full rounded-lg border border-edge bg-canvas p-3 text-sm" rows={3} />
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-xs">Attach handoff or files<input aria-label="Attach handoff or files" type="file" multiple disabled={loadingFiles || submitting} onChange={e => { void upload(e.target.files); e.target.value = ''; }} /></label>
         <button type="button" aria-label={`Speak to ${AGENT_NAME}`} disabled={!voice.supported || submitting} onClick={() => voice.listening ? voice.stopListening() : voice.startListening()} className="text-xs text-signal disabled:opacity-50">{voice.listening ? 'Stop listening' : 'Speak'}</button>
+        {voice.listening && <button type="button" className="text-xs" onClick={() => voice.cancelListening()}>Cancel dictation</button>}
         <button type="submit" disabled={submitting || loadingFiles || (!draft.trim() && !attachments.length)} className="rounded-lg bg-signal px-4 py-2 text-sm text-canvas disabled:opacity-50">{submitting ? 'Saving request…' : 'Send new prompt'}</button>
       </div>
       {attachments.map((a, i) => <button type="button" className="mr-2 text-xs" key={i} onClick={() => setAttachments(current => current.filter((_, n) => n !== i))}>{a.name} ×</button>)}
