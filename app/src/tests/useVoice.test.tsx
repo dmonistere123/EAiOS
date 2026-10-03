@@ -89,6 +89,7 @@ describe('useVoice', () => {
 
   afterEach(() => {
     installVoiceStubs(false);
+    vi.useRealTimers();
   });
 
   function dispatchTranscript(text: string, isFinal = true) {
@@ -106,7 +107,8 @@ describe('useVoice', () => {
     expect(result.current.supported).toBe(true);
   });
 
-  it('starts listening and delivers the final transcript once', async () => {
+  it('keeps listening after an early end and sends once after the three-second quiet window', () => {
+    vi.useFakeTimers();
     const transcripts: string[] = [];
     const { result } = renderHook(() => useVoice((text) => transcripts.push(text)));
 
@@ -114,11 +116,22 @@ describe('useVoice', () => {
     expect(result.current.listening).toBe(true);
     expect(recognitionInstance).not.toBeNull();
 
-    dispatchTranscript('hello world');
-    expect(result.current.interim).toBe('');
-
-    act(() => recognitionInstance!.dispatchEvent(new Event('end')));
-
+    const first = recognitionInstance!;
+    act(() => dispatchTranscript('hello world'));
+    expect(result.current.interim).toBe('hello world');
+    act(() => first.dispatchEvent(new Event('end')));
+    expect(transcripts).toEqual([]);
+    expect(result.current.listening).toBe(true);
+    const restarted = recognitionInstance!;
+    expect(restarted).not.toBe(first);
+    act(() => vi.advanceTimersByTime(2999));
+    expect(restarted.stop).not.toHaveBeenCalled();
+    expect(transcripts).toEqual([]);
+    act(() => vi.advanceTimersByTime(1));
+    expect(restarted.stop).toHaveBeenCalledOnce();
+    expect(transcripts).toEqual([]);
+    act(() => restarted.dispatchEvent(new Event('end')));
+    act(() => { first.dispatchEvent(new Event('end')); restarted.dispatchEvent(new Event('end')); vi.advanceTimersByTime(5000); });
     expect(transcripts).toEqual(['hello world']);
     expect(result.current.listening).toBe(false);
   });
