@@ -181,3 +181,21 @@ Release installs stage independent code and dependencies under `~/.local/share/e
 After a failed installation, read Settings and the `eaios-release-install` journal. Preparation failures leave the running application untouched; activation failures attempt to restore and verify the previous services. An interrupted or unrecovered installation requires administrator inspection of deployment metadata and service paths before retry. Never restore shared database backups while writers are running or without reviewing work created since the backup. Retain releases and backups manually until a retention policy is implemented.
 
 Once a box runs a staged release, use Settings for application updates. Rerunning bootstrap or the original checkout service installer can overwrite the active release paths. The older branch updater remains available for administrator support and is not the Settings installation mechanism.
+
+### Optional: enable the dedicated navigation Concierge
+
+Releases containing the dedicated Concierge include `concierge/SOUL.md` and `scripts/setup-concierge.py`. Both fresh installs and Settings updates carry these files, but **neither automatically creates a profile**. This is a one-time, explicitly approved setup on each box; it does not replace Ally's instructions, memory or conversations.
+
+From the **reviewed release's repository root** (the staged code directory for a Settings update, not the older persistent data checkout), with the Hermes Python environment active and `hermes` on PATH:
+
+```bash
+python scripts/setup-concierge.py --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --apply
+```
+
+Omit `--apply` for a no-write document/profile check. That check does not validate authentication or all runtime prerequisites. Use the actual service's Hermes home if it differs from the default. Python must have PyYAML available; setup installs no dependencies. The installed Hermes must support named profiles, `profile create --no-alias --no-skills`, and profile identity in session responses.
+
+Setup creates only `eaios-concierge`, copies the existing model/provider choice and simple fallback selection, disables memory and coding-context expansion, and selects the clarification toolset. It does **not** copy credential files, clone another profile or restart services. Custom runtime URLs, model-embedded credentials and complex fallback configurations require separate administrator preparation. Existing profiles are refused rather than overwritten.
+
+Before enabling the widget, verify that this profile has authorized provider access through the installed Hermes credential system and that its effective tool list contains no operational tools. Shared credential behavior varies by provider/Hermes version; setup success alone does not prove access. Provision credentials only through the approved profile-scoped process; never paste them into Concierge or copy the entire default profile. Confirm `/api/concierge/context` and the brain widget load without submitting a model prompt. Until preparation is complete, Concierge reports unavailable; other application features remain usable.
+
+This explicit command can be included in rollout/release instructions without adding an automatic profile migration. Subsequent SOUL changes require a reviewed `--refresh-documents --apply` using the matching release. See [Concierge activation and rollback](CONCIERGE.md) for customization protection, compatibility checks and rollback. Do not invoke setup from routine updater, recovery or service-start scripts.

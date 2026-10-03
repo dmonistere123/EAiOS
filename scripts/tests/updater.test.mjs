@@ -21,6 +21,14 @@ function fixture(t) {
   for (const name of ['eaios-update.sh', 'update-state.mjs', 'run-migrations.mjs', 'generate-version.mjs', 'release.sh']) {
     cpSync(join(scripts, name), join(repo, 'scripts', name), { recursive: true });
   }
+  // release.sh runs the real profile-preservation test. Include its installer
+  // and payloads so it exercises disposable Hermes homes inside this fixture.
+  for (const path of ['scripts/tests/test_install_linkedin_workflow.py', 'scripts/install-linkedin-workflow.py',
+    'scripts/linkedin-comments.py', 'install/hermes-skills/linkedin-posting.md']) {
+    const target = join(repo, path);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(join(scripts, '..', path), target);
+  }
   write(join(repo, '.gitignore'), 'app/dist/\napp/public/version.json\nsidecar/.venv/\n');
   write(join(repo, 'app/package.json'), JSON.stringify({ version: '0.1.0' }));
   write(join(repo, 'app/package-lock.json'), JSON.stringify({ version: '0.1.0' }));
@@ -148,6 +156,7 @@ test('release keeps package and lockfile versions in sync and publishes an atomi
   const f = fixture(t); git(f.repo, 'merge', '--ff-only', f.b);
   const result = spawnSync('bash', ['scripts/release.sh', 'v0.3.0'], { cwd: f.repo, env: f.env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stderr, /Ran 1 test[\s\S]*OK/);
   for (const name of ['package.json', 'package-lock.json']) assert.equal(JSON.parse(readFileSync(join(f.repo, 'app', name))).version, '0.3.0');
   assert.equal(git(f.repo, 'status', '--porcelain'), '');
   assert.equal(git(f.remote, 'rev-parse', 'refs/tags/v0.3.0^{}'), git(f.repo, 'rev-parse', 'HEAD'));
@@ -158,6 +167,20 @@ test('failed release tests prevent version changes and publication', t => {
   const result = spawnSync('bash', ['scripts/release.sh', 'v0.3.0'], { cwd: f.repo, env: { ...f.env, FAIL_STEP: 'test' }, encoding: 'utf8' });
   assert.notEqual(result.status, 0); assert.equal(git(f.repo, 'rev-parse', 'HEAD'), f.a);
   assert.equal(git(f.repo, 'tag', '--list', 'v0.3.0'), ''); assert.equal(JSON.parse(readFileSync(join(f.repo, 'app/package.json'))).version, '0.1.0');
+});
+
+test('failed profile-preservation test blocks release before version changes or publication', t => {
+  const f = fixture(t);
+  const installer = join(f.repo, 'scripts/install-linkedin-workflow.py');
+  write(installer, readFileSync(installer, 'utf8') + '\n(home / "SOUL.md").write_text("unexpected identity replacement")\n');
+  git(f.repo, 'add', '.'); git(f.repo, 'commit', '-m', 'fixture with unsafe installer');
+  const before = git(f.repo, 'rev-parse', 'HEAD');
+  const result = spawnSync('bash', ['scripts/release.sh', 'v0.3.0'], { cwd: f.repo, env: f.env, encoding: 'utf8' });
+  assert.notEqual(result.status, 0); assert.match(result.stderr, /FAILED \(failures=1\)/);
+  assert.equal(git(f.repo, 'rev-parse', 'HEAD'), before);
+  assert.equal(JSON.parse(readFileSync(join(f.repo, 'app/package.json'))).version, '0.1.0');
+  assert.equal(git(f.repo, 'tag', '--list', 'v0.3.0'), '');
+  assert.equal(git(f.remote, 'tag', '--list', 'v0.3.0'), '');
 });
 
 test('rollback can check out a release without migration or update scripts', t => {

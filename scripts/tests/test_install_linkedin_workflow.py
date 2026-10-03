@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -22,7 +23,7 @@ class InstallLinkedInWorkflow(unittest.TestCase):
             before = (default_soul.read_bytes(), profile_soul.read_bytes())
 
             env = {**os.environ, 'HERMES_HOME': str(home)}
-            subprocess.run(['python', str(INSTALLER)], check=True, env=env, capture_output=True, text=True)
+            subprocess.run([sys.executable, str(INSTALLER)], check=True, env=env, capture_output=True, text=True)
 
             self.assertEqual(default_soul.read_bytes(), before[0])
             self.assertEqual(profile_soul.read_bytes(), before[1])
