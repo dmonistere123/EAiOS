@@ -30,7 +30,7 @@ verify the recorded human decision and execution provenance.
 
 ## Tests completed
 
-- Application suite: 48 files, 395 tests passed. The optional installed-Hermes
+- Application suite after rebasing onto v0.1.6: 56 files, 473 tests passed. The optional installed-Hermes
   integration test was skipped in that default run and run separately below.
 - Installed-Hermes integration: passed against a disposable Hermes home and its
   real initialized schema. Real `create_task`, `block_task`, `recompute_ready`,
@@ -45,6 +45,7 @@ verify the recorded human decision and execution provenance.
   idempotence and refusal of unrecognized layouts); check-only against the
   installed email skill passed. No live skill was changed.
 - TypeScript/build passed; lint passed with warnings in existing app code.
+  A final malformed-decision regression also passed in the focused gate suite.
   Vite retains its bundle-size warning. Existing React test `act` warnings remain.
 - Browser: isolated page rendered blocked drafts; Approve completed through the
   new route and removed the sample from pending. User also tested the preview
@@ -73,7 +74,9 @@ fixture directory. Production was not changed by building or serving this page.
 
 ## Deployment boundary
 
-This branch is prepared and tested, not installed in production or pushed.
+The fix is based on the published v0.1.6 source (8b284107). The user authorized
+local production deployment and inclusion in the next release on October 6.
+The release tag remains immutable; next-release notes track the fix.
 Deploy the application frontend and server together using the normal release
 process with backup and rollback. The existing three drafts then become visible
 without database repair, unblocking, reassignment, or approval.
@@ -93,7 +96,7 @@ and does not replace profiles, credentials, other skills, or conversations.
 Existing customized agent SOUL instructions are also untouched. The app's
 new-agent governance template is updated for future agents.
 
-The runtime skill now has conflicting legacy prohibitions on the requesting
+Before the explicit patch, the runtime skill has conflicting legacy prohibitions on the requesting
 profile ever executing. The explicit patch clarifies that the scanning run
 cannot send or self-approve; a later worker may execute only after the actual
 EAiOS approval decision and its audit events. Deployment should validate this
