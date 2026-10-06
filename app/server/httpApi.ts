@@ -1,6 +1,7 @@
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
+import { ApprovalGateError, decideApprovalTask, editApprovalTask } from './approvalGate.ts';
 import {travelPlaces,travelRecommendations} from './travelGuide.ts';
 import { travelAction } from './travelBooking.ts';
 /// <reference types="node" />
@@ -41,7 +42,6 @@ import {
   rootExists,
   scanPlaybooks,
   scanSkills,
-  updateKanbanTaskBody,
   writeSettings,
 } from './apiCore.ts';
 import { TravelApiError, updateTravelTrip, addTravelPlan, createTrip, decideTravelApproval, getTrip, listTrips, proposeBooking, searchTravel, travelAgent } from './travel.ts';
@@ -412,6 +412,18 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     /* kanban board read (dogfood 2026-08-29: cli.exec truncates at 48000
      * chars — this endpoint is the truncation-proof board read; short cache
      * because the board is the app's most-polled slice) */
+    const approvalDecision = path.match(/^\/api\/kanban\/approvals\/([^/]+)\/decision$/);
+    if (approvalDecision && req.method === 'POST') {
+      try {
+        requireSameOriginJson(req);
+        const result = decideApprovalTask(join(ctx.hermesHome, 'kanban.db'), decodeURIComponent(approvalDecision[1]), await readJsonBody(req));
+        kanbanCache = undefined;
+        json(res, 200, JSON.stringify(result));
+      } catch (e) {
+        json(res, e instanceof ApprovalGateError ? e.status : 400, JSON.stringify({ error: errMessage(e) }));
+      }
+      return true;
+    }
     if (path === '/api/kanban') {
       if (req.method === 'GET') {
         try {
@@ -426,38 +438,13 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
       }
       if (req.method === 'PUT') {
         try {
+          requireSameOriginJson(req);
           const body = await readJsonBody(req);
-          const taskId = String(body.id ?? '');
-          const taskBody = String(body.body ?? '');
-          if (!taskId || !taskBody) {
-            json(res, 400, JSON.stringify({ error: 'id and body are required' }));
-            return true;
-          }
-          // Guard: only update tasks whose current body is an approval envelope.
-          const dbPath = join(ctx.hermesHome, 'kanban.db');
-          const tasks = listKanbanTasks(dbPath).tasks as unknown as { id: string; body?: string | null }[];
-          const current = tasks.find((t) => t.id === taskId);
-          if (!current) {
-            json(res, 404, JSON.stringify({ error: 'task not found' }));
-            return true;
-          }
-          const parsed = JSON.parse(current.body ?? '{}') as { eaios?: string };
-          if (parsed.eaios !== 'approval') {
-            json(res, 403, JSON.stringify({ error: 'task body update is allowed only for approval envelopes' }));
-            return true;
-          }
-          // Validate the new body is also a valid approval envelope.
-          const next = JSON.parse(taskBody) as { eaios?: string };
-          if (next.eaios !== 'approval') {
-            json(res, 400, JSON.stringify({ error: 'new body must be a valid approval envelope' }));
-            return true;
-          }
-          updateKanbanTaskBody(dbPath, taskId, taskBody);
-          kanbanCache = undefined; // bust
-          json(res, 200, JSON.stringify({ ok: true }));
+          const result = editApprovalTask(join(ctx.hermesHome, 'kanban.db'), String(body.id ?? ''), String(body.body ?? ''), body.expectedBody);
+          kanbanCache = undefined;
+          json(res, 200, JSON.stringify(result));
         } catch (e) {
-          const msg = errMessage(e);
-          json(res, msg.includes('not found') ? 404 : 400, JSON.stringify({ error: msg }));
+          json(res, e instanceof ApprovalGateError ? e.status : 400, JSON.stringify({ error: errMessage(e) }));
         }
         return true;
       }

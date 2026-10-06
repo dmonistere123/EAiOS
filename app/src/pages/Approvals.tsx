@@ -66,7 +66,7 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
 
   const decide = async (decision: 'approved' | 'rejected' | 'changes_requested') => {
     setBusy(true);
-    const res = await hermes.decideApproval(approval.id, { decision });
+    const res = await hermes.decideApproval(approval.id, { decision, reviewVersion: approval.reviewVersion });
     setBusy(false);
     if (res.ok) {
       toast('ok', `Decision recorded: ${decision.replace('_', ' ')}. Audit ${res.auditEventId}.`);

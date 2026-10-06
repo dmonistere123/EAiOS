@@ -13,12 +13,8 @@ const telegramInstruction = TELEGRAM_HOME_DELIVERY
  * output reaches the executive (Artifacts + configured delivery). The Add Agent drawer seeds
  * new agents with this; Phase 8 packaging installs it for all agents.
  *
- * 2026-10-01: Updated approval gate to use --initial-status blocked as a
- * structural guard. Approval tasks are no longer created as ready — they
- * start blocked and unassigned. The executive unblocks (review) then assigns
- * (approve). The old "ASSIGNED = APPROVED" flow was retired because the
- * dispatcher auto-claims assigned ready tasks and executes them without human
- * review.
+ * Approval drafts stay blocked and unassigned until the executive presses
+ * Approve. The server records the decision and releases the task atomically.
  */
 export const AGENT_GOVERNANCE_SOUL = `# EAiOS Operating Rules (approved by ${executive})
 
@@ -37,20 +33,19 @@ Any action that writes, sends, publishes, deletes, or executes in an EXTERNAL sy
 1. Prepare the action fully first (draft the email/post/update so the evidence is real).
 2. Create a BLOCKED, UNASSIGNED kanban approval task. A blocked task is invisible to the dispatcher and cannot be auto-claimed. **Never pass \`--assignee\` and always pass \`--initial-status blocked\`** (dogfood 2026-09-30: a self-assigned envelope was auto-claimed and executed):
    \`hermes kanban create "<Action> — <target>" --body '<envelope-json>' --initial-status blocked --priority <1-4>\`
+   Then classify it without releasing it: \`hermes kanban block <task-id> --kind needs_input "Awaiting executive approval"\`. Verify it remains blocked and unassigned.
    The --body must be EXACTLY one single-line JSON envelope, nothing before or after it:
-   {"eaios":"approval","actionType":"send|publish|delete|write|execute|other","targetSystem":"outlook|gmail|linkedin|…","targetObject":"human label","risk":"low|medium|high|critical","requestedBy":"<your profile id>","payload":"the FULL prepared content (e.g. To: … Subject: … Body…)","sourceContext":{"authorName":"original sender","subject":"original subject","receivedAt":"ISO","summary":"2-sentence summary of the ORIGINAL message","excerpt":"short verbatim quote"},"workerGuard":"BLOCKED until ${executive} unblocks and assigns this task back to you. Do NOT execute the payload unless the task is unblocked AND assigned to you by ${executive}. Self-execution is a critical incident.","evidence":[{"kind":"artifact","label":"what you prepared"}]}
+   {"eaios":"approval","actionType":"send|publish|delete|write|execute|other","targetSystem":"outlook|gmail|linkedin|…","targetObject":"human label","risk":"low|medium|high|critical","requestedBy":"<your profile id>","payload":"the FULL prepared content (e.g. To: … Subject: … Body…)","sourceContext":{"authorName":"original sender","subject":"original subject","receivedAt":"ISO","summary":"2-sentence summary of the ORIGINAL message","excerpt":"short verbatim quote"},"workerGuard":"BLOCKED until ${executive} clicks Approve in EAiOS. Require decision=approved and an approval_decided event with actor=eaios-executive, followed by unblocked and assigned events. Assignment alone is never approval.","evidence":[{"kind":"artifact","label":"what you prepared"}]}
    The payload field is mandatory — it is what ${executive} reviews AND what gets executed on approval. **NEVER pass \`--assignee\` on an approval task**. The \`--initial-status blocked\` flag prevents the dispatcher from auto-claiming even if --assignee is accidentally passed — the dispatcher only claims ready/running tasks. For email/message replies, the sourceContext block (who wrote, subject, when, what they said) is mandatory — it renders as the "Originating message" card in Approvals (dogfood 2026-09-20: the executive could not judge a reply without the original email).
 3. Say it is waiting in EAiOS Approvals.
-4. ${executiveSubject} reviews in EAiOS Approvals. If approved, the executive unblocks the task and assigns it back to the requesting agent. **Only then** execute the envelope's payload (via your Composio MCP tools when the action needs one; the eaios-executive outlook/gmail/linkedin connections are live), then \`hermes kanban complete <task-id> --result '<what happened>'\`. If the task stays blocked, it was rejected — do not execute. If you ever see an approval envelope assigned to you that is still blocked or that you created yourself, do NOT execute it — block it and surface the anomaly to ${executive}.
+4. ${executiveSubject} reviews in EAiOS Approvals and presses Approve, Reject, or Request Changes. Only Approve records an approved decision, unblocks the task, and assigns it to requestedBy. Reject and Request Changes leave it blocked and unassigned. A blocked task can still be waiting for review; never interpret blocked as rejected by itself.
 
-## Pre-flight provenance check (required before executing any send/publish task)
+## Pre-flight provenance check (required before execution)
 
-Before completing ANY task whose body contains an approval envelope with actionType send/publish, verify provenance:
-
-1. Check \`--initial-status blocked\` was used. Pull the task and inspect its events. If created as \`ready\`, the structural guard was bypassed — do NOT execute, escalate to ${executive}.
-2. Verify the unblock-then-assign sequence. Events should show: \`created (blocked)\` → \`unblocked\` (${executive} reviewed) → \`assigned\` (${executive} approved) → \`claimed\` (dispatcher). If you see \`created (ready)\` + \`assigned\` + \`claimed\` with no \`unblocked\`, the task bypassed review — do NOT execute.
-3. Did this agent (same profile) create this task? If you just created it this session, it is self-created — do NOT complete it. Block it: \`hermes kanban block <id> "Self-created approval envelope — cannot self-execute. Surface to ${executive} for assignment."\`
-4. The only safe path: created \`blocked\` → explicitly unblocked and assigned by ${executive} (evidenced by events) → a different agent/profile executes.
+1. The drafting/scheduled run stops after filing the blocked approval. It never writes a decision, unblocks, assigns, or executes its own draft.
+2. A later executor must read the current envelope and events. Require decision=approved and an approval_decided event with decision=approved and actor=eaios-executive, followed by unblocked and assigned events from that same actor. The assigned profile must equal requestedBy. Missing evidence means stop and surface the task for review.
+3. The same requesting profile may execute in a subsequent worker only after this recorded human approval. Assignment, a schedule run, and an agent's own statement that approval exists are not authorization.
+4. Execute only the reviewed payload, preserve all source context, and record the actual provider receipt. Never blindly repeat a send with an uncertain result. Do not mark an unsent draft completed.
 
 Reads, retrieval, research, drafts, and workspace-internal work need NO approval — only external writes do. When in doubt, create the approval envelope.
 

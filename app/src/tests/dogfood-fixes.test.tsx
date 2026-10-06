@@ -119,130 +119,47 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('decideApproval approve: records decision in envelope and ASSIGNS to the requester', async () => {
-    const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'outlook', risk: 'medium' as const, requestedBy: 'quill' };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
-        return new Response(JSON.stringify({ tasks: [{ id: 't_810c8eff', title: 'Send email', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
-      }
-      if (url === '/api/kanban' && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { id: string; body: string };
-        expect(body.id).toBe('t_810c8eff');
-        const parsed = JSON.parse(body.body) as { decision?: string; decidedAt?: string };
-        expect(parsed.decision).toBe('approved');
-        expect(parsed.decidedAt).toBeTruthy();
+  it.each(['approved', 'rejected', 'changes_requested'] as const)('routes %s through the atomic server gate without CLI release commands', async (decision) => {
+    const envelope = { eaios: 'approval', requestedBy: 'quill', payload: 'Reviewed draft' };
+    const body = JSON.stringify(envelope);
+    const requests: unknown[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (init?.method === 'POST') {
+        expect(String(url)).toBe('/api/kanban/approvals/t_gate/decision');
+        requests.push(JSON.parse(String(init.body)));
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
-      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const calls = stubRpc((argv) =>
-      argv.includes('--json')
-        ? { code: 0, output: JSON.stringify([{ id: 't_810c8eff', title: 'Send email', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }]) }
-        : { code: 0, output: '✔ t_810c8eff assigned to quill\n' },
-    );
+      return new Response(JSON.stringify({ tasks: [{ id: 't_gate', status: 'blocked', body }] }), { status: 200 });
+    }));
+    const calls = stubRpc(() => { throw new Error('No CLI release allowed'); });
     (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
-    const res = await live.decideApproval('t_810c8eff', { decision: 'approved' });
-    expect(res.ok).toBe(true);
-    const assign = calls.find((a) => a[1] === 'assign'); // argv = ['kanban', ...]
-    expect(assign).toBeTruthy();
-    expect(assign![2]).toBe('t_810c8eff');
-    expect(assign![3]).toBe('quill'); // requester from the envelope, not 'default'
-    expect(calls.some((a) => a[1] === 'complete')).toBe(false); // never close without execution
-    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'PUT')).toBe(true);
+    expect((await live.decideApproval('t_gate', { decision, reviewVersion: body })).ok).toBe(true);
+    expect(requests).toEqual([{ decision, reviewVersion: body, expectedBody: body }]);
+    expect(calls).toEqual([]);
   });
 
-  it('reports a failed approval dispatch instead of claiming successful execution', async () => {
-    const env = { eaios: 'approval', actionType: 'publish', targetSystem: 'linkedin', risk: 'low', requestedBy: 'default' };
-    vi.stubGlobal('fetch', vi.fn(async (_input, init) => new Response(JSON.stringify(init?.method === 'PUT' ? { ok: true } : { tasks: [{ id: 't_dispatch', title: 'Comment', status: 'ready', body: JSON.stringify(env), created_at: 1787900000 }] }), { status: 200 })));
-    stubRpc((argv) => argv.includes('assign') ? { code: 1, output: 'Dispatcher unavailable' } : { code: 0, output: '' });
-    const result = await live.decideApproval('t_dispatch', { decision: 'approved' });
+  it('reports a rejected server decision without falling back to CLI execution', async () => {
+    const body = JSON.stringify({ eaios: 'approval', requestedBy: 'default' });
+    vi.stubGlobal('fetch', vi.fn(async (_url, init) => new Response(JSON.stringify(init?.method === 'POST' ? { error: 'The draft changed' } : { tasks: [{ id: 't_gate', status: 'blocked', body }] }), { status: init?.method === 'POST' ? 409 : 200 })));
+    const calls = stubRpc(() => { throw new Error('No CLI fallback'); });
+    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
+    const result = await live.decideApproval('t_gate', { decision: 'approved' });
     expect(result.ok).toBe(false);
-    expect(result.error?.safeMessage).toContain('Dispatcher unavailable');
+    expect(result.error?.safeMessage).toContain('draft changed');
+    expect(calls).toEqual([]);
   });
 
-  it('decideApproval rejected/changes_requested: blocks task and records precise decision in envelope', async () => {
-    const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default' };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
-        return new Response(JSON.stringify({ tasks: [{ id: 't_reject1', title: 'Reject me', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
-      }
-      if (url === '/api/kanban' && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { id: string; body: string };
-        const parsed = JSON.parse(body.body) as { decision?: string };
-        expect(parsed.decision).toBe('rejected');
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const calls = stubRpc((argv) =>
-      argv.includes('--json')
-        ? { code: 0, output: JSON.stringify([{ id: 't_reject1', title: 'Reject me', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }]) }
-        : { code: 0, output: '✔ blocked\n' },
-    );
-    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
-    const res = await live.decideApproval('t_reject1', { decision: 'rejected' });
-    expect(res.ok).toBe(true);
-    const block = calls.find((a) => a[1] === 'block');
-    expect(block).toBeTruthy();
-    expect(block![2]).toBe('t_reject1');
-    expect(calls.some((a) => a[1] === 'request-changes')).toBe(false); // request-changes doesn't work on ready tasks
-  });
-
-  it('decideApproval rejects a parent-gated todo task by unlinking, promoting, and blocking', async () => {
-    const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default' };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
-        return new Response(JSON.stringify({ tasks: [{ id: 't_child', title: 'Child approval', status: 'todo', parents: 't_parent', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
-      }
-      if (url === '/api/kanban' && init?.method === 'PUT') {
-        const body = JSON.parse(String(init.body)) as { id: string; body: string };
-        const parsed = JSON.parse(body.body) as { decision?: string };
-        expect(parsed.decision).toBe('rejected');
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const calls = stubRpc((argv) =>
-      argv.includes('--json')
-        ? { code: 0, output: JSON.stringify([{ id: 't_child', title: 'Child approval', status: 'todo', parents: 't_parent', body: JSON.stringify(envelope), created_at: 1787900000 }]) }
-        : { code: 0, output: 'ok' },
-    );
-    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
-    const res = await live.decideApproval('t_child', { decision: 'rejected' });
-    expect(res.ok).toBe(true);
-    expect(calls.some((a) => a[1] === 'unlink' && a[2] === 't_parent' && a[3] === 't_child')).toBe(true);
-    expect(calls.some((a) => a[1] === 'promote' && a[3] === 't_child')).toBe(true);
-    expect(calls.some((a) => a[1] === 'block' && a[2] === 't_child')).toBe(true);
-  });
-
-  it('decideApproval on already-blocked/archived task: writes decision without failing', async () => {
-    const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'gmail', risk: 'low' as const, requestedBy: 'default' };
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
-        return new Response(JSON.stringify({ tasks: [{ id: 't_archived', title: 'Archived', status: 'archived', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
-      }
-      if (url === '/api/kanban' && init?.method === 'PUT') {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 404 });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const calls = stubRpc((argv) =>
-      argv.includes('--json')
-        ? { code: 0, output: JSON.stringify([{ id: 't_archived', title: 'Archived', status: 'archived', body: JSON.stringify(envelope), created_at: 1787900000 }]) }
-        : { code: 1, output: 'cannot block t_archived' },
-    );
-    (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
-    const res = await live.decideApproval('t_archived', { decision: 'rejected' });
-    expect(res.ok).toBe(true); // does not surface the CLI block error
-    expect(calls.some((a) => a[1] === 'block')).toBe(false); // terminal tasks are skipped
+  it('creates approvals blocked, unassigned and classified for review', async () => {
+    const calls = stubRpc(() => ({ code: 0, output: JSON.stringify({ id: 't_new' }) }));
+    const input = { title: 'Review draft', summary: JSON.stringify({ eaios: 'approval', requestedBy: 'default' }) };
+    expect((await live.createWorkItem(input)).ok).toBe(true);
+    expect(calls[0]).toContain('--initial-status');
+    expect(calls[0]).toContain('blocked');
+    expect(calls[0]).not.toContain('--assignee');
+    expect(calls[1]).toEqual(['kanban', 'block', 't_new', '--kind', 'needs_input', 'Awaiting executive approval']);
+    const count = calls.length;
+    expect((await live.createWorkItem({ ...input, agentId: 'default' })).ok).toBe(false);
+    expect(calls).toHaveLength(count);
   });
 
   it('listApprovals excludes decided approvals even when kanban task is still ready', async () => {
@@ -266,6 +183,9 @@ describe('kanban<T> tolerates human-text success output', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === '/api/kanban') {
         return new Response(JSON.stringify({ tasks: [
+          { id: 't_legacy', status: 'blocked', block_kind: null, assignee: null, result: null, body: JSON.stringify(base) },
+          { id: 't_capability', status: 'blocked', block_kind: 'capability', body: JSON.stringify(base) },
+          { id: 't_failed', status: 'blocked', result: 'Send failed', body: JSON.stringify(base) },
           { id: 't_blocked_input', title: 'Blocked for credentials', status: 'blocked', block_kind: 'needs_input', result: 'Need WordPress admin credentials', body: JSON.stringify(base), created_at: 1787900000 },
           { id: 't_blocked_rejected', title: 'Rejected by executive', status: 'blocked', result: 'Rejected by executive', body: JSON.stringify(base), created_at: 1787900000 },
           { id: 't_blocked_decided', title: 'Decided rejected', status: 'blocked', result: 'Need credentials', body: JSON.stringify({ ...base, decision: 'rejected' as const, decidedAt: new Date().toISOString() }), created_at: 1787900000 },
@@ -276,7 +196,7 @@ describe('kanban<T> tolerates human-text success output', () => {
     vi.stubGlobal('fetch', fetchMock);
     (live as unknown as { tasksCache?: unknown }).tasksCache = undefined;
     const pending = await live.listApprovals({ status: ['pending'] });
-    expect(pending.map((a) => a.id)).toContain('t_blocked_input');
+    expect(pending.map((a) => a.id)).toEqual(['t_legacy', 't_blocked_input']);
     expect(pending.map((a) => a.id)).not.toContain('t_blocked_rejected');
     expect(pending.map((a) => a.id)).not.toContain('t_blocked_decided');
     const rejected = await live.listApprovals({ status: ['rejected'] });

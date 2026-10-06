@@ -89,6 +89,8 @@ export interface EvidenceRef {
 }
 
 export interface Approval {
+  /** Exact reviewed envelope for optimistic concurrency, never an execution token. */
+  reviewVersion?: string;
   id: string;
   workItemId: string;
   requestedByAgentId: string;
@@ -136,6 +138,7 @@ export interface Approval {
 }
 
 export interface ApprovalDecision {
+  reviewVersion?: string;
   decision: 'approved' | 'rejected' | 'changes_requested';
   note?: string;
 }
