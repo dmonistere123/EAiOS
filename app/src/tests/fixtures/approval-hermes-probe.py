@@ -15,6 +15,11 @@ from hermes_cli.kanban_db_connect import connect
 conn = connect(root / 'kanban.db')
 mode = sys.argv[1]
 if mode == 'create':
+    import argparse
+    from hermes_cli.kanban_parser import build_parser
+    parser = argparse.ArgumentParser()
+    build_parser(parser.add_subparsers(dest='command'))
+    parser.parse_args(['kanban', 'block', 't_test', 'Awaiting executive approval', '--kind', 'needs_input'])
     ids = {}
     for name in ['approve', 'reject', 'changes', 'future']:
         ids[name] = kb.create_task(conn, title='Synthetic approval ' + name,

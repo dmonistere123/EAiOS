@@ -940,7 +940,7 @@ class LiveHermesAdapter implements HermesAdapter {
       this.invalidateTasks();
       const id = created?.id ?? created?.task_id;
       if (approvalEnvelope && id) {
-        await this.kanban<unknown>(['block', id, '--kind', 'needs_input', 'Awaiting executive approval']);
+        await this.kanban<unknown>(['block', id, 'Awaiting executive approval', '--kind', 'needs_input']);
       }
       return { ok: true, auditEventId: `kb-create-${id ?? Date.now()}`, id };
     } catch (e) {

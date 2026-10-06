@@ -12,7 +12,7 @@ PROVENANCE = '### Pre-flight provenance check (required before every send-execut
 RULES = '\nRules:\n- Include the **full draft**'
 GATE = '''The structural fix: **every approval-envelope task is created with
 `--initial-status blocked` and no `--assignee`.** Then classify the task:
-`hermes kanban block <task-id> --kind needs_input "Awaiting executive approval"`.
+`hermes kanban block <task-id> "Awaiting executive approval" --kind needs_input`.
 This classification leaves it blocked and unassigned while making its review
 purpose explicit. Never unblock or assign it to make it visible in Approvals.
 
@@ -63,7 +63,7 @@ def patch(text):
     command = 'hermes kanban create "<Reply — recipient/thread>" --body \'<envelope-json>\' --initial-status blocked --priority <1-4>'
     if text.count(command) != 1:
         raise ValueError('Creation recipe differs; review manually.')
-    text = text.replace(command, command + '\nhermes kanban block <task-id> --kind needs_input "Awaiting executive approval"')
+    text = text.replace(command, command + '\nhermes kanban block <task-id> "Awaiting executive approval" --kind needs_input')
     text = text.replace('Don explicitly unblocks then assigns to\n  trigger execution.', 'Don presses Approve in EAiOS to\n  record his decision and release it for execution.')
     return text + '\n' + MARKER + '\n'
 

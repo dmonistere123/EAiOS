@@ -44,6 +44,8 @@ verify the recorded human decision and execution provenance.
 - Explicit email-instruction patch: 2 tests passed (customization preservation,
   idempotence and refusal of unrecognized layouts); check-only against the
   installed email skill passed. No live skill was changed.
+- Release/update script suite: 31 tests passed.
+- Real Hermes CLI argument parsing is checked for the classification command.
 - TypeScript/build passed; lint passed with warnings in existing app code.
   A final malformed-decision regression also passed in the focused gate suite.
   Vite retains its bundle-size warning. Existing React test `act` warnings remain.

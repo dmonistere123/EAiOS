@@ -156,7 +156,7 @@ describe('kanban<T> tolerates human-text success output', () => {
     expect(calls[0]).toContain('--initial-status');
     expect(calls[0]).toContain('blocked');
     expect(calls[0]).not.toContain('--assignee');
-    expect(calls[1]).toEqual(['kanban', 'block', 't_new', '--kind', 'needs_input', 'Awaiting executive approval']);
+    expect(calls[1]).toEqual(['kanban', 'block', 't_new', 'Awaiting executive approval', '--kind', 'needs_input']);
     const count = calls.length;
     expect((await live.createWorkItem({ ...input, agentId: 'default' })).ok).toBe(false);
     expect(calls).toHaveLength(count);
