@@ -4,13 +4,13 @@ The bottom-right brain widget uses an application-owned LLM request, separate fr
 
 ## Provider and authentication
 
-`app/server/concierge.ts` reads the existing service Hermes home's `config.yaml`: `model.provider` and `model.default`. A paired server-environment override, `EAIOS_CONCIERGE_PROVIDER` plus `EAIOS_CONCIERGE_MODEL`, takes precedence; specifying only one fails. The exact selected model is sent without fallback or retry. Hermes gateway launch overrides are not inherited implicitly.
+`app/server/concierge.ts` defaults independently to OpenRouter's `google/gemini-2.5-flash-lite`. Ally's selected model and custom endpoint no longer affect Concierge. Administrators can override it with the paired server-environment variables `EAIOS_CONCIERGE_PROVIDER` and `EAIOS_CONCIERGE_MODEL`; specifying only one fails. The exact selected model is sent without fallback or retry.
 
-Only `openrouter` and `openai` are supported, through fixed official HTTPS Chat Completions endpoints. A custom configured base URL is rejected unless an explicit supported provider/model pair overrides that configuration. HTTP redirects are rejected. No browser input can choose a provider, model, endpoint, credential, or system message.
+Only `openrouter` and `openai` are supported, through fixed official HTTPS Chat Completions endpoints. HTTP redirects are rejected. No browser input can choose a provider, model, endpoint, credential, or system message.
 
 The matching `OPENROUTER_API_KEY` or `OPENAI_API_KEY` is read from the server environment first, otherwise the existing private `$HERMES_HOME/.env`. Keys stay server-side; none are copied, written, returned, or logged by Concierge. Hermes OAuth/pool credentials are not imported. An unsupported provider or missing key disables this feature with a safe error rather than falling back to Ally.
 
-For an affected box, the exact additional authentication step is administrator provisioning of that matching API key in the existing private server `.env` or service environment through the approved secrets process. Never put it in a `VITE_` variable, browser, repository, or chat. No profile or setup script is required. Configuration-file changes are read on each request; service-environment changes require a separately reviewed service restart.
+For an affected box, the exact additional authentication step is administrator provisioning of that matching API key in the existing private server `.env` or service environment through the approved secrets process. Never put it in a `VITE_` variable, browser, repository, or chat. No profile or setup script is required. Private key-file changes are read on each request; service-environment changes require a separately reviewed service restart.
 
 ## Request and history boundaries
 
@@ -24,7 +24,7 @@ Completed pairs are stored locally in this browser under `eaios.concierge.text.v
 
 ## Release, activation and rollback
 
-The fresh installer and Settings release installer carry the full repository, including SOUL, server/client code, and the locked `yaml` runtime dependency. No box-specific path or profile migration is needed. Deploy through the usual approved release process; custom copy lists must include the SOUL. Unsupported providers, missing keys and custom endpoints require the explicit configuration/authentication steps above. Configuration presence is not proof that a provider will accept a model or key.
+The fresh installer and Settings release installer carry the full repository, including SOUL, server/client code, and the locked `yaml` runtime dependency. No box-specific path or profile migration is needed. Deploy through the usual approved release process; custom copy lists must include the SOUL. Unsupported overrides or missing keys require the explicit configuration/authentication steps above. Configuration presence is not proof that a provider will accept a model or key.
 
 Before activation, run frontend tests, lint/build and the repository script tests. After an approved deployment, inspect the metadata endpoint and widget without sending; an authorized real-provider smoke test remains a separate step. This development work does not deploy, publish, restart, change credentials or modify Hermes core.
 

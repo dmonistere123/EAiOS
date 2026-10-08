@@ -5,12 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AssistantRequests, type Rpc } from '../../server/assistantRequests';
+import lazyContract from './fixtures/hermes-lazy-contract.json';
 import { requestArtifacts } from '../../server/assistantArtifacts';
 
 const roots: string[] = []; const managers: AssistantRequests[] = [];
 const id = (n: number) => `request-fixture-${n}`;
 const root = () => { const r = mkdtempSync(join(tmpdir(), 'eaios-requests-')); roots.push(r); return r; };
 class FakeGateway {
+  resumes: Record<string, unknown>[] = []; allowLazy = false;
   creates = 0; submissions: { sid: string; text: string }[] = []; interrupts: string[] = [];
   sessions = new Map<string, { running: boolean; inflight?: { assistant: string; error?: string; status?: string }; messages: { role: string; text: string }[] }>();
   clients: Rpc[] = []; offline = false; loseAck = false;
@@ -25,7 +27,7 @@ class FakeGateway {
         const sid = String(p.session_id); const session = this.sessions.get(sid); if (!session) throw new Error('missing');
         if (method === 'prompt.submit') { session.running = true; session.messages.push({ role: 'user', text: String(p.text) }); this.submissions.push({ sid, text: String(p.text) }); if (this.loseAck) throw new Error('ack lost'); return { status: 'streaming' }; }
         if (method === 'session.history') return { messages: [...session.messages] };
-        if (method === 'session.resume') throw new Error('FORBIDDEN: cold resume may auto-continue');
+        if (method === 'session.resume') { if (!this.allowLazy || p.lazy !== true) throw new Error('FORBIDDEN: cold resume may auto-continue'); this.resumes.push(p); return {...lazyContract.reply,session_id:sid,session_key:sid}; }
         if (method === 'session.activate') return { session_id: sid, stored_session_id: sid, running: session.running, inflight: session.inflight, messages: [...session.messages] };
         if (method === 'session.interrupt') { this.interrupts.push(sid); session.running = false; return { interrupted: true }; }
         throw new Error(`Unexpected ${method}`);
@@ -40,6 +42,31 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(async () => { managers.splice(0).forEach(m => m.close()); await vi.advanceTimersByTimeAsync(2000); vi.useRealTimers(); roots.splice(0).forEach(r => rmSync(r, { recursive: true, force: true })); });
 
 describe('durable Assistant requests', () => {
+  it('continues native saved context only on explicit Send, using the compression tip and one submission after lost acknowledgement', async () => {
+    const g = new FakeGateway(); g.allowLazy = true; g.loseAck = true;
+    g.sessions.set('saved-tip', { running: false, messages: [{role:'user',text:'Remember blue'}, {role:'assistant',text:'Remembered blue'}] });
+    const evidence = vi.fn(() => ({available:true}));
+    const m = new AssistantRequests(root(), {client:g.client,pollMs:1000,checkpoint:()=>({afterMessageId:42,sessionId:'saved-tip'}),evidence}); managers.push(m);
+    m.accept(id(20),'What color?',[],undefined,'saved-root');
+    expect(() => m.accept(id(21),'Race?',[],undefined,'saved-root')).toThrow('still responding');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(g.creates).toBe(0); expect(g.resumes).toEqual([{session_id:'saved-tip',lazy:true,omit_messages:true}]);
+    expect(g.submissions).toEqual([{sid:'saved-tip',text:'What color?'}]);
+    expect(g.sessions.get('saved-tip')!.messages).toHaveLength(3);
+    g.sessions.get('saved-tip')!.running=false;
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(evidence).toHaveBeenCalledWith('saved-tip',undefined,42);
+    expect(m.get(id(20))).toMatchObject({state:'interrupted',response:'',conversationId:'saved-root'});
+    expect(m.get(id(20))).not.toHaveProperty('afterMessageId');
+    expect(g.resumes).toHaveLength(1); expect(g.submissions).toHaveLength(1);
+  });
+  it('does not send a follow-up to a session still running outside EAiOS', async () => {
+    const g=new FakeGateway(); g.allowLazy=true; g.sessions.set('busy',{running:true,messages:[]});
+    const m=new AssistantRequests(root(),{client:g.client,checkpoint:()=>({afterMessageId:1,sessionId:'busy'})}); managers.push(m);
+    m.accept(id(22),'follow up',[],undefined,'busy'); await vi.advanceTimersByTimeAsync(100);
+    expect(g.submissions).toHaveLength(0); expect(m.get(id(22))).toMatchObject({state:'interrupted',progress:'Follow-up not sent'});
+  });
+
   it('keeps context and progress past 150 seconds; browser subscriptions are not execution owners', async () => {
     const g = new FakeGateway(), m = manager(root(), g); const receipt = m.accept(id(1), 'one');
     expect(receipt.id).toBe(id(1)); await vi.advanceTimersByTimeAsync(180000);

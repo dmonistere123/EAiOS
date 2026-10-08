@@ -1,3 +1,4 @@
+import { readConversation } from './assistantConversations.ts';
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
@@ -149,6 +150,18 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
   try {
 
+    const conversationHistory = path.match(/^\/api\/assistant\/conversations\/([^/]+)\/history$/);
+    if (conversationHistory && req.method === 'GET') {
+      try {
+        const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
+        const profile = query.get('profile') || undefined;
+        const history = readConversation(ctx.hermesHome, decodeURIComponent(conversationHistory[1]), profile);
+        res.setHeader('cache-control', 'no-store');
+        json(res, 200, JSON.stringify(history));
+      } catch { json(res, 503, JSON.stringify({ error: 'Conversation history could not be loaded. No session was started.' })); }
+      return true;
+    }
+
     if (path === '/api/assistant/requests' || path.startsWith('/api/assistant/requests/')) {
       const manager = assistantRequests(dataRoot, ctx.hermesHome);
       const parts = path.slice('/api/assistant/requests'.length).split('/').filter(Boolean);
@@ -162,12 +175,15 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
             const settings = readSettings(settingsFile) as { allyProfile?: string | null };
             const attachments = Array.isArray(body.attachments) ? body.attachments : [];
             if (attachments.some(a => !a || typeof a.name !== 'string' || typeof a.content !== 'string' || typeof a.mimeType !== 'string' || !['text', 'base64'].includes(a.encoding))) throw new Error('Invalid attachments');
-            const receipt = manager.accept(String(body.id ?? ''), String(body.text ?? ''), attachments, settings.allyProfile ?? undefined);
+            const conversation = body.conversation as { id?: unknown; profile?: unknown } | undefined;
+            if (conversation && (typeof conversation.id !== 'string' || (conversation.profile !== undefined && (typeof conversation.profile !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(conversation.profile))))) throw new Error('Invalid conversation');
+            const profile = conversation ? conversation.profile as string | undefined : settings.allyProfile ?? undefined;
+            const receipt = manager.accept(String(body.id ?? ''), String(body.text ?? ''), attachments, profile, conversation?.id as string | undefined);
             json(res, 202, JSON.stringify(receipt));
           } else if (parts.length === 2 && parts[1] === 'cancel') {
             const row = manager.cancel(parts[0]); json(res, row ? 200 : 404, JSON.stringify(row ?? { error: 'Request not found' }));
           } else json(res, 404, JSON.stringify({ error: 'Unknown request route' }));
-        } catch (e) { json(res, Number((e as { code?: number })?.code) === 429 ? 429 : 400, JSON.stringify({ error: errMessage(e) })); }
+        } catch (e) { json(res, [409, 429].includes(Number((e as { code?: number })?.code)) ? Number((e as { code?: number }).code) : 400, JSON.stringify({ error: errMessage(e) })); }
       } else if (req.method === 'GET' && !parts.length) {
         json(res, 200, JSON.stringify({ requests: manager.list().map(r => view(r.id)) }));
       } else if (req.method === 'GET' && parts.length === 1) {

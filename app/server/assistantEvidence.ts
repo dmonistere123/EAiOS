@@ -26,7 +26,7 @@ export function profileStatePath(home: string, profile?: string) {
 export interface SavedEvidence { response?: string; responseLimited?: boolean; available: boolean; incompleteLineage?: boolean; }
 /** Never invokes session.resume or constructs a runtime. Limit the actual SQL result,
  * not just JS rendering. A saved assistant row does not prove successful completion. */
-export function savedEvidence(home: string, root: string, profile?: string): SavedEvidence {
+export function savedEvidence(home: string, root: string, profile?: string, afterMessageId = 0): SavedEvidence {
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(profileStatePath(home, profile), { readOnly: true });
@@ -37,9 +37,23 @@ export function savedEvidence(home: string, root: string, profile?: string): Sav
     if (lineage.length >= 33) return { available: false, incompleteLineage: true };
     const tip = lineage.at(-1); if (!tip) return { available: false };
     const row = db.prepare(`SELECT role,substr(content,1,65536) AS text,length(content)>65536 AS limited
-      FROM messages WHERE session_id=? AND role IN ('user','assistant') AND COALESCE(display_kind,'') NOT IN ('hidden','interim')
-      ORDER BY id DESC LIMIT 1`).get(tip) as { role: string; text: string; limited: number } | undefined;
+      FROM messages WHERE session_id=? AND id>? AND role IN ('user','assistant') AND COALESCE(display_kind,'') NOT IN ('hidden','interim')
+      ORDER BY id DESC LIMIT 1`).get(tip, afterMessageId) as { role: string; text: string; limited: number } | undefined;
     return { available: true, response: row?.role === 'assistant' ? row.text : undefined, responseLimited: !!row?.limited };
   } catch { return { available: false }; }
   finally { db?.close(); }
+}
+
+/** Read-only validation and a recovery boundary before an explicit follow-up. */
+export function conversationCheckpoint(home: string, id: string, profile?: string): { afterMessageId: number; sessionId: string } {
+  if (!id || id.length > 256) throw new Error('Invalid conversation');
+  const db = new DatabaseSync(profileStatePath(home, profile), { readOnly: true });
+  try {
+    const session = db.prepare('SELECT id,source FROM sessions WHERE id=?').get(id);
+    if (!session || ['kanban', 'tool'].includes(String(session.source))) throw new Error('This conversation cannot be continued here.');
+    const row = db.prepare('SELECT COALESCE(MAX(id),0) AS cursor FROM messages').get()!;
+    const lineage = compressionLineage(db, id);
+    if (lineage.length >= 33) throw new Error('Conversation is too deeply linked to continue safely.');
+    return { afterMessageId: Number(row.cursor), sessionId: lineage.at(-1)! };
+  } finally { db.close(); }
 }

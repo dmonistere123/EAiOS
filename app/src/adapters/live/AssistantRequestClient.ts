@@ -29,13 +29,13 @@ export class AssistantRequestClient {
     try { const response = await fetch(url, { ...init, signal: controller.signal }); const body = await response.text(); return { ok: response.ok, status: response.status, json: async () => JSON.parse(body) }; }
     finally { clearTimeout(timer); }
   }
-  async create(text: string, attachments: AssistantAttachment[] = []): Promise<RequestView> {
+  async create(text: string, attachments: AssistantAttachment[] = [], conversation?: { id: string; profile?: string }): Promise<RequestView> {
     const id = crypto.randomUUID(), now = new Date().toISOString();
-    const pending: RequestView = { id, text: text || 'Attached documents', state: 'reconnecting', revision: 0, response: '', progress: 'Confirming acceptance', createdAt: now, updatedAt: now };
+    const pending: RequestView = { id, conversationId: conversation?.id, profile: conversation?.profile, text: text || 'Attached documents', state: 'reconnecting', revision: 0, response: '', progress: 'Confirming acceptance', createdAt: now, updatedAt: now };
     this.save([...this.receipts(),pending]); // Fail before transmission if recovery storage is unavailable.
     try {
-      const response = await this.fetch('/api/assistant/requests', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id,text,attachments}) });
-      if ([400,429].includes(response.status)) {
+      const response = await this.fetch('/api/assistant/requests', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({id,text,attachments,...(conversation ? {conversation} : {})}) });
+      if ([400,409,429].includes(response.status)) {
         const rejected = { ...pending, state:'interrupted' as const, progress:'Not accepted', error: response.status === 429 ? 'Request capacity reached. Existing requests were preserved; review/export before adding more.' : 'Request rejected before acceptance. Review the input.' };
         this.save(this.merge([rejected])); return rejected;
       }

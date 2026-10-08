@@ -23,7 +23,7 @@ export function DelegatedRunDrawer({ run, onClose }: { run: DelegatedRun; onClos
     let stale = false;
     void hermes.getSessionTranscript(profile, run.workerSessionId).then((rows) => {
       if (!stale) setMessages(rows);
-    });
+    }).catch(() => { if (!stale) setMessages([{ id: 'history-error', role: 'ally', text: 'Conversation history is temporarily unavailable. Close and reopen this view to try again.', at: new Date().toISOString() }]); });
     return () => {
       stale = true;
     };

@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEnv } from 'node:util';
-import { parse } from 'yaml';
 import { CONCIERGE_LIMITS as LIMIT, validConciergeHistory } from '../src/domain/concierge.ts';
 import type { ConciergeInfo } from '../src/domain/concierge.ts';
 
@@ -29,12 +28,11 @@ export function conciergeConfig(root: string, home: string, env = process.env) {
   if (provider !== undefined || model !== undefined) {
     if (!provider || !model) throw new ConciergeError(503, 'Concierge needs both provider and model overrides, or neither.');
   } else {
-    try {
-      const config = parse(boundedFile(join(home, 'config.yaml'), 1024 * 1024), { maxAliasCount: 0, uniqueKeys: true });
-      provider = config?.model?.provider; model = config?.model?.default;
-      if (config?.model?.base_url) throw new Error('Custom endpoints are not supported');
-    } catch { throw new ConciergeError(503, 'Concierge cannot use this model configuration. Configure a supported provider and model.'); }
+    // Concierge has its own stable, inexpensive default. Ally may use a local
+    // or custom endpoint without changing this application-only guide.
+    provider = 'openrouter'; model = 'google/gemini-2.5-flash-lite';
   }
+
   if (typeof provider !== 'string' || !Object.hasOwn(PROVIDERS, provider)
     || typeof model !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:/+-]{0,199}$/.test(model)) {
     throw new ConciergeError(503, 'Concierge supports explicitly configured OpenRouter or OpenAI API models. No alternative model was selected.');

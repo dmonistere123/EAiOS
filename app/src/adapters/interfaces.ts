@@ -295,7 +295,7 @@ export interface HermesAdapter {
   /** Authoritative conversation with a staff agent (default = Ally). Hydrates the chat on load. */
   cachedAssistantRequests?(): RequestView[];
   listAssistantRequests?(): Promise<RequestView[]>;
-  createAssistantRequest?(text: string, attachments?: AssistantAttachment[]): Promise<RequestView>;
+  createAssistantRequest?(text: string, attachments?: AssistantAttachment[], conversation?: { id: string; profile?: string }): Promise<RequestView>;
   cancelConcierge?(): void;
   cancelAssistantRequest?(id: string): Promise<RequestView>;
   getAssistantHistory(agentId?: string): Promise<ChatMessage[]>;

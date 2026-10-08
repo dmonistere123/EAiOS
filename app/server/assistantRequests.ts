@@ -1,4 +1,4 @@
-import { savedEvidence, type SavedEvidence } from './assistantEvidence.ts';
+import { conversationCheckpoint, savedEvidence, type SavedEvidence } from './assistantEvidence.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { GatewayRpcClient, createGatewayClient } from './allyGateway.ts';
 
 import type { AssistantRequest } from '../src/domain/assistantRequest.ts';
-interface Stored extends AssistantRequest { reconciliationAttempts?: number; cancelAcknowledged?: boolean; originalStoredSessionId?: string; fingerprint: string; prompt: string; phase: 'accepted' | 'creating' | 'dispatching' | 'submitted'; }
+interface Stored extends AssistantRequest { resumeTarget?: string; afterMessageId?: number; reconciliationAttempts?: number; cancelAcknowledged?: boolean; originalStoredSessionId?: string; fingerprint: string; prompt: string; phase: 'accepted' | 'creating' | 'dispatching' | 'submitted'; }
 export const terminal = (r: AssistantRequest) => ['completed', 'recovered', 'cancelled', 'interrupted'].includes(r.state);
 export interface Rpc {
   connect(timeout?: number): Promise<void>; call(method: string, params: Record<string, unknown>, timeout?: number): Promise<unknown>;
@@ -27,7 +27,8 @@ export class AssistantRequests {
   private clients = new Set<Rpc>();
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
-  constructor(root: string, privateOptions: { client?: () => Rpc; pollMs?: number; leaseMs?: number; autoStart?: boolean; evidence?: (root: string, profile?: string) => SavedEvidence } = {}) {
+  constructor(root: string, privateOptions: { client?: () => Rpc; pollMs?: number; leaseMs?: number; autoStart?: boolean; evidence?: (root: string, profile?: string, afterMessageId?: number) => SavedEvidence; checkpoint?: (id: string, profile?: string) => { afterMessageId: number; sessionId: string } } = {}) {
+    this.checkpoint = privateOptions.checkpoint;
     this.evidence = privateOptions.evidence ?? (() => ({ available: false }));
     this.options = { client: privateOptions.client ?? (() => { const c = createGatewayClient(); if (!c) throw new Error('Gateway unavailable'); return c; }), pollMs: privateOptions.pollMs ?? 2000, leaseMs: privateOptions.leaseMs ?? 12000 };
     const dir = join(root, 'assistant-requests'); mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -35,23 +36,31 @@ export class AssistantRequests {
     this.db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA journal_size_limit=8388608; CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, data TEXT NOT NULL, owner TEXT, lease INTEGER NOT NULL DEFAULT 0)');
     if (privateOptions.autoStart !== false) { this.timer = setInterval(() => this.recover(), 2000); this.timer.unref(); this.recover(); }
   }
-  private evidence: (root: string, profile?: string) => SavedEvidence;
+  private checkpoint?: (id: string, profile?: string) => { afterMessageId: number; sessionId: string };
+  private evidence: (root: string, profile?: string, afterMessageId?: number) => SavedEvidence;
   private options: { client: () => Rpc; pollMs: number; leaseMs: number };
   private raw(id: string): Stored | undefined { const row = this.db.prepare('SELECT data FROM requests WHERE id=?').get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) : undefined; }
-  get(id: string): AssistantRequest | undefined { const r = this.raw(id); if (!r) return; const { fingerprint: _f, prompt: _p, phase: _s, originalStoredSessionId: _o, cancelAcknowledged: _c, reconciliationAttempts: _a, ...publicRow } = r; return { ...publicRow, response: publicRow.response.slice(0, MAX_RESPONSE_CHARS), responseLimited: publicRow.responseLimited || publicRow.response.length > MAX_RESPONSE_CHARS }; }
+  get(id: string): AssistantRequest | undefined { const r = this.raw(id); if (!r) return; const { fingerprint: _f, prompt: _p, phase: _s, originalStoredSessionId: _o, cancelAcknowledged: _c, reconciliationAttempts: _a, afterMessageId: _m, resumeTarget: _t, ...publicRow } = r; return { ...publicRow, response: publicRow.response.slice(0, MAX_RESPONSE_CHARS), responseLimited: publicRow.responseLimited || publicRow.response.length > MAX_RESPONSE_CHARS }; }
   sessionRoots(id: string): string[] { const r = this.raw(id); return [r?.originalStoredSessionId, r?.storedSessionId].filter((v): v is string => !!v); }
   list(): AssistantRequest[] { return (this.db.prepare("SELECT id FROM requests WHERE json_extract(data,'$.state') NOT IN ('completed','recovered','cancelled','interrupted') OR rowid IN (SELECT rowid FROM requests ORDER BY rowid DESC LIMIT 20) ORDER BY rowid DESC").all() as { id: string }[]).map(r => this.get(r.id)!); }
-  accept(id: string, text: string, attachments: { name: string; mimeType: string; content: string; encoding: string }[] = [], profile?: string) {
+  accept(id: string, text: string, attachments: { name: string; mimeType: string; content: string; encoding: string }[] = [], profile?: string, conversationId?: string) {
     if (!/^[a-zA-Z0-9_-]{16,80}$/.test(id) || (!text.trim() && !attachments.length) || text.length > 100000 || attachments.length > 10 || attachments.some(a => a.name.length > 256 || a.mimeType.length > 256) || JSON.stringify(attachments).length > 4000000) throw new Error('Invalid request');
-    const fingerprint = createHash('sha256').update(JSON.stringify({ text, attachments, profile })).digest('hex');
+    const fingerprint = createHash('sha256').update(JSON.stringify({ text, attachments, profile, ...(conversationId ? { conversationId } : {}) })).digest('hex');
     const now = new Date().toISOString();
-    const row: Stored = { id, text: text || `[${attachments.length} attached document${attachments.length === 1 ? '' : 's'}]`, attachmentNames: attachments.map(a => a.name), profile, fingerprint, prompt: text + (attachments.length ? '\n\n--- attached documents ---\n' + attachments.map(a => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n') : ''), phase: 'accepted', state: 'accepted', revision: 1, response: '', progress: 'Accepted', createdAt: now, updatedAt: now };
+    const row: Stored = { id, conversationId, text: text || `[${attachments.length} attached document${attachments.length === 1 ? '' : 's'}]`, attachmentNames: attachments.map(a => a.name), profile, fingerprint, prompt: text + (attachments.length ? '\n\n--- attached documents ---\n' + attachments.map(a => `File: ${a.name}\n${a.encoding === 'base64' ? '[base64 content omitted]' : a.content}`).join('\n---\n') : ''), phase: 'accepted', state: 'accepted', revision: 1, response: '', progress: 'Accepted', createdAt: now, updatedAt: now };
     let inserted = false;
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const existing = this.raw(id);
       if (existing && existing.fingerprint !== fingerprint) throw new Error('Request ID already belongs to different input');
       if (!existing) {
+        if (conversationId) {
+          if (!this.checkpoint) throw new Error('Conversation continuation is unavailable.');
+          const checkpoint = this.checkpoint(conversationId, profile);
+          row.afterMessageId = checkpoint.afterMessageId; row.resumeTarget = checkpoint.sessionId;
+          const busy = this.db.prepare("SELECT id FROM requests WHERE json_extract(data,'$.conversationId')=? AND COALESCE(json_extract(data,'$.profile'),'')=? AND json_extract(data,'$.state') NOT IN ('completed','recovered','cancelled','interrupted') LIMIT 1").get(conversationId, profile ?? '');
+          if (busy) throw Object.assign(new Error('This conversation is still responding. Wait or cancel it before sending again.'), { code: 409 });
+        }
         const counts = this.db.prepare("SELECT count(*) AS count,coalesce(sum(length(CAST(data AS BLOB))),0) AS bytes,sum(CASE WHEN json_extract(data,'$.state') NOT IN ('completed','recovered','cancelled','interrupted') THEN 1 ELSE 0 END) AS active FROM requests").get() as { count: number; bytes: number; active: number };
         if (counts.count >= MAX_RECORDS || counts.active >= MAX_ACTIVE || counts.bytes + Buffer.byteLength(JSON.stringify(row)) + ((counts.active ?? 0) + 1) * RESPONSE_RESERVE > STORE_BUDGET) throw Object.assign(new Error('Request capacity reached. Existing context was preserved; review or export stored requests before submitting more.'), { code: 429 });
         this.db.prepare('INSERT INTO requests(id,data,owner,lease) VALUES(?,?,?,?)').run(id, JSON.stringify(row), this.owner, Date.now() + this.options.leaseMs);
@@ -115,9 +124,21 @@ export class AssistantRequests {
       if (this.stopped || leaseLost) return;
       if (fresh) {
         if (!this.patch(id, { phase: 'creating' })) return;
-        const c = await client.call('session.create', { title: `EAiOS request ${id}`, ...(r.profile ? { profile: r.profile } : {}) }, 15000) as Activation;
+        let c: Activation;
+        if (r.conversationId) {
+          // Explicit Send only. Lazy mounting restores native context without
+          // cold-resume auto-continuation; recovery never enters this branch.
+          c = await client.call('session.resume', { session_id: r.resumeTarget ?? r.conversationId, lazy: true, omit_messages: true, ...(r.profile ? { profile: r.profile } : {}) }, 15000) as Activation;
+          if (!c.session_id || c.auto_continue) throw new Error('Conversation could not be safely opened.');
+          const snapshot = await client.call('session.activate', { session_id: c.session_id, omit_messages: true }, 15000) as Activation;
+          if (snapshot.running !== false || snapshot.auto_continue || snapshot.pending_approval || snapshot.pending_clarify) throw new Error('This conversation is busy or awaiting input. No follow-up was sent.');
+        } else {
+          c = await client.call('session.create', { title: `EAiOS request ${id}`, ...(r.profile ? { profile: r.profile } : {}) }, 15000) as Activation;
+        }
+        c.stored_session_id = c.stored_session_id ?? c.session_key;
         if (!c.session_id || !c.stored_session_id) throw new Error('Hermes did not return durable session identity');
-        if (!this.patch(id, { runtimeSessionId: c.session_id, storedSessionId: c.stored_session_id, originalStoredSessionId: c.stored_session_id, prompt: '', phase: 'dispatching' })) return;
+        if (r.resumeTarget && c.stored_session_id !== r.resumeTarget) throw new Error('Conversation identity changed; no follow-up sent.');
+        if (!this.patch(id, { runtimeSessionId: c.session_id, storedSessionId: c.stored_session_id, originalStoredSessionId: c.stored_session_id, conversationId: r.conversationId ?? c.stored_session_id, prompt: '', phase: 'dispatching' })) return;
       } else {
         this.patch(id, { state: 'reconnecting', progress: 'Recovering the original request; no prompt replay' });
       }
@@ -171,7 +192,7 @@ export class AssistantRequests {
           await client.call('session.interrupt', { session_id: sid }, 15000); interruptSent = true; this.patch(id, { cancelAcknowledged: true });
         }
         if (snapshot.running === false && !['starting', 'waiting'].includes(snapshot.status ?? '')) {
-          const evidence = this.evidence(current.originalStoredSessionId ?? current.storedSessionId!, current.profile);
+          const evidence = this.evidence(current.originalStoredSessionId ?? current.storedSessionId!, current.profile, current.afterMessageId);
           const answer = evidence.incompleteLineage ? '' : evidence.response?.trim() ?? '';
           this.patch(id, { state: answer ? 'recovered' : current.cancelRequested && (interruptSent || current.cancelAcknowledged) ? 'cancelled' : 'interrupted', response: answer || String(pendingFields.response ?? this.raw(id)!.response), responseLimited: evidence.responseLimited || current.responseLimited, recovered: true, progress: answer ? 'Saved response recovered; original completion status unavailable' : current.cancelRequested && (interruptSent || current.cancelAcknowledged) ? 'Cancelled' : 'Stopped without a final response', error: !answer && !current.cancelRequested ? 'The original session is no longer running. No prompt was replayed.' : undefined });
           break;
@@ -182,11 +203,15 @@ export class AssistantRequests {
     } catch (error) {
       if (!this.stopped && !leaseLost && !terminal(this.raw(id)!)) {
         const current = this.raw(id)!;
+        if (fresh && current.conversationId && !current.runtimeSessionId) {
+          this.patch(id, { state: 'interrupted', progress: 'Follow-up not sent', error: 'The conversation could not be safely reopened or is still busy. Nothing was resubmitted.' });
+          return;
+        }
         const code = Number((error as { code?: number })?.code);
         const uncertainIdentity = [4001, 4007, -32601, -32099].includes(code);
         const attempts = (current.reconciliationAttempts ?? 0) + 1;
         if (uncertainIdentity && (attempts >= 3 || [-32601, -32099].includes(code))) {
-          const evidence = current.storedSessionId ? this.evidence(current.originalStoredSessionId ?? current.storedSessionId, current.profile) : { available: false };
+          const evidence = current.storedSessionId ? this.evidence(current.originalStoredSessionId ?? current.storedSessionId, current.profile, current.afterMessageId) : { available: false };
           this.patch(id, { state: 'interrupted', response: (!evidence.incompleteLineage && evidence.response) || String(pendingFields.response ?? current.response), responseLimited: evidence.responseLimited || current.responseLimited,
             progress: 'Automatic execution recovery stopped',
             error: 'The original live runtime could not be safely reattached. Saved evidence is shown where available; execution/cancellation outcome is uncertain. No cold resume or prompt replay was attempted.' });
@@ -198,4 +223,4 @@ export class AssistantRequests {
   close() { this.stopped = true; clearInterval(this.timer); for (const c of this.clients) c.disconnect(); this.clients.clear(); this.db.prepare('UPDATE requests SET owner=NULL,lease=0 WHERE owner=?').run(this.owner); if (!this.working.size) this.db.close(); /* workers close the DB once they finish unwinding */ }
 }
 const managers = new Map<string, AssistantRequests>();
-export function assistantRequests(root: string, hermesHome?: string) { let manager = managers.get(root); if (!manager) { manager = new AssistantRequests(root, { evidence: hermesHome ? (id, profile) => savedEvidence(hermesHome, id, profile) : undefined }); managers.set(root, manager); } return manager; }
+export function assistantRequests(root: string, hermesHome?: string) { let manager = managers.get(root); if (!manager) { manager = new AssistantRequests(root, { evidence: hermesHome ? (id, profile, after) => savedEvidence(hermesHome, id, profile, after) : undefined, checkpoint: hermesHome ? (id, profile) => conversationCheckpoint(hermesHome, id, profile) : undefined }); managers.set(root, manager); } return manager; }

@@ -34,11 +34,11 @@ describe('app-owned Concierge provider boundary', () => {
     expect(init?.redirect).toBe('error'); expect(init?.signal).toBeInstanceOf(AbortSignal);
     const sent = JSON.parse(String(init?.body));
     expect(Object.keys(sent).sort()).toEqual(['max_completion_tokens', 'messages', 'model', 'stream']);
-    expect(sent.model).toBe('openai/gpt-5.5'); expect(sent.max_completion_tokens).toBe(1200);
+    expect(sent.model).toBe('google/gemini-2.5-flash-lite'); expect(sent.max_completion_tokens).toBe(1200);
     expect(sent.messages[0]).toEqual({ role: 'system', content: readFileSync(join(root, 'concierge/SOUL.md'), 'utf8') });
     expect(sent.messages.filter((m: { role: string }) => m.role === 'system')).toHaveLength(1);
     expect(sent.messages.at(-1).role).toBe('user'); expect(sent.messages.at(-1).content).toContain(request.currentRoute);
-    expect(conciergeInfo(root, root)).toEqual({ revision: request.revision, provider: 'openrouter', model: 'openai/gpt-5.5' });
+    expect(conciergeInfo(root, root)).toEqual({ revision: request.revision, provider: 'openrouter', model: 'google/gemini-2.5-flash-lite' });
     expect(JSON.stringify(conciergeInfo(root, root))).not.toContain('fixture-key');
   });
   it('uses explicit paired overrides and matching server credentials, never arbitrary endpoints', async () => {
@@ -47,7 +47,7 @@ describe('app-owned Concierge provider boundary', () => {
     await conciergeReply(root, root, body(), controller().signal);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
   });
-  it.each(['missing key', 'unknown provider', 'custom URL', 'invalid yaml', 'partial override', 'missing soul', 'empty soul', 'oversized soul'])('fails closed for %s before provider access', async reason => {
+  it.each(['missing key', 'partial override', 'missing soul', 'empty soul', 'oversized soul'])('fails closed for %s before provider access', async reason => {
     if (reason === 'missing key') writeFileSync(join(root, '.env'), '');
     if (reason === 'unknown provider') writeFileSync(join(root, 'config.yaml'), 'model: {provider: kimi-coding, default: kimi-k3}');
     if (reason === 'custom URL') writeFileSync(join(root, 'config.yaml'), 'model: {provider: openrouter, default: x, base_url: "https://evil.invalid"}');
@@ -57,6 +57,10 @@ describe('app-owned Concierge provider boundary', () => {
     if (reason === 'empty soul') writeFileSync(join(root, 'concierge/SOUL.md'), '');
     if (reason === 'oversized soul') writeFileSync(join(root, 'concierge/SOUL.md'), 'x'.repeat(24001));
     expect(() => conciergeInfo(root, root)).toThrow(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each(['model: {provider: local, default: custom, base_url: "http://localhost:11434"}', 'model: ['])('does not inherit Ally configuration: %s', config => {
+    writeFileSync(join(root, 'config.yaml'), config);
+    expect(conciergeInfo(root, root)).toMatchObject({ provider: 'openrouter', model: 'google/gemini-2.5-flash-lite' });
   });
   it('checks document revision and input/history bounds before sending', async () => {
     const initial = body(); writeFileSync(join(root, 'concierge/SOUL.md'), 'Changed trusted role');

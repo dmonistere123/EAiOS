@@ -150,6 +150,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   holder.rpc = realRpc;
 });
 
@@ -179,22 +180,18 @@ describe('live sessions + channel (stubbed RPC)', () => {
   it('getChannelFor reads the canonical Bot Chat via title lookup + resolved_id, profile-scoped history', async () => {
     const { calls } = stubRpc(async (m) => {
       if (m === 'session.list') return { sessions: [{ id: 'bot-1', resolved_id: 'bot-1-tip', title: 'Bot Chat' }] };
-      if (m === 'session.history') {
-        return {
-          messages: [
-            { role: 'user', text: 'Quill — draft the newsletter', timestamp: 1787824279, row_id: 1 },
-            { role: 'assistant', text: 'Draft is up', timestamp: 1787824280, row_id: 2 },
-            { role: 'tool', text: 'noise', timestamp: 1787824281, row_id: 3 },
-          ],
-        };
-      }
       throw new Error(`unexpected ${m}`); // listWorkItems → mock fallback for delegations
     });
+    const historyFetch = vi.fn(async () => Response.json({messages:[
+      {id:'1',role:'you',text:'Quill — draft the newsletter',at:'2026-01-01'},
+      {id:'2',role:'ally',text:'Draft is up',at:'2026-01-01'},
+    ]}));
+    vi.stubGlobal('fetch', historyFetch);
     const channel = await live.getChannelFor('quill');
     const lookup = calls.find((c) => c.method === 'session.list');
     expect(lookup?.params).toEqual({ profile: 'quill', title: 'Bot Chat', include_hidden: true });
-    const hist = calls.find((c) => c.method === 'session.history');
-    expect(hist?.params).toEqual({ session_id: 'bot-1-tip', profile: 'quill' });
+    expect(historyFetch).toHaveBeenCalledWith('/api/assistant/conversations/bot-1-tip/history?profile=quill');
+    expect(calls.some(c => ['session.resume','session.history'].includes(c.method))).toBe(false);
     expect(channel.agentChat?.map((m) => m.text)).toEqual(['Quill — draft the newsletter', 'Draft is up']);
   });
 

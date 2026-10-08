@@ -1,5 +1,18 @@
 # Next release — pending publication
 
+## Concierge and Assistant conversations
+
+- Concierge now uses its own inexpensive default model (Gemini 2.5 Flash-Lite through
+  OpenRouter), configurable independently from Ally. Changing Ally's model or custom
+  endpoint no longer disables Concierge. Existing server-side credentials are reused.
+- My Assistant follows new answers, opens conversations at the latest message, and
+  offers Jump to latest when you scroll back to read earlier messages.
+- Selecting an Ally conversation in the right sidebar opens it in the main chat.
+  Follow-ups continue its saved native context; New Session creates a separate chat.
+- Viewing history is read-only. Busy-session checks and durable request receipts
+  prevent automatic prompt replay during continuation or connection recovery.
+- No agent, skill, credential, or instruction migration is required.
+
 ## Approval gate fix (affects v0.1.6)
 
 - Scheduled drafts parked blocked/unassigned without a block kind now appear in

@@ -1664,7 +1664,7 @@ class LiveHermesAdapter implements HermesAdapter {
   private requestClient = new AssistantRequestClient();
   cachedAssistantRequests() { return this.requestClient.cached(); }
   listAssistantRequests() { return this.requestClient.list(); }
-  createAssistantRequest(text: string, attachments?: AssistantAttachment[]) { return this.requestClient.create(text, attachments); }
+  createAssistantRequest(text: string, attachments?: AssistantAttachment[], conversation?: { id: string; profile?: string }) { return this.requestClient.create(text, attachments, conversation); }
   cancelAssistantRequest(id: string) { return this.requestClient.cancel(id); }
 
   async sendAssistantMessage(text: string, opts: { agentId?: string; attachments?: AssistantAttachment[]; currentRoute?: string } = {}): Promise<AuditResult> {
@@ -1765,28 +1765,13 @@ class LiveHermesAdapter implements HermesAdapter {
 
   /** Read-only transcript of any session of any profile (channel drawer). */
   async getSessionTranscript(profile: string | undefined, sessionId: string): Promise<ChatMessage[]> {
-    try {
-      try {
-        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
-          'session.history',
-          { session_id: sessionId, ...(profile ? { profile } : {}) },
-        );
-        return LiveHermesAdapter.mapHistoryMessages(h);
-      } catch {
-        // Deny-listed/detached sessions (kanban workers, source='kanban')
-        // 4001 on direct history — resume-before-use, then read via the
-        // runtime id (probed live 2026-08-29: resume+history works).
-        const r = await this.rpc.call<{ session_id?: string }>('session.resume', { session_id: sessionId, ...(profile ? { profile } : {}) });
-        if (!r.session_id) throw new Error('session resume returned no runtime id');
-        const h = await this.rpc.call<{ messages?: { role: string; text?: string; timestamp?: number; row_id?: number }[] }>(
-          'session.history',
-          { session_id: r.session_id, ...(profile ? { profile } : {}) },
-        );
-        return LiveHermesAdapter.mapHistoryMessages(h);
-      }
-    } catch {
-      return this.fallback.getSessionTranscript(profile, sessionId); // graceful degradation (spec §2)
-    }
+    const query = profile ? `?profile=${encodeURIComponent(profile)}` : '';
+    const response = await fetch(`/api/assistant/conversations/${encodeURIComponent(sessionId)}/history${query}`);
+    if (!response.ok) throw new Error('Conversation history is unavailable. No session was started.');
+    const history = await response.json() as { messages?: ChatMessage[]; limited?: boolean };
+    if (!Array.isArray(history.messages)) throw new Error('Invalid conversation history');
+    if (history.limited) history.messages.unshift({ id: 'history-limit', role: 'ally', text: 'Showing the latest part of this long conversation. The saved session context remains with Hermes.', at: new Date(0).toISOString() });
+    return history.messages;
   }
 
   /** Delegated runs for the rail/Schedule drawers — /api/kanban-runs joins

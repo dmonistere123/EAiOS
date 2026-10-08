@@ -2,10 +2,25 @@
 
 ## Scope and invariants
 
-Each Send creates a new request ID and a fresh Hermes session. No previous prompt,
-transcript, recovered response, or handoff is automatically injected. An explicitly
-attached handoff.md is included only in that submission. The configured Hermes
-profile, skills, and persistent memory are unchanged.
+Each Send creates a new request ID. New Session creates a fresh Hermes session on
+its first Send. Selecting a conversation in the Ally rail reads saved history only,
+without activating a runtime. An explicit follow-up uses the selected conversation's
+native Hermes context. The UI does not inject displayed history into the new prompt.
+The configured profile, skills, persistent memory, and credentials remain unchanged.
+
+Continuation resolves the proved compression tip using a read-only database query,
+captures a message cursor, and mounts with `session.resume(lazy=true,omit_messages=true)`
+only for a newly accepted explicit Send. It verifies that the runtime is idle before
+submitting the new prompt once. Recovery never repeats this mount or submission.
+Older saved answers cannot satisfy a new follow-up because recovery reads only rows
+after its captured cursor. Installed lazy-resume behavior is exercised by
+`scripts/capture-hermes-lazy-contract.py` using AST extraction and in-memory collaborators;
+it preserves stored context without automatic continuation. This is a contract test,
+not a live model/context-quality test.
+
+The main chat opens at the latest message and follows new output. Scrolling upward
+pauses following; Jump to latest resumes it. Switching conversations discards stale
+history responses. New Session starts separate work without cancelling older requests.
 
 A receipt is saved in the browser before transmission, and durably accepted by
 EAiOS before work starts. Recovery uses GET and session.activate on the original runtime session ID;
@@ -17,7 +32,8 @@ identity was recorded is shown as interrupted and requires a deliberate new requ
 
 ## Runtime
 
-- POST /api/assistant/requests accepts `{id,text,attachments}` and returns HTTP 202.
+- POST /api/assistant/requests accepts `{id,text,attachments,conversation?:{id,profile?}}` and returns HTTP 202.
+- GET /api/assistant/conversations/:id/history reads bounded saved history (optional profile query), without starting work.
 - GET /api/assistant/requests returns recent 20 receipts plus all active requests.
 - GET /api/assistant/requests/:id returns a durable snapshot.
 - GET /api/assistant/requests/:id/events emits complete versioned SSE snapshots.
@@ -178,3 +194,32 @@ changes are part of these checks.
    frontend cannot monitor the new lifecycle, so leave recovered session IDs available
    for manual inspection. No Git reset/clean, installer activation, or remote release
    is required by this proposal.
+
+## October 8 conversation continuation validation
+
+- Full application suite: 481 passed, one opt-in installed-Hermes approval test
+  skipped (58 files). Release/update script suite: 31 passed.
+- After final refinements: 44 focused tests passed across five files, followed
+  by 12 UI tests covering conversation switching, repeated prompts, scrolling,
+  voice, and attachments. TypeScript and production build passed. Lint has no
+  errors; existing compiler/lint, React test-act, jsdom media, and bundle-size
+  warnings remain.
+- `capture-hermes-lazy-contract.py` executed the installed lazy-resume function
+  bodies with in-memory collaborators. This proves that the captured mount
+  retains its supplied history without scheduling old work; provider reasoning
+  and tool execution are not exercised by this contract test.
+- The new history reader/checkpoint were also run against one actual stored
+  conversation using read-only SQLite access, without exposing its contents or
+  starting a runtime.
+- Concierge completed one real OpenRouter request using the independent default
+  and the packaged application guide. Keys and model settings were not modified.
+- Browser checks used an isolated fixture backend: conversation selection,
+  follow-up rendering, automatic bottom scrolling, scrolling upward/Jump to latest,
+  refresh, stable titles, and the compact history picker. Replies there are
+  simulated, not live Ally responses. No live Assistant follow-up or external
+  action was executed as part of this verification.
+- Logs: `/tmp/eaios-oct8-final-tests.log`, `/tmp/eaios-oct8-script-tests.log`,
+  `/tmp/eaios-oct8-final-focused.log`, `/tmp/eaios-oct8-switching-tests.log`,
+  `/tmp/eaios-oct8-final-lint.log`, `/tmp/eaios-oct8-final-build.log`.
+  Local preview scaffolding and screenshot are ignored under `.local/`.
+  Production activation and release publication remain separate steps.

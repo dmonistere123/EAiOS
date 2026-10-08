@@ -1,3 +1,4 @@
+import type { AssistantConversation, RequestView } from '../domain/assistantRequest';
 import { CitationChips } from '../components/CitationChips';
 import { AssistantRequests } from '../components/AssistantRequests';
 /** My Assistant — chat with Ally (the ONLY chat target, D-B1) + per-agent
@@ -27,7 +28,7 @@ function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onC
     let stale = false;
     void hermes.getSessionTranscript(profile, session.id).then((rows) => {
       if (!stale) setMessages(rows);
-    });
+    }).catch(() => { if (!stale) setMessages([{ id: 'history-error', role: 'ally', text: 'Conversation history is temporarily unavailable. Close and reopen this view to try again.', at: new Date().toISOString() }]); });
     return () => {
       stale = true;
     };
@@ -83,6 +84,15 @@ export default function Assistant() {
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const [openSession, setOpenSession] = useState<AssistantSessionRef | null>(null);
   const [sessions, setSessions] = useState<AssistantSessionRef[]>([]);
+  const [requestRows, setRequestRows] = useState<RequestView[]>([]);
+  const [selectedConversation, setSelectedConversation] = useState<AssistantConversation | null>(() => {
+    try { const stored = JSON.parse(localStorage.getItem('eaios.assistant.selectedConversation') ?? 'null'); return stored && typeof stored.id === 'string' && typeof stored.title === 'string' ? stored : null; } catch { return null; }
+  });
+  const selectConversation = useCallback((value: AssistantConversation | null) => {
+    setSelectedConversation(value);
+    if (value) localStorage.setItem('eaios.assistant.selectedConversation', JSON.stringify(value));
+    else localStorage.removeItem('eaios.assistant.selectedConversation');
+  }, []);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -203,9 +213,18 @@ export default function Assistant() {
         messageCount: r.workerMessageCount ?? 0,
         source: 'kanban',
       }));
-    const seen = new Set(sessions.map((s) => s.id));
-    return [...sessions, ...runSessions.filter((r) => !seen.has(r.id))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  }, [sessions, contextRuns]);
+    const requestGroups = new Map<string, AssistantSessionRef>();
+    if (contextIsAlly) for (const r of [...requestRows].sort((a,b) => a.createdAt.localeCompare(b.createdAt))) {
+      const id = r.conversationId ?? r.storedSessionId; if (!id) continue;
+      const previous = requestGroups.get(id);
+      requestGroups.set(id, { id, title: previous?.title ?? r.text.slice(0, 80), preview: r.response.slice(0, 80), startedAt: r.createdAt, messageCount: (previous?.messageCount ?? 0) + 2, source: 'web' });
+    }
+    const requestSessions = [...requestGroups.values()];
+    const requestIds = new Set(requestSessions.map(r => r.id));
+    const combined = [...requestSessions, ...sessions.filter(r => !requestIds.has(r.id))];
+    const seen = new Set(combined.map((s) => s.id));
+    return [...combined, ...runSessions.filter((r) => !seen.has(r.id))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }, [sessions, contextRuns, requestRows, contextIsAlly]);
 
   const resumeSession = useCallback(async (storedId: string) => {
     const res = await hermes.resumeAssistantSession(storedId);
@@ -247,8 +266,9 @@ export default function Assistant() {
             {allSessions.map((sess) => (
               <li key={sess.id}>
                 <button
-                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly && !hermes.listAssistantRequests ? void resumeSession(sess.id) : setOpenSession(sess))}
-                  className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay"
+                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly ? hermes.listAssistantRequests ? selectConversation({ id: sess.id, title: sess.title, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === sess.id)?.profile }) : void resumeSession(sess.id) : setOpenSession(sess))}
+                  aria-current={selectedConversation?.id === sess.id ? "true" : undefined}
+                  className={`w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay ${selectedConversation?.id === sess.id ? "bg-signal/10" : ""}`}
                   title={sess.source === 'kanban' ? 'Delegated run — view result + transcript (read-only)' : contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
                 >
                   <div className="truncate text-xs font-medium text-ink">{sess.title}</div>
@@ -290,7 +310,7 @@ export default function Assistant() {
         ),
       },
     ],
-    [allSessions, contextRuns, contextName, contextIsAlly, resumeSession, openKanbanRun],
+    [allSessions, contextRuns, contextName, contextIsAlly, resumeSession, openKanbanRun, selectConversation, selectedConversation, requestRows],
   );
   usePageRail(railSections);
 
@@ -405,7 +425,17 @@ export default function Assistant() {
       <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
         {/* conversation — always Ally */}
         <Card className="flex min-h-0 flex-col h-[calc(100dvh-8rem)] flex-none p-4 xl:flex-[3] xl:h-full">
-          {hermes.listAssistantRequests ? <AssistantRequests /> : <>
+          {hermes.listAssistantRequests && contextIsAlly && <label className="mb-3 block text-xs text-ink-dim lg:hidden">
+            Conversations — {AGENT_NAME}
+            <select aria-label="Open saved conversation" value={selectedConversation?.id ?? ''} className="mt-1 block w-full rounded-lg border border-edge bg-canvas p-2 text-sm text-ink" onChange={e => {
+              const session = allSessions.find(row => row.id === e.target.value);
+              if (session) selectConversation({ id: session.id, title: session.title, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === session.id)?.profile });
+            }}>
+              <option value="" disabled>Choose a conversation</option>
+              {allSessions.filter(row => !['kanban','tool'].includes(row.source)).map(row => <option key={row.id} value={row.id}>{row.title}</option>)}
+            </select>
+          </label>}
+          {hermes.listAssistantRequests ? <AssistantRequests selection={selectedConversation} onSelect={selectConversation} onRows={setRequestRows} /> : <>
           <SectionTitle className="shrink-0">Conversation with {AGENT_NAME}</SectionTitle>
           <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
