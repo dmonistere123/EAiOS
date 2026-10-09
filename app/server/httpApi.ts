@@ -1,3 +1,4 @@
+import { reconcileReleaseArtifact, releaseArtifact, listReleaseArtifacts } from './releaseArtifacts.ts';
 import { readConversation } from './assistantConversations.ts';
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
@@ -578,6 +579,18 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     /* artifacts index + confined raw stream */
     if (path === '/api/artifacts' || path.startsWith('/api/artifacts/')) {
       try {
+        // Retry reconciliation on viewing Artifacts, including after a server restart.
+        try { reconcileReleaseArtifact(ctx); } catch { /* Keep existing artifacts available. */ }
+        const releaseMatch = path.match(/^\/api\/artifacts\/(release-[^/]+)\/raw$/);
+        if (releaseMatch) {
+          const rec = releaseArtifact(ctx, releaseMatch[1]);
+          if (!rec) { json(res, 404, JSON.stringify({ error: 'not found' })); return true; }
+          res.setHeader('content-type', 'text/markdown; charset=utf-8');
+          res.setHeader('x-content-type-options', 'nosniff');
+          if (url.searchParams.get('download') === '1') res.setHeader('content-disposition', `attachment; filename="${rec.filename}"`);
+          res.end(rec.content);
+          return true;
+        }
         const rawMatch = path.match(/^\/api\/artifacts\/(?:att-)?(\d+)\/raw$/);
         if (rawMatch) {
           const rec = rawArtifact(join(ctx.hermesHome, 'kanban.db'), join(ctx.hermesHome, 'kanban', 'attachments'), rawMatch[1]);
@@ -598,7 +611,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         if (!artifactsCache || Date.now() - artifactsCache.at > CACHE_TTL) {
           artifactsCache = { at: Date.now(), body: JSON.stringify(listArtifacts(join(ctx.hermesHome, 'kanban.db'))) };
         }
-        json(res, 200, artifactsCache.body);
+        json(res, 200, JSON.stringify({ artifacts: [...listReleaseArtifacts(ctx), ...JSON.parse(artifactsCache.body).artifacts] }));
       } catch (e) {
         json(res, 503, JSON.stringify({ error: String(e) }));
       }

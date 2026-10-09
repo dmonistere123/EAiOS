@@ -1,3 +1,4 @@
+import { reconcileReleaseArtifact } from './releaseArtifacts.ts';
 import { assistantRequests } from './assistantRequests.ts';
 /// <reference types="node" />
 /**
@@ -219,6 +220,15 @@ export function createEaiosServer(config: ProdConfig) {
   // Rebuilding files on disk must not make an old process report a new build.
   const apiCtx = { ...config.apiCtx, buildVersion: null as ReturnType<typeof readBuildVersion> | null };
   try { apiCtx.buildVersion = readBuildVersion(config.apiCtx.eaiosRoot, config.distDir); } catch { /* API returns 503 */ }
+  // Old installers record success after restarting us and completing health checks.
+  // Poll that receipt so the report is saved even before anyone opens Artifacts.
+  const saveReleaseNote = () => {
+    try { return reconcileReleaseArtifact(apiCtx); }
+    catch (error) { console.warn('Release report could not be saved:', error instanceof Error ? error.message : String(error)); return false; }
+  };
+  const reportTimer = setInterval(() => { if (saveReleaseNote()) clearInterval(reportTimer); }, 30_000);
+  reportTimer.unref();
+  if (saveReleaseNote()) clearInterval(reportTimer);
   const server = createServer((req, res) => {
     void (async () => {
       const path = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -305,6 +315,7 @@ export function createEaiosServer(config: ProdConfig) {
     socket.on('error', () => upstream.destroy());
   });
 
+  server.on('close', () => clearInterval(reportTimer));
   return server;
 }
 

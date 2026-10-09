@@ -49,3 +49,9 @@ send is used for those tests.
   and live-provider access changes are not part of this release.
 - Install through Settings after checking for updates, when no work is running.
   Provider connectivity and the installed Hermes version still need to be healthy.
+
+## Local update report
+
+After a successful update, EAiOS saves `EAiOS-v0.1.7-Whats-New.md` in the updated machine's Artifacts page. Open it to review the changes or download the Markdown file to share with your team. The report includes the installed version, installation date, and release revision.
+
+Reports are kept locally under `~/.hermes/eaios/release-notes/` across application upgrades. The new server checks the installer's success receipt, including receipts written by older Settings and command-line installers, and saves the report within 30 seconds or when Artifacts is opened. Failed or unfinished installations do not generate a success report. Existing reports are not overwritten. No agent, skill, credential, or conversation changes are needed to create the report.
