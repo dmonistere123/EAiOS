@@ -4,7 +4,7 @@ The `/social` page replaces the navigation hyperlink and uses the existing EAiOS
 
 ## Available now
 
-- Persistent manual drafts and AI-generated network-specific drafts for LinkedIn, X and Snapchat.
+- Persistent manual drafts and AI-generated network-specific drafts for LinkedIn, X and Instagram.
 - Subject, voice, publishing identity, image direction, daily/custom/Monday-Wednesday-Friday dates, local time and IANA time zone.
 - A separate draft per selected network and planned date. These are finite plans, not recurring unattended jobs.
 - OpenRouter text generation (Hermes-scope `OPENROUTER_API_KEY`); default `google/gemini-2.5-flash`, override `EAIOS_SOCIAL_MODEL` in the server environment.
@@ -15,7 +15,7 @@ The `/social` page replaces the navigation hyperlink and uses the existing EAiOS
 
 ## Explicitly not enabled yet
 
-- OAuth/account selection and actual LinkedIn, X or Snapchat publishing. A configured Composio key is not represented as an authenticated social account.
+- OAuth/account selection and actual LinkedIn, X or Instagram publishing. A configured Composio key is not represented as an authenticated social account.
 - Automatic scheduling or recurrence. Planned dates and `reviewed` status confer no external-write authority. The API rejects client-supplied publish actions. No scheduler or agent can consume these rows to publish.
 - Publishing approval envelopes, exact destination/account approval, provider receipts, safe retry/reconciliation and scheduled-job execution are the next integration layer. Implement those together, reusing the approval module; do not turn `reviewed` into permission to send.
 - LinkedIn newsletter creation, automatic article import and Allygnment.com blog upload. Website access and publishing mechanism need verification. No FTP credentials were inspected or assumed.
@@ -53,8 +53,16 @@ The Connections catalog now follows pagination (the former first-100 limit hid S
 
 Choose start/end dates spanning at most 31 calendar days, or clear the end date and use Draft ahead. Monday/Wednesday/Friday is the default cadence. Every date/network combination is a separate generation request and saved immediately. Keep the page open; this is not a background job. Earlier completed drafts survive later failures. Restarting a new batch after Reload creates new drafts; review the saved queue first.
 
-The writer receives the monthly angle plan and recent copy for the same identity to encourage distinct openings and takeaways. Uniqueness is model-directed, not a guarantee. LinkedIn is limited to 850 characters, X to 280, Snapchat to 250, and blogs to 12000. X uses a conservative weighted counter (wide characters count twice and URLs reserve at least 23); it can overcount emoji sequences and long links. Provider-specific final validation belongs in the future publishing integration.
+The writer receives the monthly angle plan and recent copy for the same identity to encourage distinct openings and takeaways. Uniqueness is model-directed, not a guarantee. LinkedIn is limited to 850 characters, X to 280, Instagram to an editorial cap of 850 (legacy Snapchat drafts retain 250), and blogs to 12000. X uses a conservative weighted counter (wide characters count twice and URLs reserve at least 23); it can overcount emoji sequences and long links. Provider-specific final validation belongs in the future publishing integration.
 
 Overlong output is saved first, then gets exactly one model shortening request. Provider failure or a still-overlong correction preserves the original, flags it, and prevents marking ready. Draft edits may remain overlong while in progress. Existing reviewed posts are not automatically rewritten. No generation grants publishing permission.
 
 Automated tests use temporary SQLite and mocked writing/image providers; they cover monthly/DST dates, one-post calls, prior-copy context, length correction/failure preservation, review gates, image handling, and upgrade persistence. Real provider output quality still requires human review.
+
+## Box-specific posting accounts
+
+`<EAIOS_DATA_ROOT>/social-data/accounts.json` is an optional array of `{id, network, label, url}` destinations. Supported new networks are `linkedin`, `x`, and `instagram`. Keep this file outside releases; no person's accounts ship as product defaults. Routine updates preserve the file and include it in backups. A missing file retains generic drafting; invalid configuration fails visibly rather than silently choosing destinations.
+
+The posting page shows one checkbox and profile link per configured account. Both LinkedIn identities may be selected independently; each date/account receives its own draft. The API resolves selected IDs against local configuration and snapshots the destination on each draft. Editing copy cannot substitute a different destination. These records are intended destinations, not authenticated account IDs or evidence of publishing permission. OAuth/provider identity verification remains required.
+
+Instagram replaces Snapchat in new draft choices and uses square images and an 850-character editorial caption limit. Existing Snapchat drafts stay labeled as legacy Snapchat and are not relabeled or routed to Instagram. Existing customer data and credentials remain unchanged.

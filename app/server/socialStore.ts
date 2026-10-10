@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SocialBoard, SocialBrief, SocialPost } from '../src/domain/social.ts';
+import type { SocialBoard, SocialBrief, SocialPost, SocialAccount } from '../src/domain/social.ts';
 export class SocialError extends Error {
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
@@ -29,8 +29,25 @@ export function readSocialPost(db: DatabaseSync, id: string): SocialPost {
 export function putSocialPost(db: DatabaseSync, post: SocialPost) {
   db.prepare('INSERT INTO posts VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(post.id, JSON.stringify(post));
 }
+/** Box-specific destinations are configuration, never bundled customer defaults. */
+export function socialAccounts(root: string): SocialAccount[] {
+  let raw: unknown;
+  try { raw=JSON.parse(readFileSync(join(root,'social-data','accounts.json'),'utf8')); }
+  catch(e) { if((e as NodeJS.ErrnoException).code==='ENOENT') return []; throw new SocialError(500,'Social account configuration could not be read.'); }
+  if(!Array.isArray(raw) || raw.length>20) throw new SocialError(500,'Invalid social account configuration.');
+  const ids=new Set<string>();
+  return raw.map(a=>{
+    if(!a || typeof a.id!=='string' || !/^[a-z0-9-]{1,80}$/.test(a.id) || ids.has(a.id) || typeof a.label!=='string' || !a.label.trim() || a.label.length>160) throw new SocialError(500,'Invalid social account configuration.');
+    ids.add(a.id);
+    const hosts:Record<string,string[]>={linkedin:['www.linkedin.com','linkedin.com'],x:['x.com','www.x.com'],instagram:['www.instagram.com','instagram.com']};
+    let url:URL;try{url=new URL(a.url);}catch{throw new SocialError(500,'Invalid social account URL.');}
+    if(!hosts[a.network]?.includes(url.hostname) || url.protocol!=='https:' || url.username || url.password) throw new SocialError(500,'Invalid social account URL.');
+    return {id:a.id,network:a.network,label:a.label,url:url.href};
+  });
+}
 export function socialBoard(root: string): SocialBoard {
   return socialStore(root, db => ({
+    accounts: socialAccounts(root),
     posts: (db.prepare('SELECT body FROM posts').all() as {body: string}[]).map(r => JSON.parse(r.body)),
     brief: JSON.parse((db.prepare('SELECT body FROM preferences WHERE id=1').get() as {body: string} | undefined)?.body ?? 'null'),
   }));

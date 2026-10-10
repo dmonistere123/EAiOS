@@ -72,6 +72,7 @@ async function installFixture(t, failure = '') {
   mkdirSync(join(root, 'travel-data'));
   const travel = new DatabaseSync(join(root, 'travel-data/travel.db')); travel.exec("CREATE TABLE trips (body TEXT); INSERT INTO trips VALUES ('custom itinerary and confirmation');"); travel.close();
   mkdirSync(join(root, 'social-data'));
+  writeFileSync(join(root,'social-data/accounts.json'),'[]');
   const social = new DatabaseSync(join(root, 'social-data/social.db'));
   social.exec("CREATE TABLE posts (body TEXT); INSERT INTO posts VALUES ('customer social draft and approved image reference');"); social.close();
   let activeRoot = root; const calls = [];
@@ -110,7 +111,9 @@ for (const failure of ['', 'manifest', 'build', 'dependencies', 'verification'])
     const travel = new DatabaseSync(join(f.root, 'travel-data/travel.db')); assert.equal(travel.prepare('SELECT body FROM trips').get().body, 'custom itinerary and confirmation'); travel.close();
     const social = new DatabaseSync(join(f.root, 'social-data/social.db'), {readOnly:true});
     assert.equal(social.prepare('SELECT body FROM posts').get().body, 'customer social draft and approved image reference'); social.close();
+    assert.equal(readFileSync(join(f.root,'social-data/accounts.json'),'utf8'),'[]');
     if (!failure) {
+      assert.equal(readFileSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'social-accounts.json'),'utf8'),'[]');
       const socialBackup = new DatabaseSync(join(getUpdateStatus(f.opts, '0.2.0').install.backupDir, 'social.db'), {readOnly:true});
       assert.equal(socialBackup.prepare('SELECT body FROM posts').get().body, 'customer social draft and approved image reference'); socialBackup.close();
     }

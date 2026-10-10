@@ -1,8 +1,10 @@
 /** Social Studio drafts are plans, never evidence of publication. */
-export const SOCIAL_NETWORKS = ['linkedin', 'x', 'snapchat'] as const;
-export type SocialNetwork = typeof SOCIAL_NETWORKS[number];
-export const NETWORK_LABELS: Record<SocialNetwork, string> = { linkedin: 'LinkedIn', x: 'X', snapchat: 'Snapchat' };
+export const SOCIAL_NETWORKS = ['linkedin', 'x', 'instagram'] as const;
+export type SocialNetwork = typeof SOCIAL_NETWORKS[number] | 'snapchat'; // Legacy drafts retain their original platform.
+export const NETWORK_LABELS: Record<SocialNetwork, string> = { linkedin: 'LinkedIn', x: 'X', instagram: 'Instagram', snapchat: 'Snapchat (legacy)' };
+export interface SocialAccount { id: string; network: Exclude<SocialNetwork, 'snapchat'>; label: string; url: string; }
 export interface SocialBrief {
+  accountIds?: string[];
   subject: string;
   voice: string;
   identity: string;
@@ -19,6 +21,7 @@ export interface SocialBrief {
   sourceText?: string;
 }
 export interface SocialPost {
+  account?: SocialAccount;
   id: string;
   revision: number;
   title: string;
@@ -36,7 +39,7 @@ export interface SocialPost {
   publishedAt?: string;
   publishedUrl?: string;
 }
-export interface SocialBoard { posts: SocialPost[]; brief: SocialBrief | null; }
+export interface SocialBoard { accounts?: SocialAccount[]; posts: SocialPost[]; brief: SocialBrief | null; }
 export interface SocialCapabilities { text: boolean; images: boolean; composio: boolean; publishing: false; }
 export function plannedDates(start: string, days: number[], count: number): string[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('Choose a valid start date.');
@@ -57,7 +60,7 @@ export function socialArchive(posts: SocialPost[], now = Date.now()) {
   return posts.filter(p => p.status === 'archived' || (p.status === 'published' && p.publishedAt && now - Date.parse(p.publishedAt) >= 30 * 86400000));
 }
 
-export const SOCIAL_LIMITS = { linkedin: 850, x: 280, snapchat: 250, blog: 12000 };
+export const SOCIAL_LIMITS = { linkedin: 850, x: 280, instagram: 850, snapchat: 250, blog: 12000 };
 /** Conservative X count: wide characters count twice; URLs reserve at least 23. */
 export function socialCopyLength(copy: string, network: SocialPost['network']) {
   if (network !== 'x') return [...copy].length;
