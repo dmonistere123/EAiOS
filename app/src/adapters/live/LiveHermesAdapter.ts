@@ -640,6 +640,16 @@ class LiveHermesAdapter implements HermesAdapter {
         include_disabled: true,
         ...(profile ? { profile } : {}),
       });
+      // cron.manage may provide only a 100-character prompt_preview. Never edit that
+      // abbreviated value: load complete instructions from the local schedule store.
+      let prompts = new Map<string, string>();
+      try {
+        const response = await fetch(`/api/cron-prompts${profile ? `?profile=${encodeURIComponent(profile)}` : ''}`);
+        if (!response.ok) throw new Error('Schedule instructions unavailable');
+        const data = await response.json() as { jobs: { id: string; prompt: string }[] };
+        prompts = new Map(data.jobs.filter(j => typeof j.id === 'string' && typeof j.prompt === 'string').map(j => [j.id, j.prompt]));
+      } catch { /* Preserve genuine RPC prompts on older hosts; undefined stays unavailable. */ }
+      res.jobs = (res.jobs ?? []).map(j => ({ ...j, prompt: prompts.get(j.id ?? j.job_id ?? '') ?? j.prompt }));
       const owner = res.scoped ?? profile;
       return (res.jobs ?? []).map((j) => ({ ...mapCron(j), ...(owner ? { ownerAgentId: owner } : {}) }));
     } catch {

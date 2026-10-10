@@ -1,3 +1,4 @@
+import { readCronPrompts } from './cronPrompts.ts';
 import { reconcileReleaseArtifact, releaseArtifact, listReleaseArtifacts } from './releaseArtifacts.ts';
 import { readConversation } from './assistantConversations.ts';
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
@@ -573,6 +574,13 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         return true;
       }
       json(res, 405, JSON.stringify({ error: 'DELETE only' }));
+      return true;
+    }
+
+    if (path === '/api/cron-prompts') {
+      if (req.method !== 'GET') { json(res, 405, JSON.stringify({ error: 'GET only' })); return true; }
+      try { json(res, 200, JSON.stringify(readCronPrompts(ctx.hermesHome, url.searchParams.get('profile') || undefined))); }
+      catch { json(res, 503, JSON.stringify({ error: 'Full schedule instructions could not be loaded. Retry before editing.' })); }
       return true;
     }
 

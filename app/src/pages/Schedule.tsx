@@ -18,7 +18,7 @@ const DAY_MS = 24 * 3600_000;
 const RECENT_DAYS = 3;
 
 /** Cron inspector (dogfood 2026-08-29): see what a job WILL do, edit, pause, delete. */
-function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () => void; onChanged: () => void }) {
+export function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () => void; onChanged: () => void }) {
   const [name, setName] = useState(job.name);
   const [schedule, setSchedule] = useState(job.scheduleExpression);
   const [prompt, setPrompt] = useState(job.prompt ?? '');
@@ -26,6 +26,7 @@ function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const save = async () => {
+    if (job.prompt === undefined) return;
     setBusy(true);
     const res = await hermes.updateCronJob(job.id, {
       ...(name.trim() !== job.name ? { name: name.trim() } : {}),
@@ -89,10 +90,10 @@ function CronInspector({ job, onClose, onChanged }: { job: CronJob; onClose: () 
         </div>
         <div>
           <label htmlFor="ci-prompt" className="text-xs font-medium uppercase tracking-wider text-ink-faint">What the job does (prompt)</label>
-          <textarea id="ci-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="mt-1 w-full rounded-lg border border-edge bg-canvas p-3 text-sm text-ink" />
+          <textarea id="ci-prompt" disabled={job.prompt === undefined} placeholder={job.prompt === undefined ? 'Full instructions could not be loaded. Close and reopen Inspect to retry.' : 'No text prompt saved for this job.'} value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className="mt-1 w-full rounded-lg border border-edge bg-canvas p-3 text-sm text-ink" />
         </div>
         {job.deliver && <p className="text-xs text-ink-faint">Delivers to <code className="font-mono text-signal">{job.deliver}</code></p>}
-        <button onClick={() => void save()} disabled={busy || !name.trim()} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+        <button onClick={() => void save()} disabled={busy || !name.trim() || job.prompt === undefined} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
           {busy ? 'Saving…' : 'Save changes'}
         </button>
         <div className="grid grid-cols-2 gap-2">
@@ -659,7 +660,7 @@ export default function Schedule() {
       </Card>
       {openRun && <DelegatedRunDrawer run={openRun} onClose={() => setOpenRun(null)} />}
       {newDelegation && <NewDelegationDrawer onClose={() => setNewDelegation(false)} />}
-      {inspectingCron && <CronInspector job={inspectingCron} onClose={() => setInspectingCron(null)} onChanged={() => setRailBump((b) => b + 1)} />}
+      {inspectingCron && <CronInspector key={inspectingCron.id} job={inspectingCron} onClose={() => setInspectingCron(null)} onChanged={() => setRailBump((b) => b + 1)} />}
     </div>
   );
 }
