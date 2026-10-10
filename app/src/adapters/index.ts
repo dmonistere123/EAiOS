@@ -31,3 +31,4 @@ export const knowledge = useLive ? liveKnowledge : mockKnowledge;
 // Live mode: podcast sidecar (OpenRouter LLM + Edge TTS) on /podcasts-api.
 export const podcasts = useLive ? livePodcasts : mockPodcasts;
 export { live, mockComposio };
+export { apiKeys } from './apiKeys';

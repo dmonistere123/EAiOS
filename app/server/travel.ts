@@ -1,3 +1,5 @@
+import { appKey } from './apiKeys.ts';
+import { parseEnv } from 'node:util';
 /** Persistent trip planning; approval alone never means a purchase succeeded. */
 import { duffel, duffelTestMode, DuffelError, flightDetails, flightTerms, type FlightOffer, type StaySearchResult } from './duffel.ts';
 import type { TravelBooking, TravelTrip, TravelApproval, ApprovalDecision, AuditResult, TravelFlight, TravelHotel, TravelCar, TravelRestaurant } from '../src/domain/types.ts';
@@ -22,13 +24,13 @@ export class TravelApiError extends Error {
 
 function providerStatus(): { duffel: boolean; opentable: boolean } {
   return {
-    duffel: !!process.env.DUFFEL_API_KEY,
-    opentable: !!process.env.OPENTABLE_API_KEY,
+    duffel: !!appKey('DUFFEL_API_KEY'),
+    opentable: !!appKey('OPENTABLE_API_KEY'),
   };
 }
 
 function requiredEnv(name: string): string {
-  const k = process.env[name] ?? '';
+  const k = appKey(name);
   if (!k) throw new TravelApiError(503, `${name} not configured`);
   return k;
 }
@@ -295,8 +297,8 @@ const TRAVEL_AGENT_MODEL = 'deepseek/deepseek-v4-flash';
 function readOpenRouterKey(hermesHome: string): string {
   try {
     const env = readFileSync(join(hermesHome, '.env'), 'utf8');
-    const m = env.match(/^OPENROUTER_API_KEY=(.+)$/m);
-    if (m) return m[1].trim();
+    const key = parseEnv(env).OPENROUTER_API_KEY;
+    if (key) return key;
   } catch {
     // fall through
   }

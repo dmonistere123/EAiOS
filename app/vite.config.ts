@@ -1,3 +1,4 @@
+import { appKey } from './server/apiKeys.ts'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -660,7 +661,7 @@ function kanbanDelegateMiddleware() {
       // so the shared router must see the full /api/kanban path itself.
       server.middlewares.use((req, res, next) => {
         const url = req.url ?? ''
-        if (!url.startsWith('/api/concierge/') && !url.startsWith('/api/assistant/requests') && !url.startsWith('/api/kanban') && !url.startsWith('/api/usage/daily') && !url.startsWith('/api/travel') && !url.startsWith('/api/dismissed') && !url.startsWith('/api/chat-ally') && !url.startsWith('/api/version') && !url.startsWith('/api/updates') && !url.startsWith('/api/backup')) {
+        if (!url.startsWith('/api/settings/api-keys') && !url.startsWith('/api/concierge/') && !url.startsWith('/api/assistant/requests') && !url.startsWith('/api/kanban') && !url.startsWith('/api/usage/daily') && !url.startsWith('/api/travel') && !url.startsWith('/api/dismissed') && !url.startsWith('/api/chat-ally') && !url.startsWith('/api/version') && !url.startsWith('/api/updates') && !url.startsWith('/api/backup')) {
           next()
           return
         }
@@ -713,7 +714,10 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: true,
           rewrite: (p) => p.replace(/^\/composio-api/, ''),
-          headers: composioKey ? { 'x-api-key': composioKey } : {},
+          configure: (proxy) => { proxy.on('proxyReq', (req) => {
+            const key = appKey('COMPOSIO_API_KEY', { hermesHome: process.env.HERMES_HOME ?? join(homedir(), '.hermes'), eaiosRoot: join(__dirname, '..'), dataRoot: process.env.EAIOS_DATA_ROOT }, composioKey)
+            if (key) req.setHeader('x-api-key', key)
+          }) },
         },
         // Dev: knowledge sidecar (Python, loopback) — browser stays same-origin.
         '/knowledge-api': {

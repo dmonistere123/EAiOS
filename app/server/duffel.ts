@@ -1,3 +1,4 @@
+import { appKey } from './apiKeys.ts';
 /** Server-only Duffel transport. Never retry order creation automatically. */
 export class DuffelError extends Error {
   status: number;
@@ -5,7 +6,7 @@ export class DuffelError extends Error {
   constructor(status: number, message: string, requestId: string | null = null) { super(message); this.status = status; this.requestId = requestId; }
 }
 export function duffelTestMode(): boolean {
-  const key = process.env.DUFFEL_API_KEY;
+  const key = appKey('DUFFEL_API_KEY');
   if (!key) throw new DuffelError(503, 'Duffel is not configured. Use provider-site checkout.');
   return key.startsWith('duffel_test_');
 }
@@ -13,7 +14,7 @@ export async function duffel<T>(path: string, data?: unknown, correlationId?: st
   duffelTestMode();
   const response = await fetch(`https://api.duffel.com${path}`, {
     method: data === undefined ? 'GET' : 'POST',
-    headers: { Authorization: `Bearer ${process.env.DUFFEL_API_KEY}`, Accept: 'application/json', 'Content-Type': 'application/json', 'Duffel-Version': 'v2', ...(correlationId ? {'x-client-correlation-id': correlationId} : {}) },
+    headers: { Authorization: `Bearer ${appKey('DUFFEL_API_KEY')}`, Accept: 'application/json', 'Content-Type': 'application/json', 'Duffel-Version': 'v2', ...(correlationId ? {'x-client-correlation-id': correlationId} : {}) },
     body: data === undefined ? undefined : JSON.stringify({data}),
     signal: AbortSignal.timeout(60_000),
   });

@@ -15,7 +15,7 @@ if [[ -f "$HERMES_ENV" ]]; then
 fi
 
 # EAiOS-sidecar-specific env (e.g. Google Podcast API credentials).
-SIDECAR_ENV="$(dirname "$0")/../sidecar/.env"
+SIDECAR_ENV="${EAIOS_DATA_ROOT:-$(dirname "$0")/..}/sidecar/.env"
 if [[ -f "$SIDECAR_ENV" ]]; then
   set -a
   # shellcheck source=/dev/null

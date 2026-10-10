@@ -1,3 +1,5 @@
+import { keyContext, keySettings, saveKey, KeySettingsError } from './apiKeys.ts';
+import type { ApiKeyScope } from '../src/domain/apiKeys.ts';
 import { readCronPrompts } from './cronPrompts.ts';
 import { reconcileReleaseArtifact, releaseArtifact, listReleaseArtifacts } from './releaseArtifacts.ts';
 import { readConversation } from './assistantConversations.ts';
@@ -142,6 +144,9 @@ async function hermesGatewayFetch(ctx: ApiContext, path: string, init?: RequestI
 /** Route one request. Returns true when the path was handled (response
  * ended); false when the caller should continue (static/proxy/404). */
 export async function handleApiRequest(req: IncomingMessage, res: ServerResponse, ctx: ApiContext): Promise<boolean> {
+  return keyContext.run({ ...ctx, requestKeys: new Map() }, () => routeApiRequest(req, res, ctx));
+}
+async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: ApiContext): Promise<boolean> {
   const url = new URL(req.url ?? '', 'http://localhost');
   const path = url.pathname;
   const skillsRoot = join(ctx.hermesHome, 'skills');
@@ -151,6 +156,24 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if (path === '/api/settings/api-keys') {
+      res.setHeader('cache-control', 'no-store');
+      try {
+        if (req.method === 'GET') {
+          json(res, 200, JSON.stringify(keySettings(ctx, (url.searchParams.get('scope') ?? 'app') as ApiKeyScope)));
+        } else if (req.method === 'PUT') {
+          try { requireSameOriginJson(req); } catch { throw new KeySettingsError(403, 'A same-origin JSON request is required.'); }
+          let body: Record<string, unknown>;
+          try { body = await readJsonBody(req, 8192); } catch { throw new KeySettingsError(400, 'Invalid key update request.'); }
+          if (!body || Array.isArray(body)) throw new KeySettingsError(400, 'Invalid key update request.');
+          saveKey(ctx, body);
+          json(res, 200, JSON.stringify({ ok: true }));
+        } else json(res, 405, JSON.stringify({ error: 'Method not allowed.' }));
+      } catch (e) {
+        json(res, e instanceof KeySettingsError ? e.status : 503, JSON.stringify({ error: e instanceof KeySettingsError ? e.message : 'Key settings are unavailable. No key values are returned.' }));
+      }
+      return true;
+    }
 
     const conversationHistory = path.match(/^\/api\/assistant\/conversations\/([^/]+)\/history$/);
     if (conversationHistory && req.method === 'GET') {

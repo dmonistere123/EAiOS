@@ -1,3 +1,4 @@
+import { ApiKeysPanel } from '../components/ApiKeysPanel';
 /** Settings — safe config surface + allowlisted .MD/.TXT environment editor. */
 import { useEffect, useState } from 'react';
 import type { EnvironmentFile, VersionInfo } from '../domain/types';
@@ -223,10 +224,11 @@ export default function Settings() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-ink-dim">The executive-safe slice of Hermes configuration. Everything here is audited.</p>
+        <p className="mt-1 text-sm text-ink-dim">Manage your application, provider keys and Hermes configuration.</p>
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <ApiKeysPanel />
         <AllyProfileSelector />
 
         <Card className="p-5">

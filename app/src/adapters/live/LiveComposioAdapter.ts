@@ -2,7 +2,7 @@
  * LiveComposioAdapter — Composio REST (v3) via the dev proxy at /composio-api.
  * The x-api-key header is injected by the vite proxy (node-side env); the key
  * never enters the client bundle. Self-detects a missing/invalid key on first
- * call and permanently falls back to the mock adapter (graceful degradation).
+ * call and falls back to the mock adapter until reload or a credential update.
  */
 import type { AuditResult } from '../../domain/types';
 import type {
@@ -109,6 +109,9 @@ function mapAccount(a: CompAccount): Connection {
 class LiveComposioAdapter implements ComposioAdapter {
   /** once a call fails auth/network, stick to mock for the session */
   private useMock: boolean | undefined;
+  private credentialRevision = 0;
+  /** A successful Settings save lets the next read check the new credentials. */
+  resetCredentials(): void { this.credentialRevision++; this.useMock = undefined; }
 
   private async api<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`/composio-api${path}`, {
@@ -123,13 +126,11 @@ class LiveComposioAdapter implements ComposioAdapter {
   /** First call decides: live API reachable+authorized, or mock for the session. */
   private async liveOk(): Promise<boolean> {
     if (this.useMock !== undefined) return !this.useMock;
-    try {
-      await this.api('/api/v3/connected_accounts?limit=1');
-      this.useMock = false;
-    } catch {
-      this.useMock = true;
-    }
-    return !this.useMock;
+    const revision = this.credentialRevision;
+    let reachable = false;
+    try { await this.api('/api/v3/connected_accounts?limit=1'); reachable = true; } catch { /* unavailable */ }
+    if (revision === this.credentialRevision) this.useMock = !reachable;
+    return revision === this.credentialRevision && reachable;
   }
 
   async listConnections(): Promise<Connection[]> {

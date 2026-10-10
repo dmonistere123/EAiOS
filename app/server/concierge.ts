@@ -40,7 +40,7 @@ export function conciergeConfig(root: string, home: string, env = process.env) {
   const selected = PROVIDERS[provider as keyof typeof PROVIDERS];
   let fileEnv: Record<string, string | undefined> = {};
   try { fileEnv = parseEnv(boundedFile(join(home, '.env'), 1024 * 1024)); } catch { /* an environment key can suffice */ }
-  const key = env[selected.key] ?? fileEnv[selected.key];
+  const key = fileEnv[selected.key] || env[selected.key];
   if (!key || !key.trim() || /[\r\n]/.test(key)) throw new ConciergeError(503, `Concierge needs a server-side ${selected.key}. Ask your administrator to configure it securely.`);
   const revision = createHash('sha256').update(JSON.stringify([instructions, provider, model])).digest('hex');
   return { instructions, provider, model, key: key.trim(), url: selected.url, revision };

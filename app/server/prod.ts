@@ -1,3 +1,4 @@
+import { appKey } from './apiKeys.ts';
 import { reconcileReleaseArtifact } from './releaseArtifacts.ts';
 import { assistantRequests } from './assistantRequests.ts';
 /// <reference types="node" />
@@ -246,7 +247,8 @@ export function createEaiosServer(config: ProdConfig) {
         return;
       }
       if (path.startsWith('/composio-api')) {
-        await proxyHttp(req, res, 'https://backend.composio.dev', '/composio-api', config.composioKey ? { 'x-api-key': config.composioKey } : {});
+        const key = appKey('COMPOSIO_API_KEY', apiCtx, config.composioKey);
+        await proxyHttp(req, res, 'https://backend.composio.dev', '/composio-api', key ? { 'x-api-key': key } : {});
         return;
       }
       if (path.startsWith('/knowledge-api')) {

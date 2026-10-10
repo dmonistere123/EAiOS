@@ -41,9 +41,9 @@ describe('app-owned Concierge provider boundary', () => {
     expect(conciergeInfo(root, root)).toEqual({ revision: request.revision, provider: 'openrouter', model: 'google/gemini-2.5-flash-lite' });
     expect(JSON.stringify(conciergeInfo(root, root))).not.toContain('fixture-key');
   });
-  it('uses explicit paired overrides and matching server credentials, never arbitrary endpoints', async () => {
+  it('uses explicit paired overrides and saved credentials ahead of stale environment keys, never arbitrary endpoints', async () => {
     vi.stubEnv('EAIOS_CONCIERGE_PROVIDER', 'openai'); vi.stubEnv('EAIOS_CONCIERGE_MODEL', 'gpt-5.5'); vi.stubEnv('OPENAI_API_KEY', 'environment-key');
-    const config = conciergeConfig(root, root); expect(config.provider).toBe('openai'); expect(config.key).toBe('environment-key');
+    const config = conciergeConfig(root, root); expect(config.provider).toBe('openai'); expect(config.key).toBe('other-fixture-key');
     await conciergeReply(root, root, body(), controller().signal);
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('https://api.openai.com/v1/chat/completions');
   });
