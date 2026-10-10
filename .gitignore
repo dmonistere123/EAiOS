@@ -24,3 +24,6 @@ travel-data/
 
 # Durable private Assistant request receipts (under EAIOS_DATA_ROOT).
 assistant-requests/
+
+# Persistent private Social Media drafts and images
+social-data/

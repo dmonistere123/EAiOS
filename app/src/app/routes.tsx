@@ -9,6 +9,7 @@ import Schedule from '../pages/Schedule';
 import Travel from '../pages/Travel';
 import Knowledge from '../pages/Knowledge';
 import Podcasts from '../pages/Podcasts';
+import SocialMedia from '../pages/SocialMedia';
 import Skills from '../pages/Skills';
 import Artifacts from '../pages/Artifacts';
 import Usage from '../pages/Usage';
@@ -30,6 +31,7 @@ export const router = createBrowserRouter([
       { path: 'travel', element: <Travel /> },
       { path: 'knowledge', element: <Knowledge /> },
       { path: 'podcasts', element: <Podcasts /> },
+      { path: 'social', element: <SocialMedia /> },
       { path: 'skills', element: <Skills /> },
       { path: 'artifacts', element: <Artifacts /> },
       { path: 'usage', element: <Usage /> },

@@ -37,7 +37,7 @@ export function resetPanePrefs() {
   window.location.reload();
 }
 
-const NAV = [
+const NAV: { to: string; label: string; icon: string; external?: boolean }[] = [
   { to: '/today', label: 'Today', icon: '☀' },
   { to: '/assistant', label: 'My Assistant', icon: '◈' },
   { to: '/staff', label: 'Staff', icon: '⛁' },
@@ -47,7 +47,7 @@ const NAV = [
   { to: '/travel', label: 'Travel (RM)', icon: '✈' },
   { to: '/knowledge', label: 'Knowledge', icon: '❖' },
   { to: '/podcasts', label: 'Podcasts', icon: '❚❚' },
-  { to: 'https://vistasocial.com/dashboard', label: 'Social Media', icon: '↗', external: true },
+  { to: '/social', label: 'Social Media', icon: '↗' },
   { to: '/skills', label: 'Skills & Playbooks', icon: '⚒' },
   { to: '/artifacts', label: 'Artifacts', icon: '▤' },
   { to: '/usage', label: 'Usage', icon: '◔' },

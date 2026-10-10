@@ -67,7 +67,7 @@ function mapToolkit(t: CompToolkit): AvailableApp {
   const managed = (t.composio_managed_auth_schemes ?? []).length > 0;
   return {
     slug: t.slug ?? 'unknown',
-    name: t.name ?? t.slug ?? 'Unknown',
+    name: t.slug === 'twitter' ? 'X (Twitter)' : t.slug === 'snapchat' ? 'Snapchat Ads' : t.name ?? t.slug ?? 'Unknown',
     description: t.meta?.description ?? '',
     logoUrl: t.meta?.logo,
     toolsCount: t.meta?.tools_count ?? 0,
@@ -143,14 +143,25 @@ class LiveComposioAdapter implements ComposioAdapter {
     }
   }
 
+  /** Follow opaque cursors: client-side filtering must search the whole catalog. */
+  private async allPages<T>(path: string): Promise<T[]> {
+    const rows: T[] = [], seen = new Set<string>();
+    let cursor: string | undefined;
+    for (let page = 0; page < 64; page++) {
+      const raw = await this.api<{ items?: T[]; next_cursor?: string | null }>(path + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''));
+      rows.push(...asArray<T>(raw));
+      const next = raw.next_cursor;
+      if (!next) return rows;
+      if (typeof next !== 'string' || seen.has(next)) throw new Error('The connection catalog returned an invalid page. Refresh and try again.');
+      seen.add(next); cursor = next;
+    }
+    throw new Error('The connection catalog exceeded its page limit.');
+  }
+
   async listAvailableApps(): Promise<AvailableApp[]> {
     if (!(await this.liveOk())) return mock.listAvailableApps();
-    try {
-      const raw = await this.api<unknown>('/api/v3/toolkits?limit=100');
-      return asArray<CompToolkit>(raw).map(mapToolkit);
-    } catch {
-      return mock.listAvailableApps();
-    }
+    const rows = await this.allPages<CompToolkit>('/api/v3/toolkits?limit=100');
+    return [...new Map(rows.map(t => [t.slug, mapToolkit(t)])).values()];
   }
 
   /**
@@ -168,16 +179,15 @@ class LiveComposioAdapter implements ComposioAdapter {
     try {
       const apps = await this.listAvailableApps();
       const app = apps.find((a) => a.slug === appKey);
-      if (app?.authKind === 'bring_own_auth') {
-        return { flowId: `link-${appKey}`, authUrl: undefined, note: `${app.name} needs a custom auth config on the Composio account first (one-time setup).` };
-      }
       // Reuse or create the managed auth config. DOGFOOD FIX (2026-08-29):
       // Composio IGNORES ?toolkit= (returns every config — connecting
       // LinkedIn reused Gmail's config and connected Gmail 3×). The working
       // filter is ?toolkit_slug=, AND we still require the config's own
       // toolkit to match appKey before reuse — belt and suspenders.
-      const existing = asArray<CompAuthConfig>(await this.api<unknown>(`/api/v3/auth_configs?toolkit_slug=${encodeURIComponent(appKey)}`));
-      const reusable = existing.find((c) => c.is_composio_managed && configToolkitSlug(c) === appKey);
+      const existing = await this.allPages<CompAuthConfig>(`/api/v3/auth_configs?toolkit_slug=${encodeURIComponent(appKey)}&limit=100`);
+      const matching = existing.filter(c => configToolkitSlug(c) === appKey && (app?.authKind === 'bring_own_auth' ? !c.is_composio_managed : c.is_composio_managed));
+      if (app?.authKind === 'bring_own_auth' && matching.length !== 1) return { flowId: `setup-${appKey}`, note: matching.length > 1 ? 'Multiple custom configurations exist. Choose the intended configuration in Composio before connecting.' : `${app?.name ?? appKey} needs a custom auth config in Composio using your developer credentials. After creating it, return here and choose Set up / connect.` };
+      const reusable = matching[0];
       let configId = reusable?.id ?? reusable?.nanoid;
       if (!configId) {
         const created = await this.api<{ auth_config?: CompAuthConfig }>('/api/v3/auth_configs', {

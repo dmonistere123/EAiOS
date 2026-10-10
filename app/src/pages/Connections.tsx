@@ -25,6 +25,7 @@ export default function Connections() {
   const [testResult, setTestResult] = useState<Record<string, { ok: boolean; text: string }>>({});
   const [catalog, setCatalog] = useState<AvailableApp[]>([]);
   const [query, setQuery] = useState('');
+  const [catalogError, setCatalogError] = useState('');
   const [connecting, setConnecting] = useState<string | null>(null);
   const [confirmDisconnect, setConfirmDisconnect] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export default function Connections() {
   };
   useEffect(reloadConnections, []);
   useEffect(() => {
-    void composio.listAvailableApps().then(setCatalog);
+    void composio.listAvailableApps().then(setCatalog).catch(e => setCatalogError(e instanceof Error ? e.message : 'Catalog unavailable.'));
   }, []);
 
   const cronFor = (c: Connection) => s.cron.filter((j) => c.dependentCronJobIds.includes(j.id));
@@ -99,6 +100,7 @@ export default function Connections() {
               className="w-full rounded-lg border border-edge bg-canvas px-2.5 py-1.5 text-xs text-ink placeholder:text-ink-faint"
             />
             <ul className="space-y-1">
+              {catalogError && <li role="alert" className="text-xs text-risk">{catalogError}</li>}
               {filteredCatalog.map((a) => {
                 const connected = connectedSlugs.has(a.slug);
                 const badge = authBadge[a.authKind];
@@ -119,16 +121,19 @@ export default function Connections() {
                       </span>
                       {connected ? (
                         <span className="text-[10px] font-medium text-ok">connected</span>
-                      ) : a.authKind === 'composio_managed' ? (
+                      ) : a.authKind !== 'no_auth' ? (
                         <button
                           onClick={() => void connect(a)}
                           disabled={connecting === a.slug}
                           className="rounded-md bg-signal/15 px-2 py-0.5 text-[10px] font-semibold text-signal hover:bg-signal/25 disabled:opacity-50"
                         >
-                          {connecting === a.slug ? 'Linking…' : 'Connect'}
+                          {connecting === a.slug ? 'Linking…' : a.authKind === 'bring_own_auth' ? 'Set up / connect' : 'Connect'}
                         </button>
                       ) : null}
                     </div>
+                    {a.slug === 'twitter' && <p className="mt-2 pl-7 text-xs text-ink-dim">Requires an X developer app and a custom Composio auth configuration.</p>}
+                    {a.slug === 'snapchat' && <p className="mt-2 pl-7 text-xs text-ink-dim">Advertising connector. Connecting this does not enable regular Story publishing.</p>}
+                    {a.authKind === 'bring_own_auth' && <a className="mt-1 block pl-7 text-xs text-signal" href="https://dashboard.composio.dev" target="_blank" rel="noopener noreferrer">Open Composio setup ↗</a>}
                   </li>
                 );
               })}
@@ -144,7 +149,7 @@ export default function Connections() {
         ),
       },
     ],
-    [filteredCatalog, query, connecting, connectedSlugs],
+    [filteredCatalog, query, connecting, connectedSlugs, catalogError],
   );
   usePageRail(railSections);
 

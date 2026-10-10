@@ -1,3 +1,5 @@
+import { socialBoard, socialStore, SocialError } from './socialStore.ts';
+import { socialCapabilities, manualSocial, generateSocial, editSocial, generateSocialImage } from './social.ts';
 import { keyContext, keySettings, saveKey, KeySettingsError } from './apiKeys.ts';
 import type { ApiKeyScope } from '../src/domain/apiKeys.ts';
 import { readCronPrompts } from './cronPrompts.ts';
@@ -156,6 +158,30 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if (path === '/api/social' || path.startsWith('/api/social/')) {
+      res.setHeader('cache-control', 'no-store');
+      try {
+        if (req.method === 'GET' && path === '/api/social') {
+          json(res, 200, JSON.stringify(socialBoard(dataRoot)));
+        } else if (req.method === 'GET' && path === '/api/social/capabilities') {
+          json(res, 200, JSON.stringify(socialCapabilities(ctx)));
+        } else if (req.method === 'GET' && /^\/api\/social\/images\/[a-f0-9-]{36}$/.test(path)) {
+          const row = socialStore(dataRoot, db => db.prepare('SELECT data FROM images WHERE id=?').get(path.split('/').at(-1)!)) as {data: Uint8Array} | undefined;
+          if (!row) throw new SocialError(404, 'Image not found.');
+          res.setHeader('content-type', 'image/png'); res.setHeader('x-content-type-options', 'nosniff'); res.end(Buffer.from(row.data));
+        } else if (req.method === 'POST' || req.method === 'PUT') {
+          try { requireSameOriginJson(req); } catch { throw new SocialError(403, 'A same-origin JSON request is required.'); }
+          const body = await readJsonBody(req, 64000);
+          const match = path.match(/^\/api\/social\/posts\/([a-f0-9-]{36})(\/image)?$/);
+          if (req.method === 'POST' && path === '/api/social/generate') json(res, 200, JSON.stringify(await generateSocial(ctx, body)));
+          else if (req.method === 'POST' && path === '/api/social/manual') json(res, 200, JSON.stringify(manualSocial(ctx, body)));
+          else if (req.method === 'POST' && match?.[2]) json(res, 200, JSON.stringify(await generateSocialImage(ctx, match[1], body)));
+          else if (req.method === 'PUT' && match && !match[2]) json(res, 200, JSON.stringify(editSocial(dataRoot, match[1], body)));
+          else throw new SocialError(404, 'Unknown Social Media action.');
+        } else throw new SocialError(405, 'Method not supported.');
+      } catch (e) { json(res, e instanceof SocialError ? e.status : 500, JSON.stringify({ error: e instanceof SocialError ? e.message : 'Social Media could not complete this request.' })); }
+      return true;
+    }
     if (path === '/api/settings/api-keys') {
       res.setHeader('cache-control', 'no-store');
       try {

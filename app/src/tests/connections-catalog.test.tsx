@@ -80,12 +80,12 @@ describe('catalog rail (D-B4)', () => {
     await vi.waitFor(() => expect(open).toHaveBeenCalledWith('https://connect.composio.dev/link/mock-slack', '_blank', 'noopener'), { timeout: 5000 });
   });
 
-  it('bring-own-auth apps show Needs setup with no Connect button; no-auth apps show No account', async () => {
+  it('bring-own-auth apps offer setup; no-auth apps show No account', async () => {
     renderAt('/connections');
     await screen.findByText('Available to connect');
     const wp = await catalogRow('WordPress');
     expect(within(wp).getByText('Needs setup')).toBeInTheDocument();
-    expect(within(wp).queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
+    expect(within(wp).getByRole('button', { name: 'Set up / connect' })).toBeInTheDocument();
     const hn = await catalogRow('Hacker News');
     expect(within(hn).getByText('No account')).toBeInTheDocument();
     expect(within(hn).queryByRole('button', { name: 'Connect' })).not.toBeInTheDocument();
