@@ -56,8 +56,19 @@ describe('catalog rail (D-B4)', () => {
     for (const name of ['Slack', 'Notion', 'GitHub', 'Hacker News']) {
       expect(await catalogRow(name)).toBeInTheDocument();
     }
-    // an already-connected app is marked, not offered again
+    // Connected apps remain available for adding another account
     expect(within(await catalogRow('Gmail')).getByText('connected')).toBeInTheDocument();
+  });
+
+  it('allows another account without disconnecting the existing one', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const disconnect = vi.spyOn(composio, 'disconnect');
+    const user = userEvent.setup();
+    renderAt('/connections');
+    await user.click(await within(await catalogRow('Gmail')).findByRole('button', { name: 'Add another account' }));
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith('https://connect.composio.dev/link/mock-gmail', '_blank', 'noopener'), { timeout: 5000 });
+    expect(disconnect).not.toHaveBeenCalled();
+    expect((await screen.findAllByText('don@allygnment.com')).length).toBeGreaterThan(0);
   });
 
   it('search filters the catalog client-side', async () => {

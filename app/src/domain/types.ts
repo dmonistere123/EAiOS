@@ -89,6 +89,8 @@ export interface EvidenceRef {
 }
 
 export interface Approval {
+  humanDelegation?: {id:string};
+  mailReply?: {senderEmail:string;recipientEmail:string;sourceConnectionId?:string;sourceMessageId?:string;senderConnectionId?:string;body?:string};
   /** Exact reviewed envelope for optimistic concurrency, never an execution token. */
   reviewVersion?: string;
   id: string;

@@ -1,3 +1,4 @@
+import { HumanAssistantPanel } from '../components/HumanAssistantPanel';
 import { ApiKeysPanel } from '../components/ApiKeysPanel';
 /** Settings — safe config surface + allowlisted .MD/.TXT environment editor. */
 import { useEffect, useState } from 'react';
@@ -228,6 +229,7 @@ export default function Settings() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <HumanAssistantPanel />
         <ApiKeysPanel />
         <AllyProfileSelector />
 

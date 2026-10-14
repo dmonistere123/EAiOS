@@ -1,3 +1,9 @@
+import { bindReplyApproval, decideReplyApproval, listReplySources } from './mailReplies.ts';
+import { changeHumanSender, taskAttachments, submitHumanApproval, humanApprovals, decideHumanApproval, updateHumanStatus } from './humanApproval.ts';
+import { prepareHumanDraft } from './humanDelegation.ts';
+import { requireReviewedSender } from '../src/domain/mailRouting.ts';
+import { mailboxChoices, mailSettings, saveMailSettings, verifyMailbox } from './mailRouting.ts';
+import { HumanDelegationError, listHumanContacts, createHumanContact, updateHumanContact, listHumanDelegations, getHumanDelegation } from './humanDelegation.ts';
 import { socialBoard, socialStore, SocialError } from './socialStore.ts';
 import { socialCapabilities, manualSocial, generateSocial, editSocial, generateSocialImage } from './social.ts';
 import { keyContext, keySettings, saveKey, KeySettingsError } from './apiKeys.ts';
@@ -158,6 +164,52 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if (path === '/api/mail-routing' || path === '/api/mail-routing/choices' || path === '/api/mail-routing/messages') {
+      res.setHeader('cache-control','no-store');
+      try {
+        if(req.method==='GET') json(res,200,JSON.stringify(path.endsWith('/choices')?await mailboxChoices(ctx):path.endsWith('/messages')?await listReplySources(ctx,url.searchParams.get('connectionId')??'',url.searchParams.get('subject')??''):mailSettings(ctx.hermesHome)));
+        else if(req.method==='PUT' && path==='/api/mail-routing') {
+          try {requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
+          json(res,200,JSON.stringify(await saveMailSettings(ctx,await readJsonBody(req,4000))));
+        } else throw new HumanDelegationError(405,'Method not supported.');
+      } catch(e){json(res,e instanceof HumanDelegationError?e.status:503,JSON.stringify({error:e instanceof HumanDelegationError?e.message:'Mailbox settings are unavailable.'}));}
+      return true;
+    }
+    if (path === '/api/human-contacts' || path.startsWith('/api/human-contacts/') || path === '/api/human-delegations' || path.startsWith('/api/human-delegations/')) {
+      res.setHeader('cache-control','no-store');
+      try {
+        const contactRoute=path.match(/^\/api\/human-contacts\/(hc_[a-f0-9-]{36})$/);
+        const delegationRoute=path.match(/^\/api\/human-delegations\/(hd_[a-f0-9-]{36})$/);
+        const actionRoute=path.match(/^\/api\/human-delegations\/(hd_[a-f0-9-]{36})\/(submit|decision|status|sender)$/);
+        if(req.method==='GET' && path==='/api/human-delegations/approvals') json(res,200,JSON.stringify(humanApprovals(ctx.hermesHome)));
+        else if(req.method==='GET' && path==='/api/human-delegations/attachments') json(res,200,JSON.stringify(taskAttachments(ctx.hermesHome,url.searchParams.get('taskId')??'')));
+        else if(req.method==='POST' && actionRoute){
+          try{requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
+          const input=await readJsonBody(req,16000);
+          json(res,200,JSON.stringify(actionRoute[2]==='sender'?await changeHumanSender(ctx,actionRoute[1],input):actionRoute[2]==='submit'?await submitHumanApproval(ctx,actionRoute[1],input):actionRoute[2]==='status'?updateHumanStatus(ctx.hermesHome,actionRoute[1],input):await decideHumanApproval(ctx,actionRoute[1],input)));
+        }
+        else if(req.method==='GET' && path==='/api/human-contacts') json(res,200,JSON.stringify(listHumanContacts(ctx.hermesHome)));
+        else if(req.method==='GET' && path==='/api/human-delegations') json(res,200,JSON.stringify(listHumanDelegations(ctx.hermesHome)));
+        else if(req.method==='GET' && delegationRoute) json(res,200,JSON.stringify(getHumanDelegation(ctx.hermesHome,delegationRoute[1])));
+        else if(req.method==='POST' && path==='/api/human-delegations/drafts') {
+          try {requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
+          const input=await readJsonBody(req,16000);
+          const expected=mailSettings(ctx.hermesHome).delegationSender;
+          if(!expected)throw new HumanDelegationError(409,'Choose a Human EA sender in Settings first.');
+          const current=await verifyMailbox(ctx,expected.connectionId);
+          try {requireReviewedSender(expected,current);}catch{throw new HumanDelegationError(409,'The configured sender changed. Review it in Settings.');}
+          json(res,201,JSON.stringify(prepareHumanDraft(ctx.hermesHome,input,current)));
+        }
+        else if((req.method==='POST' && path==='/api/human-contacts') || (contactRoute && ['PATCH','DELETE'].includes(req.method??''))) {
+          try {requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
+          const body=await readJsonBody(req,12000);
+          if(!body || Array.isArray(body))throw new HumanDelegationError(400,'Invalid contact request.');
+          const result=contactRoute?updateHumanContact(ctx.hermesHome,contactRoute[1],body,req.method==='DELETE'):createHumanContact(ctx.hermesHome,body);
+          json(res,req.method==='POST'?201:200,JSON.stringify(result));
+        } else throw new HumanDelegationError(405,'Human email delegation is not enabled yet. No email was sent.');
+      } catch(e) {json(res,e instanceof HumanDelegationError?e.status:500,JSON.stringify({error:e instanceof HumanDelegationError?e.message:'Human assistant storage could not complete this request.'}));}
+      return true;
+    }
     if (path === '/api/social' || path.startsWith('/api/social/')) {
       res.setHeader('cache-control', 'no-store');
       try {
@@ -479,11 +531,17 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
     /* kanban board read (dogfood 2026-08-29: cli.exec truncates at 48000
      * chars — this endpoint is the truncation-proof board read; short cache
      * because the board is the app's most-polled slice) */
+    const mailPreparation=path.match(/^\/api\/kanban\/approvals\/([^/]+)\/prepare-mail$/);
+    if(mailPreparation&&req.method==='POST'){
+      try{requireSameOriginJson(req);const result=await bindReplyApproval(ctx,decodeURIComponent(mailPreparation[1]),await readJsonBody(req,120000));kanbanCache=undefined;json(res,200,JSON.stringify(result));}
+      catch(e){json(res,e instanceof HumanDelegationError?e.status:400,JSON.stringify({error:e instanceof HumanDelegationError?e.message:'Could not verify this reply. Check the mailbox and original message.'}));}return true;
+    }
     const approvalDecision = path.match(/^\/api\/kanban\/approvals\/([^/]+)\/decision$/);
     if (approvalDecision && req.method === 'POST') {
       try {
         requireSameOriginJson(req);
-        const result = decideApprovalTask(join(ctx.hermesHome, 'kanban.db'), decodeURIComponent(approvalDecision[1]), await readJsonBody(req));
+        const input=await readJsonBody(req);
+        const result = await decideReplyApproval(ctx,decodeURIComponent(approvalDecision[1]),input) ?? decideApprovalTask(join(ctx.hermesHome, 'kanban.db'), decodeURIComponent(approvalDecision[1]), input);
         kanbanCache = undefined;
         json(res, 200, JSON.stringify(result));
       } catch (e) {

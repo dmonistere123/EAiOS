@@ -1,3 +1,4 @@
+import { HumanWorkStatus } from '../components/HumanWorkStatus';
 /** Staff — the AI agent workforce. Status is runtime-driven, never decorative.
  * W3: org visualization (Ally hub, radial staff, working = pulse) with the
  * pre-W3 grid kept as the List toggle; selecting an agent opens its
@@ -5,7 +6,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Agent } from '../domain/types';
 import type { ModelOptionGroup } from '../adapters/interfaces';
-import { hermes } from '../adapters';
+import { hermes, humanDirectory, humanDelegation } from '../adapters';
+import type { HumanContact, HumanDelegation } from '../domain/humanDelegation';
+import { HumanStaffForm, HumanAvatar } from '../components/HumanStaffForm';
 import { useRuntime, refreshAgents, toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
@@ -27,7 +30,8 @@ export function slugify(raw: string): string {
     .replace(/^(\d)/, 'a$1'); // ids must start with a letter
 }
 
-function AddAgentDrawer({ onClose }: { onClose: () => void }) {
+function AddAgentDrawer({ onClose, onHumanSaved }: { onClose: () => void; onHumanSaved:(c:HumanContact)=>void }) {
+  const [kind,setKind]=useState<'ai'|'human'>('ai');
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [catalog, setCatalog] = useState<ModelOptionGroup[] | null>(null);
@@ -91,7 +95,8 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
 
   return (
     <Drawer title="Add agent" onClose={onClose} width={460}>
-      <div className="space-y-4">
+      <div className="mb-4 flex gap-2" role="group" aria-label="Agent type">{(['ai','human'] as const).map(t=><button key={t} onClick={()=>setKind(t)} aria-pressed={kind===t} className={`rounded-lg border px-4 py-2 text-sm ${kind===t?'border-signal bg-signal/15 text-signal':'border-edge text-ink-dim'}`}>{t==='ai'?'AI agent':'Human agent'}</button>)}</div>
+      {kind==='human'?<HumanStaffForm onSaved={onHumanSaved}/>:<div className="space-y-4">
         <p className="text-xs text-ink-dim">
           Creates a new Hermes profile — a real staff agent that can infer out of the box (credentials mirror from the default profile). Config write: audited, no approval needed.
         </p>
@@ -179,6 +184,7 @@ function AddAgentDrawer({ onClose }: { onClose: () => void }) {
         </button>
         {disabledReason && !busy && <p className="text-[11px] text-ink-faint">{disabledReason}</p>}
       </div>
+      }
     </Drawer>
   );
 }
@@ -464,6 +470,14 @@ export default function Staff() {
   const [view, setView] = useState<'org' | 'list'>('org');
   const [selected, setSelected] = useState<Agent | null>(null);
   const [adding, setAdding] = useState(false);
+  const [humans,setHumans]=useState<HumanContact[]>([]);
+  const [humanJobs,setHumanJobs]=useState<HumanDelegation[]>([]);
+  const [humanError,setHumanError]=useState('');
+  const [selectedHuman,setSelectedHuman]=useState<HumanContact|null>(null);
+  useEffect(()=>{Promise.all([humanDirectory.listContacts(),humanDelegation.list()]).then(([c,d])=>{setHumans(c);setHumanJobs(d);}).catch(()=>setHumanError('Human staff directory is unavailable. AI staff remain available.'));},[]);
+  const saveHuman=(c:HumanContact)=>{setHumans(rows=>[...rows.filter(r=>r.id!==c.id),c]);setHumanError('');setAdding(false);setSelectedHuman(null);toast('ok',`${c.displayName} saved. No email sent.`);};
+  const selectHuman=(c:HumanContact)=>{setSelected(null);setSelectedHuman(c);};
+
 
   const agents = useMemo(() => s.agents.filter(FILTERS.find((f) => f.id === filter)!.match), [s.agents, filter]);
   const workTitle = (id?: string) => s.work.find((w) => w.id === id)?.title;
@@ -522,14 +536,14 @@ export default function Staff() {
   }, [selected, selectedName, channel]);
   usePageRail(railSections);
 
-  const selectAgent = (a: Agent) => setSelected((cur) => (cur?.id === a.id ? null : a));
+  const selectAgent = (a: Agent) => {setSelectedHuman(null);setSelected((cur) => (cur?.id === a.id ? null : a));};
 
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Staff</h1>
-          <p className="mt-1 text-sm text-ink-dim">Your AI workforce. Status lights reflect live runtime state. Select an agent for its channel.</p>
+          <p className="mt-1 text-sm text-ink-dim">Your AI and human staff, coordinated by Ally. Select a staff member for details.</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5" role="tablist" aria-label="Staff view">
@@ -568,7 +582,7 @@ export default function Staff() {
       </header>
 
       {view === 'org' ? (
-        <OrgChart agents={orgAgents} selectedId={selected?.id} onSelect={selectAgent} />
+        <OrgChart agents={orgAgents} selectedId={selected?.id} onSelect={selectAgent} humans={humans.filter(c=>c.active)} selectedHumanId={selectedHuman?.id} onSelectHuman={selectHuman} activeHumanIds={humanJobs.filter(d=>['awaiting_acceptance','accepted','in_progress','blocked','no_response'].includes(d.status)).map(d=>d.contactId)} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {agents.map((a) => (
@@ -601,8 +615,11 @@ export default function Staff() {
         </div>
       )}
 
+      {humanError&&<p role="status" className="text-xs text-warn">{humanError}</p>}
+      {view==='list'&&humans.some(c=>c.active)&&<section aria-label="Human staff" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{humans.filter(c=>c.active).map(c=><button key={c.id} className="text-left" onClick={()=>selectHuman(c)}><Card className="space-y-2 p-5"><HumanAvatar/><strong>{c.displayName}</strong><p className="text-xs text-ink-dim">{c.title||'Human assistant'}</p><p className="text-xs text-ink-dim">{c.email}</p><StateBadge label="Human" tone="neutral"/></Card></button>)}</section>}
+      {selectedHuman&&<Drawer title={`${selectedHuman.displayName} — human staff`} onClose={()=>setSelectedHuman(null)}><HumanStaffForm key={selectedHuman.id+':'+selectedHuman.revision} contact={selectedHuman} onSaved={saveHuman}/><h3 className="mt-6 text-sm font-semibold">Delegated work</h3>{humanJobs.filter(d=>d.contactId===selectedHuman.id).length===0?<p className="mt-2 text-sm text-ink-dim">No delegated work yet.</p>:<ul className="mt-2 space-y-2">{humanJobs.filter(d=>d.contactId===selectedHuman.id).map(d=><li key={d.id} className="rounded border border-edge p-3 text-sm">{s.work.find(w=>w.id===d.workItemId)?.title??d.workItemId}<HumanWorkStatus delegation={d} onChange={updated=>setHumanJobs(rows=>rows.map(r=>r.id===updated.id?updated:r))}/></li>)}</ul>}</Drawer>}
       {selected && <AgentPropertiesDrawer agent={s.agents.find((x) => x.id === selected.id) ?? selected} onClose={() => setSelected(null)} />}
-      {adding && <AddAgentDrawer onClose={() => setAdding(false)} />}
+      {adding && <AddAgentDrawer onClose={() => setAdding(false)} onHumanSaved={saveHuman} />}
     </div>
   );
 }

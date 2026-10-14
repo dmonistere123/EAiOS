@@ -1,0 +1,8 @@
+import { useState } from 'react';
+import { humanDelegation } from '../adapters';
+import type { HumanDelegation } from '../domain/humanDelegation';
+const next:Record<string,string[]>={draft:['cancelled'],pending_approval:['cancelled'],awaiting_acceptance:['accepted','declined','blocked','cancelled'],accepted:['in_progress','blocked','completed','cancelled'],in_progress:['blocked','completed','cancelled'],blocked:['in_progress','completed','cancelled']};
+export function HumanWorkStatus({delegation,onChange}:{delegation:HumanDelegation;onChange:(d:HumanDelegation)=>void}){
+ const [busy,setBusy]=useState(false),[error,setError]=useState('');
+ return <div className="mt-2 space-y-2"><p className="text-xs text-ink-dim">{delegation.status.replaceAll('_',' ')}</p>{delegation.status==='delivery_uncertain'&&<p className="text-xs text-warn">Check the sender’s Sent mail. No automatic retry will occur.</p>}<div>{delegation.receipt&&<p className="break-all text-xs text-ink-faint">Provider confirmation: {delegation.receipt.id}</p>}{delegation.deliveryError&&<p className="text-xs text-warn">{delegation.deliveryError}</p>}</div><div className="flex flex-wrap gap-2">{(next[delegation.status]??[]).map(status=><button key={status} disabled={busy} className="rounded border border-edge px-2 py-1 text-xs text-signal disabled:opacity-50" onClick={()=>{setBusy(true);setError('');void humanDelegation.status(delegation.id,delegation.revision,status).then(onChange).catch(e=>setError(e.message)).finally(()=>setBusy(false));}}>{status==='cancelled'?'Cancel delegation':'Mark '+status.replaceAll('_',' ')}</button>)}</div>{error&&<p role="alert" className="text-xs text-risk">{error}</p>}</div>;
+}

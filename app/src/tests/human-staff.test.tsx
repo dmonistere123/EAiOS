@@ -1,0 +1,30 @@
+import {afterEach,beforeAll,expect,it,vi} from 'vitest';
+import {render,screen,within} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {MemoryRouter} from 'react-router-dom';
+import Staff from '../pages/Staff';
+import {humanDirectory,humanDelegation,hermes} from '../adapters';
+import {startRuntime} from '../state/runtime';
+const contact={id:'hc_person',displayName:'Jane Human',email:'jane@example.com',title:'Executive assistant',active:true,revision:1,createdAt:'2026-10-14',updatedAt:'2026-10-14'};
+beforeAll(()=>startRuntime());
+afterEach(()=>vi.restoreAllMocks());
+it('adds human staff through Add agent, asks human fields, and places them in the orbit without creating an AI profile',async()=>{
+ vi.spyOn(humanDirectory,'listContacts').mockResolvedValue([]);vi.spyOn(humanDelegation,'list').mockResolvedValue([]);
+ const save=vi.spyOn(humanDirectory,'createContact').mockResolvedValue(contact),ai=vi.spyOn(hermes,'createAgent');
+ render(<MemoryRouter><Staff/></MemoryRouter>);const user=userEvent.setup();
+ await user.click(screen.getByRole('button',{name:'+ Add agent'}));await user.click(screen.getByRole('button',{name:'Human agent'}));
+ expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();expect(screen.queryByLabelText('Telegram bot token (optional)')).not.toBeInTheDocument();
+ await user.type(screen.getByLabelText('Full name *'),'Jane Human');await user.type(screen.getByLabelText('Email for delegations *'),'jane@example.com');await user.type(screen.getByLabelText('Role / responsibilities'),'Executive assistant');
+ expect(screen.getByLabelText('Organization')).toBeInTheDocument();expect(screen.getByLabelText('Phone (optional)')).toBeInTheDocument();expect(screen.getByLabelText('Time zone')).toBeInTheDocument();
+ await user.click(screen.getByRole('button',{name:'Add human agent'}));
+ const node=await screen.findByRole('button',{name:'Jane Human, human assistant'});expect(node.closest('.eaios-orbit-counter')).not.toBeNull();
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({displayName:'Jane Human',email:'jane@example.com',title:'Executive assistant'}));expect(ai).not.toHaveBeenCalled();
+ await user.click(node);expect(await screen.findByDisplayValue('jane@example.com')).toBeInTheDocument();expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();
+});
+it('shows the human activity ring only for confirmed active delegation states',async()=>{
+ vi.spyOn(humanDirectory,'listContacts').mockResolvedValue([contact]);vi.spyOn(humanDelegation,'list').mockResolvedValue([{id:'hd_job',contactId:contact.id,workItemId:'t_work',status:'in_progress',instructions:'',revision:1,createdAt:'now',updatedAt:'now'}]);
+ render(<MemoryRouter><Staff/></MemoryRouter>);const node=await screen.findByRole('button',{name:'Jane Human, human assistant'});
+ expect(node.querySelector('.animate-spin')).not.toBeNull();expect(node.querySelector('.motion-reduce\\:animate-none')).not.toBeNull();
+ await userEvent.setup().click(node);expect(await screen.findByText('in progress')).toBeInTheDocument();
+ expect(within(screen.getByRole('group',{name:'Org chart'})).getByText('Orchestrator Agent')).toBeInTheDocument();
+});

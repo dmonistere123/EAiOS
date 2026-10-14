@@ -54,6 +54,7 @@ export function decideApprovalTask(path: string, id: string, input: Record<strin
     if (task.body !== input.expectedBody) fail('The draft changed since you reviewed it. Refresh and review it again.');
     idle(task);
     if (decision === 'approved') {
+      if(env.actionType==='send'&&/gmail|outlook|microsoft|email|e-mail|smtp/i.test(String(env.targetSystem)))fail('Email approvals require verified mailbox routing and the dedicated mail sender.');
       if (!isAwaitingApproval(task)) fail('Resolve the execution blocker before approving this task.');
       if (typeof env.requestedBy !== 'string' || !env.requestedBy.trim()) fail('No requesting agent is specified. Keep the draft blocked until it is corrected.');
       if (typeof env.payload !== 'string' || !env.payload.trim()) fail('The draft has no prepared content to approve.');

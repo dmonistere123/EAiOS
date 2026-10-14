@@ -1,3 +1,4 @@
+import { HumanDelegationForm } from './HumanDelegationForm';
 /**
  * NewDelegationDrawer (dogfood 2026-08-29) — create a task on the fly from
  * Today or Schedule. Assigned tasks are auto-executed by the kanban
@@ -12,6 +13,9 @@ import type { WorkItem } from '../domain/types';
 
 export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
   const s = useRuntime();
+  const [human,setHuman]=useState(false);
+  const [createdTask,setCreatedTask]=useState<string>();
+  const [createdWithoutId,setCreatedWithoutId]=useState(false);
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const [priority, setPriority] = useState<WorkItem['priority']>('medium');
@@ -26,10 +30,16 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
       title: title.trim(),
       ...(summary.trim() ? { summary: summary.trim() } : {}),
       priority,
-      ...(agentId ? { agentId } : {}),
+      ...(!human && agentId ? { agentId } : {}),
     });
     setBusy(false);
     if (res.ok) {
+      if(human){
+        await refreshWork();
+        if(res.id)setCreatedTask(res.id);
+        else {setCreatedWithoutId(true);setError('Task created, but its reference was not returned. Reopen it from Today instead of creating it again.');}
+        return;
+      }
       toast('ok', agentId ? `Task created and delegated to ${agentName(s, agentId)}.` : 'Task created — it’s in your queue to delegate when ready.');
       await refreshWork();
       onClose();
@@ -43,7 +53,8 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
       <p className="text-sm text-ink-dim">
         Create a task on the fly. Assign it now and the agent picks it up automatically; leave it unassigned and it waits in your queue as a potential delegation.
       </p>
-      <div className="mt-4 space-y-4">
+      {createdTask?<HumanDelegationForm workItemId={createdTask}/>:<div className="mt-4 space-y-4">
+        <label className="block text-sm"><input type="checkbox" disabled={busy} checked={human} onChange={e=>setHuman(e.target.checked)}/> Prepare for a human assistant (creates an unassigned task)</label>
         <div>
           <label htmlFor="nd-title" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Title</label>
           <input
@@ -77,7 +88,7 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label htmlFor="nd-agent" className="text-xs font-medium uppercase tracking-wider text-ink-faint">Assign to</label>
-            <select id="nd-agent" value={agentId} onChange={(e) => setAgentId(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink">
+            <select id="nd-agent" disabled={human} value={human?'':agentId} onChange={(e) => setAgentId(e.target.value)} className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-sm text-ink">
               <option value="">Unassigned — decide later</option>
               {s.agents.map((a) => (
                 <option key={a.id} value={a.id}>{a.name} — {a.role}</option>
@@ -85,7 +96,7 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
             </select>
           </div>
         </div>
-        {agentId && (
+        {!human && agentId && (
           <p className="rounded-lg border border-warn/30 bg-warn/5 p-3 text-xs text-ink-dim">
             Assigned tasks are picked up by the agent automatically within seconds (kanban dispatcher).
           </p>
@@ -93,10 +104,10 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
         {error && (
           <div role="alert" className="rounded-lg border border-risk/30 bg-risk/10 p-3 text-xs text-risk">{error}</div>
         )}
-        <button onClick={() => void create()} disabled={busy || !title.trim()} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
-          {busy ? 'Creating…' : agentId ? `Create & delegate to ${agentName(s, agentId)}` : 'Create task'}
+        <button onClick={() => void create()} disabled={busy || createdWithoutId || !title.trim()} className="w-full rounded-lg bg-signal px-4 py-2.5 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50">
+          {busy ? 'Creating…' : human ? 'Create task & prepare human delegation' : agentId ? `Create & delegate to ${agentName(s, agentId)}` : 'Create task'}
         </button>
-      </div>
+      </div>}
     </Drawer>
   );
 }

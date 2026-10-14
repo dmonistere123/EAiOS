@@ -1,3 +1,4 @@
+import { HumanDelegationForm } from '../components/HumanDelegationForm';
 /** Today — executive landing: summary KPIs, operating queue, delegation. */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -23,6 +24,7 @@ const QUEUE_PAGE = 50; // §15: paginate large lists (no virtualization dep)
 function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void }) {
   const s = useRuntime();
   const preferredAgentId = s.agents.find((a) => a.id === 'default')?.id ?? s.agents.find((a) => a.id === 'ally')?.id ?? s.agents[0]?.id ?? 'default';
+  const [kind,setKind]=useState<'agent'|'human'>('agent');
   const [pickedAgentId, setPickedAgentId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const staff = s.agents;
@@ -42,11 +44,13 @@ function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void
 
   return (
     <Drawer title="Delegate work" onClose={onClose}>
-      <p className="text-sm text-ink-dim">Hand this item to an agent. The assignment is recorded in the activity ledger.</p>
+      <p className="text-sm text-ink-dim">Choose an AI agent or prepare an email draft for a human assistant.</p>
       <div className="mt-4 rounded-lg border border-edge bg-canvas p-4">
         <div className="text-sm font-medium text-ink">{item.title}</div>
         {item.summary && <div className="mt-1 text-xs text-ink-dim">{item.summary}</div>}
       </div>
+      <div className="mt-4 flex gap-3"><button onClick={()=>setKind('agent')} aria-pressed={kind==='agent'} className="rounded border border-edge p-2 text-sm">AI agent</button><button onClick={()=>setKind('human')} aria-pressed={kind==='human'} className="rounded border border-edge p-2 text-sm">Human assistant</button></div>
+      {kind==='human'?<HumanDelegationForm workItemId={item.id}/>:<>
       <label className="mt-4 block text-xs font-medium uppercase tracking-wider text-ink-faint" htmlFor="agent-pick">Assign to</label>
       <select
         id="agent-pick"
@@ -65,6 +69,7 @@ function DelegateDialog({ item, onClose }: { item: WorkItem; onClose: () => void
       >
         {busy ? 'Delegating…' : 'Confirm delegation'}
       </button>
+      </>}
     </Drawer>
   );
 }

@@ -20,6 +20,7 @@ interface CompAccount {
   toolkit?: { slug?: string; name?: string } | string;
   auth_config?: { id?: string; scopes?: string[] | string };
   user_id?: string;
+  state?: { val?: { displayName?: string } };
   created_at?: string;
   updated_at?: string;
   deprecated_uuid?: string;
@@ -97,7 +98,7 @@ function mapAccount(a: CompAccount): Connection {
     id: accountId(a),
     appKey: toolkitSlug(a),
     appName: toolkitName(a),
-    accountLabel: a.user_id,
+    accountLabel: a.state?.val?.displayName || a.user_id,
     state: mapStatus(a.status),
     scopes,
     hasWriteScope: scopes.some((s) => !/read|get|list|view/i.test(s)),
@@ -136,8 +137,8 @@ class LiveComposioAdapter implements ComposioAdapter {
   async listConnections(): Promise<Connection[]> {
     if (!(await this.liveOk())) return mock.listConnections();
     try {
-      const raw = await this.api<unknown>('/api/v3/connected_accounts?limit=100');
-      return asArray<CompAccount>(raw).map(mapAccount);
+      const rows = await this.allPages<CompAccount>('/api/v3/connected_accounts?limit=100');
+      return rows.map(mapAccount);
     } catch {
       return mock.listConnections();
     }

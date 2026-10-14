@@ -1,8 +1,10 @@
+import {HumanSenderReview} from '../components/HumanSenderReview';
+import { ReplyMailboxReview } from '../components/ReplyMailboxReview';
 /** Approvals — human gate. Decisions are auditable; governed actions wait here. */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Approval } from '../domain/types';
-import { hermes } from '../adapters';
+import { hermes, humanDelegation, adapterMode } from '../adapters';
 import { useRuntime, selectPendingApprovals, agentName, toast, refreshApprovals } from '../state/runtime';
 import { Card, Drawer, EmptyState, RelativeTime, RiskBadge, StateBadge } from '../components/ui';
 
@@ -64,9 +66,16 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
     setEditingPayload(false);
   }, [approval.id, approval.payload]);
 
+  const needsMailbox = adapterMode==='live' && !approval.humanDelegation && !approval.mailReply && approval.actionType==='send' && /gmail|outlook|microsoft|email|e-mail|smtp/i.test(approval.targetSystem);
+
   const decide = async (decision: 'approved' | 'rejected' | 'changes_requested') => {
     setBusy(true);
-    const res = await hermes.decideApproval(approval.id, { decision, reviewVersion: approval.reviewVersion });
+    let res;
+    try {
+      const input = { decision, reviewVersion: approval.reviewVersion };
+      res = approval.humanDelegation ? await humanDelegation.decide(approval.id,input) : await hermes.decideApproval(approval.id, input);
+    }
+    catch(e) {setBusy(false);toast('error',e instanceof Error?e.message:'Decision failed.');return;}
     setBusy(false);
     if (res.ok) {
       toast('ok', `Decision recorded: ${decision.replace('_', ' ')}. Audit ${res.auditEventId}.`);
@@ -121,6 +130,9 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
           </ul>
         </div>
 
+        {(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')&&approval.humanDelegation&&<HumanSenderReview approval={approval} onSaved={onClose}/>}
+        {(needsMailbox||(adapterMode==='live'&&approval.mailReply))&&<ReplyMailboxReview approval={approval} onPrepared={onClose}/>}
+
         {approval.proposedDiff && (
           <div>
             <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Proposed changes</div>
@@ -132,7 +144,7 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
           <div>
             <div className="flex items-center justify-between">
               <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Prepared content — exactly what gets executed</div>
-              {!editingPayload && (
+              {!editingPayload && !approval.humanDelegation && !approval.mailReply && (
                 <button onClick={() => setEditingPayload(true)} disabled={busy} className="rounded px-2 py-1 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
                   Edit
                 </button>
@@ -169,11 +181,11 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
         )}
 
         <div className="grid grid-cols-3 gap-2 pt-2">
-          <button onClick={() => decide('approved')} disabled={busy} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
+          <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
           <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
           <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
-        <p className="text-[11px] text-ink-faint">Approve hands the task back to the requesting agent, which executes it and reports the result here and in the activity ledger. Every decision is audited.</p>
+        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':'Approve hands the task back to the requesting agent, which executes it and reports the result here and in the activity ledger. Every decision is audited.'}</p>
       </div>
     </Drawer>
   );
@@ -197,6 +209,7 @@ export default function Approvals() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
+          {import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'&&<p role="status" className="mt-2 rounded border border-warn p-3 text-sm text-warn">Live email test: approving the Daphne connection test sends a real email from the reviewed From address. Other application data in this preview is simulated.</p>}
           <p className="mt-1 text-sm text-ink-dim">Nothing writes, sends, publishes, or executes externally without your decision.</p>
         </div>
         <select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)} aria-label="Filter by risk" className="rounded-lg border border-edge bg-canvas-raised px-3 py-1.5 text-xs text-ink">

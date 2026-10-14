@@ -1,3 +1,5 @@
+import type { HumanContact } from '../domain/humanDelegation';
+import { HumanAvatar } from './HumanStaffForm';
 /**
  * OrgChart (W3 → "AI Office" orbital redesign) — Ally's brain hub at the
  * center, staff agents on concentric dashed orbital rings that slowly
@@ -96,13 +98,13 @@ function Node({ agent, selected, onSelect }: { agent: Agent; selected: boolean; 
   );
 }
 
-export function OrgChart({ agents, selectedId, onSelect }: { agents: Agent[]; selectedId?: string | null; onSelect: (a: Agent) => void }) {
+export function OrgChart({ agents, selectedId, onSelect, humans=[], selectedHumanId, onSelectHuman, activeHumanIds=[] }: { agents: Agent[]; selectedId?: string | null; onSelect: (a: Agent) => void; humans?:HumanContact[];activeHumanIds?:string[];selectedHumanId?:string;onSelectHuman?:(c:HumanContact)=>void }) {
   // Hub = the agent nobody reports to (Ally); fallback: first agent.
   const hub = agents.find((a) => !a.reportsToAgentId) ?? agents[0];
   const staff = agents.filter((a) => a.id !== hub?.id);
   if (!hub) return null;
 
-  const rings = distributeIntoRings(staff);
+  const rings = distributeIntoRings<{id:string;agent?:Agent;human?:HumanContact}>([...staff.map(agent=>({id:agent.id,agent})),...humans.map(human=>({id:human.id,human}))]);
   const insets = rings.length === 1 ? ONE_RING_INSETS : TWO_RING_INSETS;
 
   return (
@@ -131,7 +133,7 @@ export function OrgChart({ agents, selectedId, onSelect }: { agents: Agent[]; se
                 return (
                   <div key={agent.id} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${x}%`, top: `${y}%` }}>
                     <div className="eaios-orbit-counter" style={{ animationDuration: duration, animationDirection: direction }}>
-                      <Node agent={agent} selected={selectedId === agent.id} onSelect={onSelect} />
+                      {agent.agent?<Node agent={agent.agent} selected={selectedId === agent.id} onSelect={onSelect} />:<button onClick={()=>agent.human&&onSelectHuman?.(agent.human)} aria-label={`${agent.human!.displayName}, human assistant`} aria-pressed={selectedHumanId===agent.id} className="flex w-20 flex-col items-center gap-1.5"><span className={`flex h-11 w-11 items-center justify-center rounded-full border ${selectedHumanId===agent.id?'border-signal bg-signal/25 text-signal':'border-edge bg-canvas-raised text-ink-dim'}`}>{activeHumanIds.includes(agent.id)&&<span aria-hidden="true" className="absolute h-12 w-12 animate-spin rounded-full border-2 border-transparent border-t-signal motion-reduce:animate-none"/>}<HumanAvatar/></span><span className="text-center text-[11px] text-ink">{agent.human!.displayName}</span><span className="text-[10px] text-ink-dim">Human assistant</span></button>}
                     </div>
                   </div>
                 );

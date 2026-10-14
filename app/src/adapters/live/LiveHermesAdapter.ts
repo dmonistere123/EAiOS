@@ -199,6 +199,7 @@ interface KanbanTask {
 /** Approval metadata rides in the task body as a JSON envelope (Phase 3). */
 interface ApprovalEnvelope {
   eaios: 'approval';
+  mailReply?: {identity:{connectionId:string};sourceIdentity?:{connectionId:string};reference:{sourceMessageId:string};package:{body:string;sender:{email:string};recipient:{email:string}}};
   linkedinComment?: Approval['linkedinComment'];
   sourceContext?: Approval['sourceContext'];
   actionType: Approval['actionType'];
@@ -302,6 +303,7 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
     linkedinComment: env.linkedinComment,
+    mailReply: env.mailReply ? {senderEmail:env.mailReply.package.sender.email,recipientEmail:env.mailReply.package.recipient.email,sourceConnectionId:(env.mailReply.sourceIdentity??env.mailReply.identity).connectionId,sourceMessageId:env.mailReply.reference.sourceMessageId,senderConnectionId:env.mailReply.identity.connectionId,body:env.mailReply.package.body}:undefined,
     sourceContext: env.sourceContext,
     risk: env.risk,
     status,

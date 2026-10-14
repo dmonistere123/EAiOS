@@ -33,3 +33,5 @@ export const podcasts = useLive ? livePodcasts : mockPodcasts;
 export { live, mockComposio };
 export { apiKeys } from './apiKeys';
 export { social } from './social';
+export { liveHumanDirectory as humanDirectory, humanDelegation } from './humanDirectory';
+export { mailRouting } from './mailRouting';

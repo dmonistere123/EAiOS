@@ -57,7 +57,7 @@ export default function Connections() {
     setConnecting(null);
     if (flow.authUrl) {
       window.open(flow.authUrl, '_blank', 'noopener');
-      toast('info', `Finish connecting ${app.name} in the Composio tab, then refresh.`);
+      toast('info', `Finish connecting ${app.name} in the Composio tab, choosing the account you want to add, then refresh.`);
     } else {
       toast('info', flow.note ?? `${app.name} can't be connected from here yet.`);
     }
@@ -119,15 +119,14 @@ export default function Connections() {
                       <span className="rounded-full border border-edge px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-ink-faint" title={badge.hint}>
                         {badge.label}
                       </span>
-                      {connected ? (
-                        <span className="text-[10px] font-medium text-ok">connected</span>
-                      ) : a.authKind !== 'no_auth' ? (
+                      {connected && <span className="text-[10px] font-medium text-ok">connected</span>}
+                      {a.authKind !== 'no_auth' ? (
                         <button
                           onClick={() => void connect(a)}
                           disabled={connecting === a.slug}
                           className="rounded-md bg-signal/15 px-2 py-0.5 text-[10px] font-semibold text-signal hover:bg-signal/25 disabled:opacity-50"
                         >
-                          {connecting === a.slug ? 'Linking…' : a.authKind === 'bring_own_auth' ? 'Set up / connect' : 'Connect'}
+                          {connecting === a.slug ? 'Linking…' : connected ? 'Add another account' : a.authKind === 'bring_own_auth' ? 'Set up / connect' : 'Connect'}
                         </button>
                       ) : null}
                     </div>
@@ -161,7 +160,7 @@ export default function Connections() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Connections</h1>
-        <p className="mt-1 text-sm text-ink-dim">Connected applications via Composio. Write scopes are flagged and governed by approvals. The rail lists apps available to connect.</p>
+        <p className="mt-1 text-sm text-ink-dim">Connected applications via Composio. Write scopes are flagged and governed by approvals. Use Add another account in the right rail to connect another mailbox or profile. Each connection is listed separately.</p>
       </header>
 
       {rows.length === 0 && (
@@ -177,6 +176,7 @@ export default function Connections() {
               <div>
                 <div className="text-base font-semibold text-ink">{c.appName}</div>
                 <div className="mt-0.5 text-xs text-ink-faint">{c.accountLabel}</div>
+                <div className="mt-1 break-all text-[10px] text-ink-faint">Connection: {c.id}</div>
               </div>
               <StateBadge label={c.state === 'degraded' ? 'incomplete' : c.state.replace('_', ' ')} tone={stateTone[c.state]} />
             </div>

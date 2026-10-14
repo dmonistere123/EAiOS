@@ -11,7 +11,7 @@ import { handleApiRequest } from '../../server/httpApi.ts';
 import { isAwaitingApproval } from '../domain/approvalGate';
 
 let root: string, path: string, db: DatabaseSync, server: Server | undefined;
-const draft = { eaios: 'approval', actionType: 'send', targetSystem: 'outlook', requestedBy: 'quill', payload: 'To: example@example.invalid\nSubject: Test\nBody: Test draft', sourceContext: { subject: 'Original' }, workerGuard: 'Never send before approval', custom: { keep: true } };
+const draft = { eaios: 'approval', actionType: 'send', targetSystem: 'test-messaging', requestedBy: 'quill', payload: 'To: example@example.invalid\nSubject: Test\nBody: Test draft', sourceContext: { subject: 'Original' }, workerGuard: 'Never send before approval', custom: { keep: true } };
 const body = JSON.stringify(draft);
 function seed(id = 'draft', patch: Record<string, unknown> = {}) {
   db.prepare("INSERT INTO tasks (id, body, status) VALUES (?, ?, 'blocked')").run(id, body);
@@ -119,4 +119,10 @@ describe('approval execution gate with real temporary SQLite', () => {
     expect(results.map(r => r.status)).toEqual([200, 200]);
     expect(events()).toHaveLength(3);
   });
+});
+
+it('never assigns legacy email approvals to an AI worker',()=>{
+ const emailBody=JSON.stringify({...draft,targetSystem:'outlook'});db.prepare('UPDATE tasks SET body=? WHERE id=?').run(emailBody,'draft');
+ expect(()=>decideApprovalTask(path,'draft',{decision:'approved',expectedBody:emailBody})).toThrow('verified mailbox');
+ expect(row()).toMatchObject({status:'blocked',assignee:null});
 });

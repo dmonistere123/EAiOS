@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary, DailySpendReport, Artifact } from '../domain/types';
-import { hermes, adapterMode, live, knowledge } from '../adapters';
+import { hermes, adapterMode, live, knowledge, humanDelegation } from '../adapters';
 
 export interface Toast {
   id: number;
@@ -100,7 +100,7 @@ async function guarded<T>(key: string, fn: () => Promise<T>, apply: (v: T) => vo
 }
 
 export async function refreshApprovals() {
-  await guarded('approvals', () => hermes.listApprovals({ status: ['pending'] }), (approvals) => set({ approvals }));
+  await guarded('approvals', async () => {const rows=import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'?[]:await hermes.listApprovals({status:['pending']});if(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')rows.push(...await humanDelegation.approvals());return rows;}, (approvals) => set({ approvals }));
 }
 
 export async function refreshAgents() {

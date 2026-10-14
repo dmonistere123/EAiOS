@@ -42,6 +42,7 @@ export async function backupPersistentData(options, backupDir) {
   for (const [source, name] of [
     [join(options.hermesHome, 'state.db'), 'hermes-state.db'],
     [join(options.hermesHome, 'kanban.db'), 'hermes-kanban.db'],
+    [join(options.hermesHome, 'eaios', 'human-delegation.db'), 'human-delegation.db'],
     [join(knowledgeDir(options), 'knowledge.db'), 'knowledge.db'],
     [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
     [join(options.dataRoot, 'social-data', 'social.db'), 'social.db'],

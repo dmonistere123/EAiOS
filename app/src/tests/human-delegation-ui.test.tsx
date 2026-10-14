@@ -1,0 +1,23 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {render,screen} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {MemoryRouter} from 'react-router-dom';
+import {HumanDelegationForm} from '../components/HumanDelegationForm';
+import {humanDirectory,humanDelegation,hermes} from '../adapters';
+afterEach(()=>vi.restoreAllMocks());
+it('prepares a human draft without calling AI delegation and displays exact sender and recipient',async()=>{
+ vi.spyOn(humanDirectory,'listContacts').mockResolvedValue([{id:'hc_test',displayName:'Jane',email:'j@example.com',active:true,revision:1,createdAt:'now',updatedAt:'now'}]);
+ vi.spyOn(humanDelegation,'list').mockResolvedValue([]);
+ vi.spyOn(humanDelegation,'attachments').mockResolvedValue([]);
+ const prepare=vi.spyOn(humanDelegation,'prepare').mockResolvedValue({id:'hd_test',workItemId:'t_test',contactId:'hc_test',status:'draft',instructions:'Summary',revision:1,createdAt:'now',updatedAt:'now',package:{sender:{provider:'outlook',accountId:'ca_business',email:'business@example.com'},recipient:{displayName:'Jane',email:'j@example.com'},subject:'Task',body:'Summary',artifacts:[],packageHash:''}});
+ const delegate=vi.spyOn(hermes,'delegateWork');const user=userEvent.setup();
+ render(<MemoryRouter><HumanDelegationForm workItemId="t_test"/></MemoryRouter>);
+ await screen.findByRole('option',{name:'Jane — j@example.com'});
+ await user.selectOptions(screen.getByLabelText('Human assistant'),'hc_test');
+ await user.type(screen.getByLabelText('Requested outcome and instructions'),'Summary');
+ await user.click(screen.getByRole('button',{name:'Save email draft'}));
+ expect(await screen.findByText('From: business@example.com')).toBeInTheDocument();
+ expect(screen.getByText('To: j@example.com')).toBeInTheDocument();
+ expect(prepare).toHaveBeenCalledWith({workItemId:'t_test',contactId:'hc_test',instructions:'Summary'});expect(delegate).not.toHaveBeenCalled();
+ expect(screen.queryByRole('button',{name:'Send'})).not.toBeInTheDocument();
+});
