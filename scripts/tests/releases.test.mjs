@@ -75,6 +75,9 @@ async function installFixture(t, failure = '') {
   writeFileSync(join(root,'social-data/accounts.json'),'[]');
   const social = new DatabaseSync(join(root, 'social-data/social.db'));
   social.exec("CREATE TABLE posts (body TEXT); INSERT INTO posts VALUES ('customer social draft and approved image reference');"); social.close();
+  mkdirSync(join(hermesHome,'eaios'),{recursive:true});
+  const human = new DatabaseSync(join(hermesHome,'eaios','human-delegation.db'));
+  human.exec("CREATE TABLE customer_human_state (body TEXT); INSERT INTO customer_human_state VALUES ('private contacts, sender choices and approval receipts');");human.close();
   let activeRoot = root; const calls = [];
   const opts = { codeRoot: root, dataRoot: root, repoRoot: root, hermesHome, stateDir: join(hermesHome, 'eaios'), releasesDir: join(dir, 'releases'), fetcher: async () => Response.json(release), idleCheck: () => {},
     healthFetcher: async () => Response.json({ current: JSON.parse(readFileSync(join(activeRoot, 'app/dist/version.json'), 'utf8')) }),
@@ -112,7 +115,11 @@ for (const failure of ['', 'manifest', 'build', 'dependencies', 'verification'])
     const social = new DatabaseSync(join(f.root, 'social-data/social.db'), {readOnly:true});
     assert.equal(social.prepare('SELECT body FROM posts').get().body, 'customer social draft and approved image reference'); social.close();
     assert.equal(readFileSync(join(f.root,'social-data/accounts.json'),'utf8'),'[]');
+    const human = new DatabaseSync(join(f.opts.hermesHome,'eaios','human-delegation.db'),{readOnly:true});
+    assert.equal(human.prepare('SELECT body FROM customer_human_state').get().body,'private contacts, sender choices and approval receipts');human.close();
     if (!failure) {
+      const humanBackup=new DatabaseSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'human-delegation.db'),{readOnly:true});
+      assert.equal(humanBackup.prepare('SELECT body FROM customer_human_state').get().body,'private contacts, sender choices and approval receipts');humanBackup.close();
       assert.equal(readFileSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'social-accounts.json'),'utf8'),'[]');
       const socialBackup = new DatabaseSync(join(getUpdateStatus(f.opts, '0.2.0').install.backupDir, 'social.db'), {readOnly:true});
       assert.equal(socialBackup.prepare('SELECT body FROM posts').get().body, 'customer social draft and approved image reference'); socialBackup.close();
