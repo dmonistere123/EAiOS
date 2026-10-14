@@ -1,3 +1,4 @@
+import { deleteArtifact } from './artifactDelete.ts';
 import { bindReplyApproval, decideReplyApproval, listReplySources } from './mailReplies.ts';
 import { changeHumanSender, taskAttachments, submitHumanApproval, humanApprovals, decideHumanApproval, updateHumanStatus } from './humanApproval.ts';
 import { prepareHumanDraft } from './humanDelegation.ts';
@@ -688,6 +689,14 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       if (req.method !== 'GET') { json(res, 405, JSON.stringify({ error: 'GET only' })); return true; }
       try { json(res, 200, JSON.stringify(readCronPrompts(ctx.hermesHome, url.searchParams.get('profile') || undefined))); }
       catch { json(res, 503, JSON.stringify({ error: 'Full schedule instructions could not be loaded. Retry before editing.' })); }
+      return true;
+    }
+
+    const deleteArtifactMatch = path.match(/^\/api\/artifacts\/(att-[1-9]\d*)$/);
+    if (deleteArtifactMatch && req.method === 'DELETE') {
+      try { requireSameOriginJson(req); } catch { json(res, 403, JSON.stringify({error:'A same-origin JSON request is required.'})); return true; }
+      try { const result=deleteArtifact(ctx.hermesHome,deleteArtifactMatch[1]);artifactsCache=undefined;json(res,200,JSON.stringify(result)); }
+      catch { json(res,409,JSON.stringify({error:'Could not delete this artifact. Refresh and retry; the file may be missing or outside artifact storage.'})); }
       return true;
     }
 

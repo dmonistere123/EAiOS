@@ -1,5 +1,20 @@
 # EAiOS v0.1.10 — Clearer email approval review
 
+## Refreshed v0.1.10 package — artifact deletion
+
+- Artifacts now shows a Delete button for task attachments, with a separate permanent-deletion confirmation. Tasks and conversations are retained; files referenced by another attachment are kept. Release-note reports are protected.
+- The Artifacts page shows the total listed file size. No automatic deletion or archival is enabled.
+- This package replaces the earlier v0.1.10 tag without changing the version number. Boxes already on v0.1.10 must explicitly reinstall; the existing updater compares version numbers and will not offer this as a newer version.
+
+For an administrator reinstall on an idle box, run from its existing EAiOS repository (normally `~/eaios`):
+
+```sh
+git fetch origin +refs/tags/v0.1.10:refs/tags/v0.1.10
+bash scripts/eaios-update.sh --to v0.1.10
+```
+
+This deliberately refreshes only the v0.1.10 tag before using the existing backup/update workflow. Review any prerequisite or local-change errors rather than resetting customer work.
+
 ## What changed
 
 - Email approvals load connected sending accounts automatically when opened. Refresh accounts retries the lookup if needed.

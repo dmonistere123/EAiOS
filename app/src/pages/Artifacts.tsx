@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Artifact } from '../domain/types';
 import { hermes, adapterMode } from '../adapters';
-import { useRuntime, agentName, refreshApprovals, toast } from '../state/runtime';
+import { useRuntime, agentName, refreshApprovals, refreshArtifacts, toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
 import { Card, Drawer, EmptyState, RelativeTime, StateBadge } from '../components/ui';
@@ -98,6 +98,9 @@ export default function Artifacts() {
   const s = useRuntime();
   const [q, setQ] = useState('');
   const [preview, setPreview] = useState<Artifact | null>(null);
+  const [deleting, setDeleting] = useState<Artifact | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
@@ -149,6 +152,18 @@ export default function Artifacts() {
   );
   usePageRail(railSections);
 
+  const remove = async () => {
+    if (!deleting || deleteBusy) return;
+    setDeleteBusy(true);setDeleteError('');
+    try {
+      const response=await fetch(`/api/artifacts/${encodeURIComponent(deleting.id)}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});
+      const result=await response.json();if(!response.ok)throw new Error(result.error??'Delete failed.');
+      if(preview?.id===deleting.id)setPreview(null);
+      setDeleting(null);await refreshArtifacts();
+      toast('ok',result.sharedFileRetained?'Artifact removed. Its file is retained because another task uses it.':'Artifact and its stored file deleted.');
+    } catch(error){setDeleteError(error instanceof Error?error.message:'Could not delete artifact.');}
+    finally{setDeleteBusy(false);}
+  };
   const share = async (a: Artifact) => {
     setSharingId(a.id);
     const res = await hermes.shareArtifact(a.id);
@@ -167,6 +182,7 @@ export default function Artifacts() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Artifacts</h1>
           <p className="mt-1 text-sm text-ink-dim">Outputs too large for chat — reports, decks, datasets. Full provenance, governed sharing.</p>
+          <p className="mt-1 text-xs text-ink-faint">{s.artifacts.length} listed artifacts · {fmtSize(s.artifacts.reduce((total,a)=>total+(a.sizeBytes??0),0))} combined file size</p>
         </div>
         <input
           type="search"
@@ -250,6 +266,7 @@ export default function Artifacts() {
                 >
                   {sharingId === a.id ? 'Requesting…' : 'Share…'}
                 </button>
+                {adapterMode==='live' && /^att-\d+$/.test(a.id) && <button onClick={()=>{setDeleting(a);setDeleteError('');}} className="rounded-lg border border-risk/40 px-3 py-1.5 text-xs text-risk">Delete</button>}
               </div>
             </Card>
           ))}
@@ -261,6 +278,11 @@ export default function Artifacts() {
         </div>
       )}
 
+      {deleting && <Drawer title="Delete artifact?" onClose={()=>{if(!deleteBusy)setDeleting(null);}}>
+        <div className="space-y-4 p-5"><p className="break-all font-medium">{deleting.name}</p><p className="text-sm text-ink-dim">Permanently delete this artifact ({fmtSize(deleting.sizeBytes)}) and remove its attachment from the task. This cannot be undone. The task and conversation remain. Shared files and copies in backups or other modules are retained.</p>
+        {deleteError&&<p role="alert" className="text-sm text-risk">{deleteError}</p>}
+        <div className="flex gap-3"><button disabled={deleteBusy} onClick={()=>setDeleting(null)} className="rounded border border-edge px-3 py-2">Cancel</button><button disabled={deleteBusy} onClick={()=>void remove()} className="rounded border border-risk px-3 py-2 text-risk">{deleteBusy?'Deleting…':'Delete permanently'}</button></div></div>
+      </Drawer>}
       {preview && <PreviewDrawer artifact={preview} onClose={() => setPreview(null)} />}
     </div>
   );
