@@ -59,14 +59,21 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
   const [busy, setBusy] = useState(false);
   const [editingPayload, setEditingPayload] = useState(false);
   const [draftPayload, setDraftPayload] = useState(approval.payload ?? '');
+  const [executor, setExecutor] = useState(approval.executorProfileId ?? '');
   const work = s.work.find((w) => w.id === approval.workItemId);
 
   useEffect(() => {
     setDraftPayload(approval.payload ?? '');
     setEditingPayload(false);
+    setExecutor(approval.executorProfileId ?? '');
   }, [approval.id, approval.payload]);
 
   const needsMailbox = adapterMode==='live' && !approval.humanDelegation && !approval.mailReply && approval.actionType==='send' && /gmail|outlook|microsoft|email|e-mail|smtp/i.test(approval.targetSystem);
+  const genericApproval=!approval.humanDelegation&&!approval.mailReply&&!needsMailbox;
+  const recoverable=genericApproval&&approval.status==='approved'&&approval.executionState==='blocked';
+  const eligibleExecutors=s.agents.filter(a=>a.id!==approval.requestedByAgentId);
+  const saveExecutor=async(next:string)=>{setExecutor(next);if(!next)return;setBusy(true);const res=await hermes.updateApprovalExecutor(approval.id,next);setBusy(false);if(res.ok)await refreshApprovals();else toast('error',res.error?.safeMessage??'Could not save executor.');};
+  const resume=async()=>{setBusy(true);const res=await hermes.resumeApprovedTask(approval.id,executor,approval.reviewVersion);setBusy(false);if(res.ok){toast('ok',`Approved task queued for ${agentName(s,executor)}.`);await refreshApprovals();onClose();}else toast('error',res.error?.safeMessage??'Resume failed.');};
 
   const decide = async (decision: 'approved' | 'rejected' | 'changes_requested') => {
     setBusy(true);
@@ -115,6 +122,8 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
 
         <div className="rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim">
           <div>Requested by <span className="text-ink">{agentName(s, approval.requestedByAgentId)}</span> · <RelativeTime iso={approval.submittedAt} /></div>
+          {genericApproval&&<label className="mt-2 block"><span className="font-medium text-ink">Executes as: </span><select value={executor} onChange={e=>void saveExecutor(e.target.value)} disabled={busy||recoverable} aria-label="Executor profile" className="ml-1 rounded border border-edge bg-canvas-raised px-2 py-1 text-xs text-ink"><option value="">Select executor…</option>{eligibleExecutors.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
+          {genericApproval&&!executor&&!recoverable&&<div className="mt-1 text-risk">Approval is disabled until a valid executor is selected.</div>}
           {work && <div className="mt-1">Work item: <span className="text-ink">{work.title}</span></div>}
           <div className="mt-1">Policy: <span className="text-ink">external {approval.actionType} requires executive approval</span></div>
         </div>
@@ -180,12 +189,13 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-2 pt-2">
-          <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
+        {recoverable?<div className="space-y-2 pt-2"><select value={executor} onChange={e=>setExecutor(e.target.value)} aria-label="Recovery executor profile" className="w-full rounded border border-edge bg-canvas-raised px-2 py-2 text-sm text-ink"><option value="">Select executor…</option>{eligibleExecutors.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select><button onClick={()=>void resume()} disabled={busy||!executor} className="w-full rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas disabled:opacity-50">Resume / Assign executor</button><p className="text-[11px] text-ink-faint">Preserves the recorded approval and approved payload.</p></div>:<><div className="grid grid-cols-3 gap-2 pt-2">
+          <button onClick={() => decide('approved')} disabled={busy||needsMailbox||(genericApproval&&!executor)} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
           <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
           <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
         <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':'Approve hands the task back to the requesting agent, which executes it and reports the result here and in the activity ledger. Every decision is audited.'}</p>
+        </>}
       </div>
     </Drawer>
   );

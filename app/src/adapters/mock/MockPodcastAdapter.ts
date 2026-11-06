@@ -11,7 +11,7 @@ const fixture: Podcast = {
   id: 'p-mock-1',
   sourceName: 'Economic Scenarios for Transformative AI (mock)',
   sourceType: 'file',
-  status: 'ready',
+  status: 'delivered',
   createdAt: new Date().toISOString(),
   finishedAt: new Date().toISOString(),
 };
@@ -45,14 +45,14 @@ class MockPodcastAdapter implements PodcastAdapter {
       sourceId,
       sourceName: `Generated from source ${sourceId}`,
       sourceType: 'knowledge_source',
-      status: 'pending',
+      status: 'queued',
       createdAt: new Date().toISOString(),
     };
     applyTtsConfig(p, tts);
     this.podcasts = [p, ...this.podcasts];
     // Simulate transition to ready after a moment.
     setTimeout(() => {
-      p.status = 'ready';
+      p.status = 'delivered';
       p.finishedAt = new Date().toISOString();
     }, 2000);
     return p;
@@ -64,13 +64,13 @@ class MockPodcastAdapter implements PodcastAdapter {
       id: `p-mock-${seq++}`,
       sourceName: file.name,
       sourceType: 'file',
-      status: 'pending',
+      status: 'queued',
       createdAt: new Date().toISOString(),
     };
     applyTtsConfig(p, tts);
     this.podcasts = [p, ...this.podcasts];
     setTimeout(() => {
-      p.status = 'ready';
+      p.status = 'delivered';
       p.finishedAt = new Date().toISOString();
     }, 2000);
     return p;

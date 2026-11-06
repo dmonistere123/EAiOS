@@ -144,7 +144,7 @@ need_cmd git; need_cmd curl
 
 if is_ubuntu_or_debian; then
   PREREQ_PKGS=""
-  for pkg in build-essential xz-utils python3; do
+  for pkg in build-essential xz-utils python3 ffmpeg; do
     ! dpkg -s "$pkg" >/dev/null 2>&1 && PREREQ_PKGS="$PREREQ_PKGS $pkg"
   done
   if [[ -n "$PREREQ_PKGS" ]]; then
@@ -165,6 +165,9 @@ else
     log_warn "No C++ compiler - Hermes Desktop/native modules may not compile"
   log_info "Non-Debian OS - skipping apt-based prerequisite install"
 fi
+
+need_cmd ffmpeg
+need_cmd ffprobe
 
 # ---------------------------------------------------------------------------
 # 1. Node >= 24

@@ -25,7 +25,7 @@ export function knowledgeDir(options) {
 export function assertIdle(options) {
   for (const [path, sql] of [
     [join(options.hermesHome, 'kanban.db'), "SELECT COUNT(*) AS count FROM tasks WHERE status='running'"],
-    [join(knowledgeDir(options), 'knowledge.db'), "SELECT COUNT(*) AS count FROM podcasts WHERE status IN ('pending','processing')"],
+    [join(knowledgeDir(options), 'knowledge.db'), "SELECT COUNT(*) AS count FROM podcasts WHERE status IN ('pending','processing','queued','running')"],
   ]) {
     if (!existsSync(path)) continue;
     const db = new DatabaseSync(path, { readOnly: true });
@@ -135,6 +135,8 @@ export async function installRelease(releaseId, options = {}) {
     const build = readJson(join(preparedRoot, 'app', 'dist', 'version.json'));
     if (build?.version !== release.version || build.gitSha !== sha || build.dirty || build.releaseChannel !== 'stable') throw new Error('Built release identity did not match its tag.');
     step('Preparing knowledge and podcast dependencies');
+    await run('ffmpeg', ['-version'], { env });
+    await run('ffprobe', ['-version'], { env });
     await run('uv', ['venv', '.venv', '--python', '3.11'], { cwd: join(preparedRoot, 'sidecar'), env });
     await run('uv', ['pip', 'install', '--python', '.venv/bin/python', '-r', 'requirements.txt'], { cwd: join(preparedRoot, 'sidecar'), env });
     (opts.idleCheck || assertIdle)(opts);

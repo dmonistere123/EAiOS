@@ -5,7 +5,7 @@ One-command setup for a fresh CEO box.
 ## Prerequisites
 
 - Linux (Ubuntu 24.04 / Debian 12 tested). macOS may work with minor path tweaks.
-- `git`, `curl`, `sudo`
+- `git`, `curl`, `sudo` (`ffmpeg`/`ffprobe` are installed automatically on Ubuntu/Debian)
 - Internet access to pull Node.js, Hermes, and the EAiOS repo
 
 ## Quick start

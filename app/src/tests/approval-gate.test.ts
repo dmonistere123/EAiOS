@@ -1,17 +1,17 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { decideApprovalTask, editApprovalTask } from '../../server/approvalGate.ts';
+import { decideApprovalTask, editApprovalTask, resumeApprovedTask } from '../../server/approvalGate.ts';
 import { handleApiRequest } from '../../server/httpApi.ts';
 import { isAwaitingApproval } from '../domain/approvalGate';
 
 let root: string, path: string, db: DatabaseSync, server: Server | undefined;
-const draft = { eaios: 'approval', actionType: 'send', targetSystem: 'test-messaging', requestedBy: 'quill', payload: 'To: example@example.invalid\nSubject: Test\nBody: Test draft', sourceContext: { subject: 'Original' }, workerGuard: 'Never send before approval', custom: { keep: true } };
+const draft = { eaios: 'approval', actionType: 'send', targetSystem: 'test-messaging', requestedBy: 'default', executorProfile: 'quill', payload: 'To: example@example.invalid\nSubject: Test\nBody: Test draft', sourceContext: { subject: 'Original' }, workerGuard: 'Never send before approval', custom: { keep: true } };
 const body = JSON.stringify(draft);
 function seed(id = 'draft', patch: Record<string, unknown> = {}) {
   db.prepare("INSERT INTO tasks (id, body, status) VALUES (?, ?, 'blocked')").run(id, body);
@@ -22,6 +22,7 @@ function decide(decision = 'approved', extra: Record<string, unknown> = {}) { re
 function events() { return db.prepare('SELECT kind, payload FROM task_events ORDER BY id').all(); }
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'eaios-approval-'));
+  mkdirSync(join(root,'profiles','quill'),{recursive:true}); mkdirSync(join(root,'profiles','dev'),{recursive:true});
   path = join(root, 'kanban.db');
   db = new DatabaseSync(path);
   db.exec(`CREATE TABLE tasks (id TEXT PRIMARY KEY, body TEXT, status TEXT, assignee TEXT, block_kind TEXT, result TEXT, started_at INTEGER, claim_lock TEXT, current_run_id INTEGER, consecutive_failures INTEGER DEFAULT 0, last_failure_error TEXT);
@@ -52,7 +53,7 @@ describe('approval execution gate with real temporary SQLite', () => {
     expect(events().map(e => e.kind)).toEqual(['approval_decided', 'blocked']);
     expect(db.prepare('SELECT count(*) AS n FROM task_links').get()?.n).toBe(1);
   });
-  it('records approval and releases to requestedBy atomically; repeated approval is a no-op', () => {
+  it('records approval and releases to executorProfile atomically; repeated approval is a no-op', () => {
     decide();
     expect(row()).toMatchObject({ status: 'ready', assignee: 'quill' });
     expect(JSON.parse(String(row().body))).toMatchObject({ ...draft, decision: 'approved' });
@@ -62,6 +63,15 @@ describe('approval execution gate with real temporary SQLite', () => {
     expect(JSON.stringify(row())).toBe(before);
     expect(events()).toHaveLength(3);
     expect(() => decide('rejected')).toThrow('already been recorded');
+  });
+  it.each([{executorProfile:undefined},{executorProfile:'default'},{executorProfile:'ghost'}])('missing, self, and nonexistent executors fail closed: %j', change=>{
+    const altered=JSON.stringify({...draft,...change});db.prepare('UPDATE tasks SET body=?').run(altered);
+    expect(()=>decide('approved',{expectedBody:altered})).toThrow();expect(row()).toMatchObject({status:'blocked',assignee:null});expect(events()).toEqual([]);
+  });
+  it('resumes an approved blocked task with a new executor without changing approved payload',()=>{
+    const approved=JSON.stringify({...draft,decision:'approved',decidedAt:'2026-11-04T12:00:00Z'});db.prepare("UPDATE tasks SET body=?,assignee='default',status='blocked'").run(approved);
+    resumeApprovedTask(path,'draft',{executorProfile:'dev',expectedBody:approved});expect(row()).toMatchObject({status:'ready',assignee:'dev'});expect(JSON.parse(String(row().body))).toMatchObject({payload:draft.payload,decision:'approved',executorProfile:'dev'});
+    expect(events().map(e=>e.kind)).toEqual(['executive_executor_assignment','unblocked','assigned']);
   });
   it('rolls back both the decision and release when audit persistence fails', () => {
     db.exec("CREATE TRIGGER fail_assignment BEFORE INSERT ON task_events WHEN NEW.kind = 'assigned' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END");

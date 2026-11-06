@@ -221,8 +221,10 @@ export interface HermesAdapter {
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
+  resumeApprovedTask(approvalId: string, executorProfileId: string, reviewVersion?: string): Promise<AuditResult>;
   /** Edit the prepared payload of a pending approval before deciding. */
   updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult>;
+  updateApprovalExecutor(approvalId: string, executorProfileId: string): Promise<AuditResult>;
 
   listCronJobs(profile?: string): Promise<CronJob[]>;
   createCronJob(input: CreateCronJob): Promise<AuditResult>;

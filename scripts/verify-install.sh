@@ -14,6 +14,9 @@ warn() { yellow "⚠ $*"; ((ERRORS++)) || true; }
 fail() { red "✗ $*"; ((ERRORS++)) || true; }
 ok() { green "✓ $*"; }
 
+echo "==> podcast verification tools"
+for command in ffmpeg ffprobe; do command -v "$command" >/dev/null 2>&1 && ok "$command is installed" || fail "$command is required for podcast delivery verification"; done
+
 # Portable listener check. ss/netstat may be missing in very minimal containers.
 port_is_listening() {
   local port="$1"

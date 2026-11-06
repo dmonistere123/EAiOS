@@ -9,6 +9,8 @@ import io
 import json
 import os
 import sqlite3
+import subprocess
+import hashlib
 import threading
 import time
 import traceback
@@ -33,7 +35,7 @@ except Exception:
 
 # Delay importing Podcastfy until generation time; it is heavy and prints
 # warnings on import. We still do it module-level after the monkeypatch.
-from podcastfy.client import generate_podcast  # noqa: E402
+# Imported only at the paid execution boundary in _generate_worker.
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("EAIOS_KNOWLEDGE_DATA_DIR", ROOT / "data"))
@@ -87,6 +89,14 @@ ALTER TABLE podcasts ADD COLUMN tts_model TEXT NOT NULL DEFAULT 'edge';
 _MIGRATE_VOICE_MAP = """
 ALTER TABLE podcasts ADD COLUMN voice_map TEXT;
 """
+_PODCAST_MIGRATIONS = [
+    "ALTER TABLE podcasts ADD COLUMN duration_seconds REAL;",
+    "ALTER TABLE podcasts ADD COLUMN min_duration_seconds REAL;",
+    "ALTER TABLE podcasts ADD COLUMN max_duration_seconds REAL;",
+    "ALTER TABLE podcasts ADD COLUMN verified_sha256 TEXT;",
+    "ALTER TABLE podcasts ADD COLUMN generation_key TEXT;",
+    "ALTER TABLE podcasts ADD COLUMN provider_request_state TEXT;",
+]
 
 
 def now_iso() -> str:
@@ -109,6 +119,9 @@ def db() -> sqlite3.Connection:
     _migrate(conn, _MIGRATE_PROVIDER)
     _migrate(conn, _MIGRATE_TTS_MODEL)
     _migrate(conn, _MIGRATE_VOICE_MAP)
+    for migration in _PODCAST_MIGRATIONS: _migrate(conn, migration)
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS podcasts_generation_key ON podcasts(generation_key) WHERE generation_key IS NOT NULL")
+    conn.commit()
     return conn
 
 
@@ -133,6 +146,8 @@ def podcast_row(r: sqlite3.Row) -> dict:
         "error": r["error"],
         "createdAt": r["created_at"],
         "finishedAt": r["finished_at"],
+        "durationSeconds": r["duration_seconds"],
+        "verifiedSha256": r["verified_sha256"],
     }
     if r["voice_map"]:
         try:
@@ -199,7 +214,7 @@ def update_status(
     error: str | None = None,
 ):
     conn = db()
-    finished = now_iso() if status in ("ready", "failed") else None
+    finished = now_iso() if status in ("delivered", "failed") else None
     conn.execute(
         """UPDATE podcasts
            SET status = ?, audio_path = ?, transcript_path = ?, error = ?, finished_at = ?
@@ -207,6 +222,20 @@ def update_status(
         (status, audio_path, transcript_path, error, finished, podcast_id),
     )
     conn.commit()
+
+def verify_audio_delivery(audio_path: Path, expected_voices: dict[str,str], stored_voice_json: str|None, min_seconds: float, max_seconds: float) -> tuple[float,str]:
+    if not audio_path.is_file() or audio_path.stat().st_size == 0: raise ValueError("audio artifact is missing or empty")
+    try: stored=json.loads(stored_voice_json or "{}")
+    except json.JSONDecodeError as exc: raise ValueError("stored voice map is invalid") from exc
+    if stored != {"host":expected_voices["question"],"guest":expected_voices["answer"]}: raise ValueError("stored voice map does not match the requested voices")
+    probe=subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1",str(audio_path)],capture_output=True,text=True,timeout=60,check=False)
+    if probe.returncode: raise ValueError(f"MP3 duration probe failed: {probe.stderr.strip()[:200]}")
+    try: duration=float(probe.stdout.strip())
+    except ValueError as exc: raise ValueError("MP3 duration is unavailable") from exc
+    if not min_seconds <= duration <= max_seconds: raise ValueError(f"measured duration {duration:.1f}s is outside required range {min_seconds:.1f}-{max_seconds:.1f}s")
+    decode=subprocess.run(["ffmpeg","-v","error","-i",str(audio_path),"-f","null","-"],capture_output=True,text=True,timeout=max(60,int(duration*2)),check=False)
+    if decode.returncode: raise ValueError(f"MP3 does not fully decode: {decode.stderr.strip()[:200]}")
+    return duration,hashlib.sha256(audio_path.read_bytes()).hexdigest()
 
 
 def _resolve_elevenlabs_voices(voices: dict[str, str]) -> dict[str, str]:
@@ -323,7 +352,7 @@ def _generate_worker(
 ):
     """Background generation: extract text -> Podcastfy -> update DB."""
     try:
-        update_status(podcast_id, "processing")
+        update_status(podcast_id, "running")
         text = extract_text(source_path)
         if not text.strip():
             raise ValueError("no extractable text in source")
@@ -352,11 +381,14 @@ def _generate_worker(
         if tts_provider == "elevenlabs" and ELEVENLABS_API_KEY:
             voices = _resolve_elevenlabs_voices(voices)
 
+        conn=db();conn.execute("UPDATE podcasts SET voice_map=?,provider_request_state='submitted' WHERE id=?",(json.dumps({"host":voices["question"],"guest":voices["answer"]}),podcast_id));conn.commit()
+
         audio_path = AUDIO_DIR / f"{podcast_id}.mp3"
         transcript_path = TRANSCRIPT_DIR / f"{podcast_id}.txt"
 
         # Podcastfy writes its own transcript/audio under output_directories,
         # then we copy/rename to our deterministic paths.
+        from podcastfy.client import generate_podcast
         result_path = generate_podcast(
             text=text,
             tts_model=tts_provider,
@@ -403,7 +435,9 @@ def _generate_worker(
         if not audio_path.exists():
             raise FileNotFoundError("Podcastfy did not produce an audio file")
 
-        update_status(podcast_id, "ready", str(audio_path), str(transcript_path))
+        conn=db();row=conn.execute("SELECT voice_map,min_duration_seconds,max_duration_seconds FROM podcasts WHERE id=?",(podcast_id,)).fetchone()
+        duration,digest=verify_audio_delivery(audio_path,voices,row["voice_map"],float(row["min_duration_seconds"] or 60),float(row["max_duration_seconds"] or 7200))
+        conn.execute("UPDATE podcasts SET status='delivered',audio_path=?,transcript_path=?,error=NULL,finished_at=?,duration_seconds=?,verified_sha256=?,provider_request_state='confirmed' WHERE id=?",(str(audio_path),str(transcript_path),now_iso(),duration,digest,podcast_id));conn.commit()
     except Exception as e:
         traceback.print_exc()
         update_status(podcast_id, "failed", error=f"{type(e).__name__}: {e}"[:500])
@@ -437,18 +471,19 @@ def _create(source_path: Path, source_name: str, source_type: str, source_id: st
     tts_model = tts_config.get("provider", DEFAULT_TTS)
     if tts_model not in TTS_PROVIDERS:
         raise ValueError(f"unsupported tts provider: {tts_model}")
-    voice_map = None
-    if tts_config.get("voiceHost") or tts_config.get("voiceGuest"):
-        voice_map = json.dumps({
-            "host": tts_config.get("voiceHost") or DEFAULT_VOICES.get(tts_model, DEFAULT_VOICES["edge"])["question"],
-            "guest": tts_config.get("voiceGuest") or DEFAULT_VOICES.get(tts_model, DEFAULT_VOICES["edge"])["answer"],
-        })
+    voice_map = json.dumps({"host":tts_config.get("voiceHost") or DEFAULT_VOICES.get(tts_model,DEFAULT_VOICES["edge"])["question"],"guest":tts_config.get("voiceGuest") or DEFAULT_VOICES.get(tts_model,DEFAULT_VOICES["edge"])["answer"]})
     conn = db()
+    generation_key=tts_config.get("generationKey")
+    if generation_key:
+        existing=conn.execute("SELECT * FROM podcasts WHERE generation_key=?",(generation_key,)).fetchone()
+        if existing:return podcast_row(existing)
+    min_duration=float(tts_config.get("minDurationSeconds") or 60);max_duration=float(tts_config.get("maxDurationSeconds") or 7200)
+    if min_duration<=0 or max_duration<min_duration:raise ValueError("invalid required duration range")
     conn.execute(
         """INSERT INTO podcasts (id, source_id, source_name, source_type, provider, tts_model, voice_map, status,
-                                audio_path, transcript_path, error, created_at, finished_at)
-           VALUES (?,?,?,?,?,?,?, 'pending', NULL, NULL, NULL, ?, NULL)""",
-        (pid, source_id, source_name, source_type, provider, tts_model, voice_map, created),
+                                audio_path, transcript_path, error, created_at, finished_at,min_duration_seconds,max_duration_seconds,generation_key,provider_request_state)
+           VALUES (?,?,?,?,?,?,?, 'queued', NULL, NULL, NULL, ?, NULL,?,?,?,'not_started')""",
+        (pid, source_id, source_name, source_type, provider, tts_model, voice_map, created,min_duration,max_duration,generation_key),
     )
     conn.commit()
 

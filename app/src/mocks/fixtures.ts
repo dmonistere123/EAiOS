@@ -105,16 +105,16 @@ export const workItems: WorkItem[] = [
 
 export const approvals: Approval[] = [
   {
-    id: 'a-01', workItemId: 'w-02', requestedByAgentId: 'quill', actionType: 'publish', targetSystem: 'WordPress', targetObject: 'Partnership announcement', risk: 'high', status: 'pending', submittedAt: min(180),
+    id: 'a-01', workItemId: 'w-02', requestedByAgentId: 'quill', executorProfileId: 'scout', actionType: 'publish', targetSystem: 'WordPress', targetObject: 'Partnership announcement', risk: 'high', status: 'pending', submittedAt: min(180),
     evidence: [{ kind: 'artifact', label: 'Draft v3 (final)' }, { kind: 'message', label: 'Legal sign-off thread' }],
     rollbackPlan: 'Unpublish + revert to draft within 5 minutes.',
   },
   {
-    id: 'a-02', workItemId: 'w-05', requestedByAgentId: 'quill', actionType: 'send', targetSystem: 'Mailchimp', targetObject: 'September newsletter', risk: 'medium', status: 'pending', submittedAt: min(95),
+    id: 'a-02', workItemId: 'w-05', requestedByAgentId: 'quill', executorProfileId: 'scout', actionType: 'send', targetSystem: 'Mailchimp', targetObject: 'September newsletter', risk: 'medium', status: 'pending', submittedAt: min(95),
     evidence: [{ kind: 'artifact', label: 'Newsletter draft' }, { kind: 'url', label: 'Preview link' }],
   },
   {
-    id: 'a-03', workItemId: 'w-03', requestedByAgentId: 'ally', actionType: 'send', targetSystem: 'Gmail', targetObject: 'Investor update — 14 recipients', risk: 'critical', status: 'pending', submittedAt: min(40),
+    id: 'a-03', workItemId: 'w-03', requestedByAgentId: 'ally', executorProfileId: 'quill', actionType: 'send', targetSystem: 'Gmail', targetObject: 'Investor update — 14 recipients', risk: 'critical', status: 'pending', submittedAt: min(40),
     evidence: [{ kind: 'artifact', label: 'Investor email draft' }],
     proposedDiff: '+ Q3 ARR $4.2M (+18% QoQ)\n+ NRR 117%\n- Removed: unaudited pipeline figure',
     rollbackPlan: 'Recall attempt within 30s; follow-up correction email template attached.',

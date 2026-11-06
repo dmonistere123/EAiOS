@@ -7,7 +7,7 @@ import { Card, Drawer, EmptyState, RelativeTime, SectionTitle, StateBadge } from
 import { toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 
-const statusTone = { pending: 'warn', processing: 'signal', ready: 'ok', failed: 'risk' } as const;
+const statusTone = { queued: 'warn', running: 'signal', blocked: 'warn', delivered: 'ok', ready: 'ok', failed: 'risk' } as const;
 
 function fmtDuration(totalSeconds?: number) {
   if (!totalSeconds || !Number.isFinite(totalSeconds)) return '--:--';
@@ -69,7 +69,7 @@ export default function Podcasts() {
     try {
       const episodes = await podcasts.listPodcasts();
       let completed = 0;
-      const list = episodes.filter((episode) => episode.status !== 'ready' || ++completed <= 11);
+      const list = episodes.filter((episode) => !['ready','delivered'].includes(episode.status) || ++completed <= 11);
       setItems(list);
       // The polling effect retains its initial closure. Read the current
       // selection through a state updater so refresh never restarts an older episode.
@@ -379,8 +379,8 @@ export default function Podcasts() {
               <SectionTitle>{selected.sourceName}</SectionTitle>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
                 <StateBadge label={selected.status} tone={statusTone[selected.status]} />
-                {selected.status === 'pending' && <span className="text-warn">Queued for generation</span>}
-                {selected.status === 'processing' && <span className="text-signal">Generating audio…</span>}
+                {selected.status === 'queued' && <span className="text-warn">Queued for generation</span>}
+                {selected.status === 'running' && <span className="text-signal">Generating and verifying audio…</span>}
                 {selected.finishedAt && (
                   <span>
                     Finished <RelativeTime iso={selected.finishedAt} />
@@ -408,7 +408,7 @@ export default function Podcasts() {
             </div>
           </div>
 
-          {selected.status === 'ready' && (
+          {(selected.status === 'ready'||selected.status === 'delivered') && (
             <>
               <audio ref={audioRef} src={podcasts.getAudioUrl(selected.id)} preload="metadata" className="hidden" />
               <div className="mt-6 rounded-xl border border-edge bg-canvas-raised p-4">

@@ -207,6 +207,7 @@ interface ApprovalEnvelope {
   targetObject?: string;
   risk: Approval['risk'];
   requestedBy?: string; // profile id — approvals stay UNASSIGNED so the kanban dispatcher never executes them
+  executorProfile?: string;
   evidence?: Approval['evidence'];
   proposedDiff?: string;
   rollbackPlan?: string;
@@ -299,6 +300,8 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     workItemId: t.id,
     reviewVersion: t.body ?? undefined,
     requestedByAgentId: env.requestedBy ?? t.assignee ?? 'default',
+    executorProfileId: env.executorProfile,
+    executionState: t.status === 'running' ? 'running' : t.status === 'blocked' ? 'blocked' : t.status === 'done' ? 'delivered' : 'queued',
     actionType: env.actionType,
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
@@ -423,7 +426,7 @@ function mapCron(j: HermesCronJob): CronJob {
     name: j.name ?? (j.prompt ? j.prompt.slice(0, 48) : 'Scheduled job'),
     scheduleExpression: j.schedule ?? '',
     nextRunAt: j.next_run_at ?? j.nextRunAt ?? new Date(Date.now() + 3600_000).toISOString(),
-    approvalPolicy: 'pre_approved',
+    approvalPolicy: 'approval_on_result',
     lastResult: j.last_status === 'failed' ? 'failed' : j.last_status ? 'success' : undefined,
     enabled: j.enabled !== false,
     prompt: j.prompt,
@@ -1012,6 +1015,25 @@ class LiveHermesAdapter implements HermesAdapter {
     } catch (e) {
       return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'decision_failed', safeMessage: e instanceof Error ? e.message : 'Decision failed.', retryable: true } };
     }
+  }
+
+  async resumeApprovedTask(approvalId: string, executorProfileId: string, reviewVersion?: string): Promise<AuditResult> {
+    try {
+      const task=(await this.kanbanTasks()).find(t=>t.id===approvalId);
+      if(!task) throw new Error('Approved task not found.');
+      const response=await fetch(`/api/kanban/approvals/${encodeURIComponent(approvalId)}/resume`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({executorProfile:executorProfileId,expectedBody:reviewVersion??task.body})});
+      const result=await response.json() as {error?:string}; if(!response.ok) throw new Error(result.error??'Could not resume approved task.');
+      this.invalidateTasks(); return {ok:true,auditEventId:`kb-resume-${approvalId}`};
+    } catch(e){return {ok:false,auditEventId:`kb-err-${Date.now()}`,error:{code:'resume_failed',safeMessage:e instanceof Error?e.message:'Resume failed.',retryable:true}};}
+  }
+
+  async updateApprovalExecutor(approvalId: string, executorProfileId: string): Promise<AuditResult> {
+    try {
+      const task=(await this.kanbanTasks()).find(t=>t.id===approvalId); if(!task) throw new Error('Approval task not found.');
+      const response=await fetch(`/api/kanban/approvals/${encodeURIComponent(approvalId)}/executor`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({executorProfile:executorProfileId,expectedBody:task.body})});
+      const result=await response.json() as {error?:string}; if(!response.ok) throw new Error(result.error??'Could not save executor.');
+      this.invalidateTasks(); return {ok:true,auditEventId:`kb-executor-${approvalId}`};
+    } catch(e){return {ok:false,auditEventId:`kb-err-${Date.now()}`,error:{code:'executor_update_failed',safeMessage:e instanceof Error?e.message:'Executor update failed.',retryable:true}};}
   }
 
   async updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult> {

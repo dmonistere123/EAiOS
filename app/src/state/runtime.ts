@@ -100,7 +100,7 @@ async function guarded<T>(key: string, fn: () => Promise<T>, apply: (v: T) => vo
 }
 
 export async function refreshApprovals() {
-  await guarded('approvals', async () => {const rows=import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'?[]:await hermes.listApprovals({status:['pending']});if(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')rows.push(...await humanDelegation.approvals());return rows;}, (approvals) => set({ approvals }));
+  await guarded('approvals', async () => {const rows=import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'?[]:await hermes.listApprovals({status:['pending','approved']});if(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')rows.push(...await humanDelegation.approvals());return rows;}, (approvals) => set({ approvals }));
 }
 
 export async function refreshAgents() {
@@ -247,7 +247,7 @@ export const selectCronByNextRun = (s: State) =>
   [...s.cron].filter((c) => c.enabled).sort((a, b) => a.nextRunAt.localeCompare(b.nextRunAt));
 
 export const selectPendingApprovals = (s: State) =>
-  s.approvals.filter((a) => a.status === 'pending').sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+  s.approvals.filter((a) => a.status === 'pending' || (a.status === 'approved' && a.executionState === 'blocked')).sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
 
 export const selectActivityNewest = (s: State) =>
   [...s.activity].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));

@@ -15,7 +15,7 @@ import { readConversation } from './assistantConversations.ts';
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
-import { ApprovalGateError, decideApprovalTask, editApprovalTask } from './approvalGate.ts';
+import { ApprovalGateError, decideApprovalTask, editApprovalTask, resumeApprovedTask, setApprovalExecutorTask } from './approvalGate.ts';
 import {travelPlaces,travelRecommendations} from './travelGuide.ts';
 import { travelAction } from './travelBooking.ts';
 /// <reference types="node" />
@@ -549,6 +549,16 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
         json(res, e instanceof ApprovalGateError ? e.status : 400, JSON.stringify({ error: errMessage(e) }));
       }
       return true;
+    }
+    const approvalExecutor = path.match(/^\/api\/kanban\/approvals\/([^/]+)\/executor$/);
+    if (approvalExecutor && req.method === 'POST') {
+      try { requireSameOriginJson(req); const result=setApprovalExecutorTask(join(ctx.hermesHome,'kanban.db'),decodeURIComponent(approvalExecutor[1]),await readJsonBody(req)); kanbanCache=undefined; json(res,200,JSON.stringify(result)); }
+      catch(e){json(res,e instanceof ApprovalGateError?e.status:400,JSON.stringify({error:errMessage(e)}));} return true;
+    }
+    const approvalResume = path.match(/^\/api\/kanban\/approvals\/([^/]+)\/resume$/);
+    if (approvalResume && req.method === 'POST') {
+      try { requireSameOriginJson(req); const result=resumeApprovedTask(join(ctx.hermesHome,'kanban.db'),decodeURIComponent(approvalResume[1]),await readJsonBody(req)); kanbanCache=undefined; json(res,200,JSON.stringify(result)); }
+      catch(e){json(res,e instanceof ApprovalGateError?e.status:400,JSON.stringify({error:errMessage(e)}));} return true;
     }
     if (path === '/api/kanban') {
       if (req.method === 'GET') {

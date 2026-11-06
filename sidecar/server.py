@@ -275,7 +275,7 @@ class Handler(BaseHTTPRequestHandler):
     def _extract_tts_config(self, parts: dict[str, tuple[str | None, bytes]]) -> dict:
         """Parse TTS provider/voice fields from a multipart upload."""
         cfg: dict[str, str] = {}
-        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest")):
+        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest"), ("generationKey", "generationKey"), ("minDurationSeconds", "minDurationSeconds"), ("maxDurationSeconds", "maxDurationSeconds")):
             if key in parts and field not in cfg:
                 val = parts[key][1].decode(errors="replace").strip()
                 if val:
@@ -285,9 +285,9 @@ class Handler(BaseHTTPRequestHandler):
     def _extract_tts_config_json(self, payload: dict) -> dict:
         """Parse TTS provider/voice fields from a JSON body."""
         cfg: dict[str, str] = {}
-        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest")):
+        for key, field in (("ttsModel", "provider"), ("ttsProvider", "provider"), ("voiceHost", "voiceHost"), ("voiceGuest", "voiceGuest"), ("generationKey", "generationKey"), ("minDurationSeconds", "minDurationSeconds"), ("maxDurationSeconds", "maxDurationSeconds")):
             if field not in cfg:
-                val = (payload.get(key) or "").strip()
+                val = str(payload.get(key) or "").strip()
                 if val:
                     cfg[field] = val
         return cfg

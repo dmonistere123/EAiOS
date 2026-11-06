@@ -307,13 +307,25 @@ class MockHermesAdapter implements HermesAdapter {
     await delay(250);
     const ap = this.approvals.find((a) => a.id === approvalId);
     if (!ap) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'not_found', safeMessage: 'Approval not found.', retryable: false } };
+    if (decision.decision === 'approved' && (!ap.executorProfileId || ap.executorProfileId === ap.requestedByAgentId)) return { ok: false, auditEventId: `aud-${auditSeq++}`, error: { code: 'invalid_executor', safeMessage: 'Choose an executor different from the drafting profile.', retryable: false } };
     this.approvals = this.approvals.map((a) => (a.id === approvalId ? { ...a, status: decision.decision } : a));
     this.emit('approval.decided', ap.requestedByAgentId, `Approval ${decision.decision}: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
-    // Parity with live assign-on-approve (2026-08-29): the requester executes.
     if (decision.decision === 'approved') {
-      this.emit('agent.started', ap.requestedByAgentId, `Executing approved action: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
+      this.emit('agent.started', ap.executorProfileId!, `Executing approved action: ${ap.targetObject ?? ap.targetSystem}`, ap.workItemId);
     }
     return audit();
+  }
+
+  async resumeApprovedTask(approvalId: string, executorProfileId: string): Promise<AuditResult> {
+    const ap=this.approvals.find(a=>a.id===approvalId); if(!ap||ap.status!=='approved'||ap.executionState!=='blocked') return {ok:false,auditEventId:`aud-${auditSeq++}`,error:{code:'not_recoverable',safeMessage:'Approval is not recoverable.',retryable:false}};
+    if(!executorProfileId||executorProfileId===ap.requestedByAgentId)return {ok:false,auditEventId:`aud-${auditSeq++}`,error:{code:'invalid_executor',safeMessage:'Choose a different executor.',retryable:false}};
+    this.approvals=this.approvals.map(a=>a.id===approvalId?{...a,executorProfileId,executionState:'queued'}:a); return audit();
+  }
+
+  async updateApprovalExecutor(approvalId: string, executorProfileId: string): Promise<AuditResult> {
+    const ap=this.approvals.find(a=>a.id===approvalId); if(!ap)return {ok:false,auditEventId:`aud-${auditSeq++}`,error:{code:'not_found',safeMessage:'Approval not found.',retryable:false}};
+    if(!executorProfileId||executorProfileId===ap.requestedByAgentId)return {ok:false,auditEventId:`aud-${auditSeq++}`,error:{code:'invalid_executor',safeMessage:'Choose a different executor.',retryable:false}};
+    this.approvals=this.approvals.map(a=>a.id===approvalId?{...a,executorProfileId}:a); return audit();
   }
 
   async updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult> {

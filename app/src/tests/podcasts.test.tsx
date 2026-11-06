@@ -113,7 +113,7 @@ describe('Podcasts page', () => {
       id: 'p-new',
       sourceName: 'uploaded.pdf',
       sourceType: 'file',
-      status: 'pending',
+      status: 'queued',
       createdAt: new Date().toISOString(),
     });
     setup();

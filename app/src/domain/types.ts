@@ -96,6 +96,8 @@ export interface Approval {
   id: string;
   workItemId: string;
   requestedByAgentId: string;
+  executorProfileId?: string;
+  executionState?: 'queued' | 'running' | 'blocked' | 'failed' | 'delivered';
   actionType: 'send' | 'write' | 'publish' | 'execute' | 'delete' | 'other';
   targetSystem: string;
   targetObject?: string;
@@ -211,7 +213,7 @@ export interface Podcast {
   sourceId?: string;
   sourceName: string;
   sourceType: 'knowledge_source' | 'file';
-  status: 'pending' | 'processing' | 'ready' | 'failed';
+  status: 'queued' | 'running' | 'blocked' | 'failed' | 'delivered' | 'ready';
   ttsModel?: TtsProvider;
   voiceMap?: PodcastVoiceMap;
   audioPath?: string;
@@ -219,6 +221,8 @@ export interface Podcast {
   error?: string;
   createdAt: string;
   finishedAt?: string;
+  durationSeconds?: number;
+  verifiedSha256?: string;
 }
 
 // ---------- Skills ----------

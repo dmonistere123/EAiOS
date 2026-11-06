@@ -1,4 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
+import { readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { isAwaitingApproval } from '../src/domain/approvalGate.ts';
 
 interface Task {
@@ -38,6 +40,18 @@ function idle(task: Task) {
     fail('This task is already executing or closed. Refresh Approvals.');
   }
 }
+function eligibleProfiles(path: string) {
+  const profiles = new Set(['default']);
+  try { for (const item of readdirSync(join(dirname(path), 'profiles'), { withFileTypes: true })) if (item.isDirectory()) profiles.add(item.name); } catch { /* built-in default remains */ }
+  return profiles;
+}
+function executor(path: string, env: Record<string, unknown>, value = env.executorProfile) {
+  if (typeof env.requestedBy !== 'string' || !env.requestedBy.trim()) fail('No drafting profile is specified. Correct requestedBy before approval.');
+  if (typeof value !== 'string' || !value.trim()) fail('Select an executor before approving.');
+  if (value === env.requestedBy) fail('The executor must be different from the drafting profile.');
+  if (!eligibleProfiles(path).has(value)) fail(`Executor profile “${value}” does not exist or is not eligible.`);
+  return value;
+}
 
 /** One commit exposes both the human decision and runnable state to Hermes.
  * No CLI release/assign sequence, no provider call, and no automatic retry. */
@@ -56,7 +70,7 @@ export function decideApprovalTask(path: string, id: string, input: Record<strin
     if (decision === 'approved') {
       if(env.actionType==='send'&&/gmail|outlook|microsoft|email|e-mail|smtp/i.test(String(env.targetSystem)))fail('Email approvals require verified mailbox routing and the dedicated mail sender.');
       if (!isAwaitingApproval(task)) fail('Resolve the execution blocker before approving this task.');
-      if (typeof env.requestedBy !== 'string' || !env.requestedBy.trim()) fail('No requesting agent is specified. Keep the draft blocked until it is corrected.');
+      executor(path, env);
       if (typeof env.payload !== 'string' || !env.payload.trim()) fail('The draft has no prepared content to approve.');
       const parent = db.prepare("SELECT 1 FROM task_links e JOIN tasks p ON p.id = e.parent_id WHERE e.child_id = ? AND p.status NOT IN ('done', 'archived') LIMIT 1").get(id);
       if (parent) fail('A prerequisite is unfinished. The draft remains blocked.');
@@ -68,14 +82,46 @@ export function decideApprovalTask(path: string, id: string, input: Record<strin
     const body = JSON.stringify({ ...env, decision, decidedAt: new Date().toISOString(), ...(typeof input.note === 'string' ? { decisionNote: input.note } : {}) });
     event('approval_decided', { decision });
     if (decision === 'approved') {
-      db.prepare("UPDATE tasks SET body = ?, status = 'ready', assignee = ?, consecutive_failures = 0, last_failure_error = NULL WHERE id = ?").run(body, env.requestedBy as string, id);
+      const executorProfile = executor(path, env);
+      db.prepare("UPDATE tasks SET body = ?, status = 'ready', assignee = ?, consecutive_failures = 0, last_failure_error = NULL WHERE id = ?").run(body, executorProfile, id);
       event('unblocked', { status: 'ready', reason: 'Executive approved prepared action' });
-      event('assigned', { assignee: env.requestedBy, from: task.assignee });
+      event('assigned', { assignee: executorProfile, drafter: env.requestedBy, from: task.assignee });
     } else {
       db.prepare("UPDATE tasks SET body = ?, status = 'blocked', assignee = NULL, block_kind = 'needs_input' WHERE id = ?").run(body, id);
       event('blocked', { kind: 'needs_input', reason: decision === 'rejected' ? 'Rejected by executive' : 'Changes requested by executive' });
     }
     return { ok: true, auditEventId: `kb-decision-${id}` };
+  });
+}
+
+/** Executive-only recovery for approved work that blocked before execution. */
+export function resumeApprovedTask(path: string, id: string, input: Record<string, unknown>) {
+  if (typeof input.expectedBody !== 'string') fail('Refresh the approved task before assigning an executor.');
+  return transaction(path, db => {
+    const task = taskFor(db, id), env = envelope(task.body);
+    if (task.body !== input.expectedBody) fail('The approved task changed. Refresh before assigning an executor.');
+    if (env.decision !== 'approved') fail('Only an already-approved task can resume without another approval.');
+    if (task.status !== 'blocked' || task.claim_lock || task.current_run_id) fail('Only an unclaimed blocked task can be resumed.');
+    const executorProfile = executor(path, env, input.executorProfile);
+    const now = Math.floor(Date.now() / 1000), body = JSON.stringify({ ...env, executorProfile });
+    db.prepare("UPDATE tasks SET body=?, status='ready', assignee=?, block_kind=NULL, consecutive_failures=0, last_failure_error=NULL WHERE id=?").run(body, executorProfile, id);
+    db.prepare('INSERT INTO task_events (task_id,kind,payload,created_at) VALUES (?,?,?,?)').run(id, 'executive_executor_assignment', JSON.stringify({ actor: 'eaios-executive', executor: executorProfile, drafter: env.requestedBy, preservedDecision: 'approved' }), now);
+    db.prepare('INSERT INTO task_events (task_id,kind,payload,created_at) VALUES (?,?,?,?)').run(id, 'unblocked', JSON.stringify({ actor: 'eaios-executive', status: 'ready', reason: 'Executive assigned executor to approved task' }), now);
+    db.prepare('INSERT INTO task_events (task_id,kind,payload,created_at) VALUES (?,?,?,?)').run(id, 'assigned', JSON.stringify({ actor: 'eaios-executive', assignee: executorProfile, from: task.assignee }), now);
+    return { ok: true, auditEventId: `kb-resume-${id}` };
+  });
+}
+
+export function setApprovalExecutorTask(path: string, id: string, input: Record<string, unknown>) {
+  return transaction(path, db => {
+    const task = taskFor(db, id), env = envelope(task.body);
+    idle(task);
+    if (env.decision) fail('A decided approval cannot change executor.');
+    if (typeof input.expectedBody !== 'string' || input.expectedBody !== task.body) fail('The draft changed. Refresh before selecting an executor.');
+    const executorProfile = executor(path, env, input.executorProfile);
+    const body = JSON.stringify({ ...env, executorProfile });
+    db.prepare('UPDATE tasks SET body=? WHERE id=?').run(body, id);
+    return { ok: true, body };
   });
 }
 
