@@ -13,6 +13,8 @@ Existing-box upgrades preserve agents, skills, custom instructions, accounts, cr
 bash scripts/eaios-update.sh --to v0.1.12 --apply-scheduled-work-policy
 ```
 
+**Upgrading from v0.1.11 or older:** the old updater does not recognize the new opt-in flag. First update normally through Settings or run `bash scripts/eaios-update.sh --to v0.1.12`, then run the helper below.
+
 After updating through Settings, an administrator can use the installed release's helper:
 
 ```sh
