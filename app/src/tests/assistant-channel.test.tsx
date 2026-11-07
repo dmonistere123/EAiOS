@@ -81,7 +81,7 @@ describe('channel views (D-B1)', () => {
 describe('contextual rail (W2, D-B2)', () => {
   it('Assistant declares a Conversations rail (all sources); the default watchtower is replaced', async () => {
     renderAt('/assistant');
-    expect(await screen.findByText('Conversations — Ally')).toBeInTheDocument();
+    expect((await screen.findAllByText('Conversations — Ally')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Operational Watchtower')).not.toBeInTheDocument();
     // D-B2: every source appears — the telegram session, not just EAiOS ones
     expect(await screen.findByRole('button', { name: /Morning review/ })).toBeInTheDocument();
@@ -143,6 +143,7 @@ function stubRpc(handler: (method: string, params: Record<string, unknown>) => P
 }
 
 beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({sessions:[]})));
   localStorage.clear();
   holder.assistantLanes?.clear();
   holder.assistantSidToAgent?.clear();
@@ -175,6 +176,15 @@ describe('live sessions + channel (stubbed RPC)', () => {
     });
     await live.listSessionsFor();
     expect(calls[0].params).toEqual({ limit: 50 });
+  });
+
+  it('merges Telegram outside the gateway window without duplicates and fails honestly', async () => {
+    stubRpc(async () => ({sessions:[{id:'tg',source:'telegram'},{id:'web',source:'desktop'}]}));
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({sessions:[{id:'tg',title:'Phone chat',source:'telegram',messageCount:2,startedAt:new Date().toISOString()}]})));
+    const rows=await live.listSessionsFor();
+    expect(rows.map(r=>r.id)).toEqual(['tg','web']);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('',{status:503})));
+    await expect(live.listSessionsFor()).rejects.toThrow('unavailable');
   });
 
   it('getChannelFor reads the canonical Bot Chat via title lookup + resolved_id, profile-scoped history', async () => {

@@ -308,7 +308,7 @@ export interface HermesAdapter {
 
   // ---------- Assistant: sessions + channel views (W1, D-B1/D-B2) ----------
   /** Durable sessions of a profile, all sources (D-B2). profile omitted = Ally (default profile). */
-  listSessionsFor(profile?: string): Promise<AssistantSessionRef[]>;
+  listSessionsFor(profile?: string, filter?: { query?: string; day?: string }): Promise<AssistantSessionRef[]>;
   /** Read-only channel for a staff agent: delegated work + the Ally↔agent chat (null when none exists). */
   getChannelFor(agentId: string): Promise<AgentChannel>;
   /** Read-only transcript of any one session of any profile (drawer view — never a chat target). */

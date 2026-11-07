@@ -45,10 +45,10 @@ function eligibleProfiles(path: string) {
   try { for (const item of readdirSync(join(dirname(path), 'profiles'), { withFileTypes: true })) if (item.isDirectory()) profiles.add(item.name); } catch { /* built-in default remains */ }
   return profiles;
 }
-function executor(path: string, env: Record<string, unknown>, value = env.executorProfile) {
+function executor(path: string, env: Record<string, unknown>, value: unknown = 'default') {
   if (typeof env.requestedBy !== 'string' || !env.requestedBy.trim()) fail('No drafting profile is specified. Correct requestedBy before approval.');
   if (typeof value !== 'string' || !value.trim()) fail('Select an executor before approving.');
-  if (value === env.requestedBy) fail('The executor must be different from the drafting profile.');
+  if (value !== 'default' && value === env.requestedBy) fail('The executor must be different from the drafting profile.');
   if (!eligibleProfiles(path).has(value)) fail(`Executor profile “${value}” does not exist or is not eligible.`);
   return value;
 }
@@ -79,7 +79,7 @@ export function decideApprovalTask(path: string, id: string, input: Record<strin
     const event = (kind: string, payload: Record<string, unknown>) => db.prepare(
       'INSERT INTO task_events (task_id, kind, payload, created_at) VALUES (?, ?, ?, ?)'
     ).run(id, kind, JSON.stringify({ ...payload, actor: 'eaios-executive' }), now);
-    const body = JSON.stringify({ ...env, decision, decidedAt: new Date().toISOString(), ...(typeof input.note === 'string' ? { decisionNote: input.note } : {}) });
+    const body = JSON.stringify({ ...env, ...(decision === 'approved' ? { executorProfile: 'default' } : {}), decision, decidedAt: new Date().toISOString(), ...(typeof input.note === 'string' ? { decisionNote: input.note } : {}) });
     event('approval_decided', { decision });
     if (decision === 'approved') {
       const executorProfile = executor(path, env);
@@ -102,7 +102,7 @@ export function resumeApprovedTask(path: string, id: string, input: Record<strin
     if (task.body !== input.expectedBody) fail('The approved task changed. Refresh before assigning an executor.');
     if (env.decision !== 'approved') fail('Only an already-approved task can resume without another approval.');
     if (task.status !== 'blocked' || task.claim_lock || task.current_run_id) fail('Only an unclaimed blocked task can be resumed.');
-    const executorProfile = executor(path, env, input.executorProfile);
+    const executorProfile = executor(path, env);
     const now = Math.floor(Date.now() / 1000), body = JSON.stringify({ ...env, executorProfile });
     db.prepare("UPDATE tasks SET body=?, status='ready', assignee=?, block_kind=NULL, consecutive_failures=0, last_failure_error=NULL WHERE id=?").run(body, executorProfile, id);
     db.prepare('INSERT INTO task_events (task_id,kind,payload,created_at) VALUES (?,?,?,?)').run(id, 'executive_executor_assignment', JSON.stringify({ actor: 'eaios-executive', executor: executorProfile, drafter: env.requestedBy, preservedDecision: 'approved' }), now);

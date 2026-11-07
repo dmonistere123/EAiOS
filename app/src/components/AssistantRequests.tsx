@@ -1,3 +1,4 @@
+import { LiveVoice } from './LiveVoice';
 import { CitationChips } from './CitationChips';
 import { ChunkDrawer } from './ChunkDrawer';
 import { AGENT_NAME } from '../config';
@@ -8,7 +9,7 @@ import type { AssistantConversation, RequestView } from '../domain/assistantRequ
 import type { ChatMessage } from '../domain/types';
 import type { AssistantAttachment } from '../adapters/interfaces';
 const done = (r: RequestView) => ['completed', 'recovered', 'cancelled', 'interrupted'].includes(r.state);
-export function AssistantRequests({ selection, onSelect, onRows }: { selection?: AssistantConversation | null; onSelect?: (value: AssistantConversation | null) => void; onRows?: (rows: RequestView[]) => void } = {}) {
+export function AssistantRequests({ selection, onSelect, onRows, initialPrompt = '' }: { initialPrompt?: string; selection?: AssistantConversation | null; onSelect?: (value: AssistantConversation | null) => void; onRows?: (rows: RequestView[]) => void } = {}) {
   const [localSelection, setLocalSelection] = useState<AssistantConversation | null>(null);
   const conversation = selection === undefined ? localSelection : selection;
   const selectionKey = `${conversation?.profile ?? ''}:${conversation?.id ?? ''}`;
@@ -19,13 +20,14 @@ export function AssistantRequests({ selection, onSelect, onRows }: { selection?:
   const [historyLoading, setHistoryLoading] = useState(false);
   const [baselineIds, setBaselineIds] = useState<Set<string>>(new Set());
   const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
-  const initialized = useRef(!!selection);
+  const initialized = useRef(!!selection || !!initialPrompt);
   const following = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [awayFromBottom, setAwayFromBottom] = useState(false);
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const [rows, setRows] = useState<RequestView[]>(() => hermes.cachedAssistantRequests?.() ?? []);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initialPrompt);
+  const draftSelectionRef=useRef(selectionKey);
   const inputRef = useRef<HTMLInputElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const [sessionNotice, setSessionNotice] = useState('');
@@ -94,7 +96,7 @@ export function AssistantRequests({ selection, onSelect, onRows }: { selection?:
   useEffect(() => {
     let cancelled = false;
     following.current = true; setAwayFromBottom(false); setHistory([]); setHistoryError('');
-    setDraft(''); setAttachments([]); setPendingRequestId(null); setSessionNotice(''); setError('');
+    if(draftSelectionRef.current!==selectionKey)setDraft(''); draftSelectionRef.current=selectionKey; setAttachments([]); setPendingRequestId(null); setSessionNotice(''); setError('');
     voice.cancelListening(false); voice.stopSpeaking();
     if (!conversation || !hermes.getSessionTranscript) { setBaselineIds(new Set()); setHistoryLoading(false); return; }
     const snapshot = rowsRef.current.filter(r => (r.conversationId ?? r.storedSessionId) === conversation.id);
@@ -167,6 +169,7 @@ export function AssistantRequests({ selection, onSelect, onRows }: { selection?:
       </article>)}
     </div>
     {awayFromBottom && <button type="button" onClick={scrollToLatest} className="self-center rounded-full border border-edge px-4 py-2 text-xs text-signal">Jump to latest</button>}
+    <LiveVoice conversation={conversation} history={[...history,...visibleRows.flatMap(row => [{id:row.id+'-user',role:'you' as const,text:row.text,at:row.createdAt},...(row.response?[{id:row.id+'-reply',role:'ally' as const,text:row.response,at:row.updatedAt}]:[])])]} disabled={submitting || loadingFiles || historyLoading || !!historyError || conversationBusy || attachments.length > 0} onStart={() => { initialized.current=true; voice.cancelListening(false);voice.stopSpeaking(); }} onAccepted={row => { setRows(current => [...current.filter(r=>r.id!==row.id),row]);setPendingRequestId(row.id);initialized.current=true; }} />
     <form onSubmit={e => { e.preventDefault(); void send(); }} className="space-y-2">
       <textarea ref={promptRef} aria-label={`New prompt for ${AGENT_NAME}`} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { voice.cancelListening(); return; } if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={conversation ? "Ask a follow-up…" : "Ask a question…"} className="w-full rounded-lg border border-edge bg-canvas p-3 text-sm" rows={3} />
       <div className="flex flex-wrap items-center gap-3">

@@ -455,3 +455,12 @@ describe('persistent data root', () => {
     } finally { await new Promise<void>(resolve => isolated.close(() => resolve())); }
   });
 });
+
+it('core edition exposes core modules and blocks optional UI and API paths before dispatch',async()=>{
+ const file=join(root,'eaios','modules.local.json');writeFileSync(file,JSON.stringify({edition:'core',addons:[]}));
+ try{
+  const response=await fetch(base+'/api/modules');expect(response.status).toBe(200);const value=await response.json();
+  expect(value.enabled).toContain('insights');expect(value.enabled).not.toContain('social');
+  for(const path of ['/social','/api/social-posts','/podcasts-api/generate'])expect((await fetch(base+path)).status).toBe(403);
+ }finally{rmSync(file);}
+});

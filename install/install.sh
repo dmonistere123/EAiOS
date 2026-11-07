@@ -126,6 +126,11 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Preserve legacy installations, including a root supplied on the command line.
+if [[ -f "$EAIOS_ROOT/app/.env.local" && ! -f "${EAIOS_DATA_ROOT:-$EAIOS_ROOT}/modules.local.json" ]]; then
+  EAIOS_EDITION=full
+fi
+
 # ---------------------------------------------------------------------------
 # Detect local vs remote mode
 # ---------------------------------------------------------------------------
@@ -257,6 +262,7 @@ else
   git clone --branch "$EAIOS_BRANCH" "$EAIOS_REPO_URL" "$EAIOS_ROOT"; cd "$EAIOS_ROOT"
 fi
 log_success "EAiOS repo ready at $EAIOS_ROOT"
+node "$EAIOS_ROOT/scripts/configure-edition.mjs" "${EAIOS_DATA_ROOT:-$EAIOS_ROOT}" "${EAIOS_EDITION:-full}"
 
 # ---------------------------------------------------------------------------
 # 4. App npm dependencies + build

@@ -1755,22 +1755,29 @@ class LiveHermesAdapter implements HermesAdapter {
    * profile's own state.db; the gateway deny-lists kanban/tool sources and
    * returns rows last-active-first.
    */
-  async listSessionsFor(profile?: string): Promise<AssistantSessionRef[]> {
+  async listSessionsFor(profile?: string, filter: { query?: string; day?: string } = {}): Promise<AssistantSessionRef[]> {
     try {
-      const r = await this.rpc.call<{ sessions?: { id: string; title?: string; preview?: string; started_at?: number; message_count?: number; source?: string }[] }>(
+      const r = await this.rpc.call<{ sessions?: { id: string; title?: string; preview?: string; started_at?: number; last_activity_at?: number; message_count?: number; source?: string }[] }>(
         'session.list',
         { limit: 50, ...(profile ? { profile } : {}) },
       );
-      return (r.sessions ?? []).map((s) => ({
+      const listed = (r.sessions ?? []).map((s) => ({
         id: s.id,
         title: s.title || '(untitled)',
         preview: s.preview ?? '',
-        startedAt: s.started_at ? new Date(s.started_at * 1000).toISOString() : new Date(0).toISOString(),
+        startedAt: new Date((s.last_activity_at ?? s.started_at ?? 0) * 1000).toISOString(),
         messageCount: s.message_count ?? 0,
         source: s.source ?? '',
       }));
+      const params = new URLSearchParams({ ...(profile ? { profile } : {}), ...(filter.query ? { q: filter.query } : {}), ...(filter.day ? { day: filter.day } : {}) });
+      const response = await fetch(`/api/assistant/telegram-conversations?${params}`);
+      if (!response.ok) throw new Error('Telegram history is unavailable.');
+      const { sessions: telegram } = await response.json() as { sessions: AssistantSessionRef[] };
+      if (filter.query || filter.day) return telegram;
+      const ids = new Set(telegram.map(row => row.id));
+      return [...telegram, ...listed.filter(row => row.source !== 'telegram' && !ids.has(row.id))];
     } catch {
-      return this.fallback.listSessionsFor(profile); // graceful degradation (spec §2)
+      throw new Error('Conversation history is unavailable. Please try again.');
     }
   }
 
@@ -1804,7 +1811,7 @@ class LiveHermesAdapter implements HermesAdapter {
     if (!response.ok) throw new Error('Conversation history is unavailable. No session was started.');
     const history = await response.json() as { messages?: ChatMessage[]; limited?: boolean };
     if (!Array.isArray(history.messages)) throw new Error('Invalid conversation history');
-    if (history.limited) history.messages.unshift({ id: 'history-limit', role: 'ally', text: 'Showing the latest part of this long conversation. The saved session context remains with Hermes.', at: new Date(0).toISOString() });
+    if (history.limited) history.messages.unshift({ id: 'history-limit', role: 'ally', text: 'Showing the latest part of this history. Older messages remain saved on this box.', at: new Date(0).toISOString() });
     return history.messages;
   }
 

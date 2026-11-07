@@ -439,6 +439,8 @@ export interface DelegatedRun {
  * gateway deny-lists kanban/tool). No last_activity_at on the RPC row —
  * the list arrives last-active-first, startedAt is the only timestamp. */
 export interface AssistantSessionRef {
+  day?: string; // Telegram calendar day in the box timezone
+  timeZone?: string;
   id: string; // stored (durable) session id — the resume handle
   title: string;
   preview: string;

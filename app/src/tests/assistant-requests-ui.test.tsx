@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssistantRequests } from '../components/AssistantRequests';
@@ -137,4 +138,15 @@ it('keeps earlier history when an identical new question has not yet been persis
   api.getSessionTranscript.mockResolvedValue([{id:'old',role:'you',text:'Again?',at:'2020-01-01'},{id:'answer',role:'ally',text:'Earlier answer',at:'2020-01-01'}]);
   const view=render(<AssistantRequests selection={{id:'same',title:'Repeated question'}}/>);await act(async()=>{});
   expect(screen.getByText('Earlier answer')).toBeInTheDocument();view.unmount();
+});
+
+it('prefills an insights discussion without sending or restoring an old conversation',async()=>{
+ api.listAssistantRequests.mockResolvedValue([{...request,conversationId:'old-chat',state:'completed'}]);
+ const view=render(<StrictMode><AssistantRequests initialPrompt="Discuss a two-week delegation trial" /></StrictMode>);
+ await act(async()=>{});
+ expect(screen.getByRole('textbox',{name:'New prompt for Ally'})).toHaveValue('Discuss a two-week delegation trial');
+ expect(api.createAssistantRequest).not.toHaveBeenCalled();expect(api.getSessionTranscript).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByText('Send'));await act(async()=>{});
+ expect(api.createAssistantRequest).toHaveBeenCalledWith('Discuss a two-week delegation trial',[],undefined);
+ view.unmount();
 });

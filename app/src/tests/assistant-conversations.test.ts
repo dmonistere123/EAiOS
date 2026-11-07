@@ -43,3 +43,18 @@ it('rejects invalid profile paths and unknown sessions',()=>{
  expect(()=>readConversation(home,'root','../../')).toThrow('Invalid profile');
  expect(()=>readConversation(home,'missing')).toThrow('not found');
 });
+it('lists Telegram independently of busy automated history and preserves storage', async () => {
+ const {listTelegramConversations}=await import('../../server/assistantConversations');
+ const db=new DatabaseSync(join(home,'state.db'));
+ db.exec(`ALTER TABLE sessions ADD COLUMN title TEXT; ALTER TABLE sessions ADD COLUMN hidden INTEGER DEFAULT 0; ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0;
+ INSERT INTO sessions(id,source,started_at,last_activity_at,model_config) VALUES('tg','telegram',1,2,'{}'),('private','telegram',1,3,'{}');
+ UPDATE sessions SET hidden=1 WHERE id='private';
+ INSERT INTO messages(id,session_id,role,content,timestamp) VALUES(20,'tg','user','Trip planning',1),(21,'tg','assistant','Here are your options',2);`);
+ for(let i=0;i<70;i++)db.prepare("INSERT INTO sessions(id,source,started_at,last_activity_at) VALUES(?,'cron',5,5)").run('cron'+i);
+ db.close();
+ const before=readFileSync(join(home,'state.db'));
+ const rows=listTelegramConversations(home);
+ expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({source:'telegram',messageCount:2});
+ expect(readFileSync(join(home,'state.db'))).toEqual(before);
+ expect(()=>listTelegramConversations(home,'../bad')).toThrow('Invalid profile');
+});

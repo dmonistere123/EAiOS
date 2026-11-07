@@ -24,7 +24,7 @@ if mode == 'create':
     for name in ['approve', 'reject', 'changes', 'future']:
         ids[name] = kb.create_task(conn, title='Synthetic approval ' + name,
             body=json.dumps({'eaios': 'approval', 'requestedBy': 'default',
-                'actionType': 'send', 'targetSystem': 'outlook', 'risk': 'low',
+                'actionType': 'send', 'targetSystem': 'test-messaging', 'risk': 'low',
                 'targetObject': 'Sample draft — ' + name,
                 'payload': 'To: nobody@example.invalid\nSubject: Test\nBody: Never sent'}),
             initial_status='blocked', workspace_kind='scratch', created_by='test')

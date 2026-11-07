@@ -1,3 +1,4 @@
+import { adapterMode } from '../adapters';
 /**
  * AppShell — left nav / center workspace / right operational rail.
  * Both panes drag-resize (continuous, no text selection), double-click resets,
@@ -5,7 +6,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   selectActivityNewest, selectCronByNextRun, selectPendingApprovals, useRuntime, agentName,
 } from '../state/runtime';
@@ -39,6 +40,7 @@ export function resetPanePrefs() {
 
 const NAV: { to: string; label: string; icon: string; external?: boolean }[] = [
   { to: '/today', label: 'Today', icon: '☀' },
+  { to: '/insights', label: 'Executive Insights', icon: '◉' },
   { to: '/assistant', label: 'My Assistant', icon: '◈' },
   { to: '/staff', label: 'Staff', icon: '⛁' },
   { to: '/connections', label: 'Connections', icon: '⬡' },
@@ -221,6 +223,13 @@ function RightRail() {
 // ---------- shell ----------
 
 export default function AppShell() {
+  const location=useLocation();
+  const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV.map(n=>n.to.slice(1)):null);
+  const [moduleError,setModuleError]=useState(false);
+  useEffect(()=>{if(adapterMode==='mock')return;const controller=new AbortController();
+    void fetch('/api/modules',{signal:controller.signal}).then(async r=>{if(!r.ok)throw new Error('Module configuration unavailable');return r.json();}).then(v=>{if(!Array.isArray(v.enabled)||!v.enabled.every((x:unknown)=>typeof x==='string'))throw new Error('Invalid modules');setModules(v.enabled);}).catch(()=>{if(!controller.signal.aborted)setModuleError(true);});return()=>controller.abort();
+  },[]);
+
   const [prefs, setPrefs] = useState<PanePrefs>(loadPrefs);
   const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
   const s = useRuntime();
@@ -296,7 +305,7 @@ export default function AppShell() {
         {/* left nav */}
         <nav aria-label="Primary" style={{ width: leftWidth }} className="flex shrink-0 flex-col border-r border-edge bg-canvas-raised transition-[width] duration-75">
           <div className="flex-1 overflow-y-auto py-3">
-            {NAV.map((n) => n.external ? (
+            {NAV.filter(n=>modules?.includes(n.to.slice(1))).map((n) => n.external ? (
               <a
                 key={n.to}
                 href={n.to}
@@ -341,7 +350,7 @@ export default function AppShell() {
         {/* center */}
         <main className="min-w-0 flex-1 overflow-y-auto" id="main">
           <div className="mx-auto h-full max-w-6xl px-6 py-6">
-            <Outlet />
+            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<Outlet />}
           </div>
         </main>
 

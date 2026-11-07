@@ -27,3 +27,6 @@ assistant-requests/
 
 # Persistent private Social Media drafts and images
 social-data/
+
+# Persistent per-box module choices
+modules.local.json

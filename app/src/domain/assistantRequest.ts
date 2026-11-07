@@ -7,4 +7,4 @@ export interface AssistantRequest {
 export interface RequestArtifact { id: string; name: string; taskId: string; url: string; }
 export interface RequestView extends AssistantRequest { artifacts?: RequestArtifact[]; taskIds?: string[]; linkageLimited?: boolean; linkageUnavailable?: boolean; }
 
-export interface AssistantConversation { id: string; title: string; profile?: string; }
+export interface AssistantConversation { source?: string; id: string; title: string; profile?: string; }

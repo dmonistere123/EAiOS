@@ -1,3 +1,6 @@
+import { ConversationSearch } from '../components/ConversationSearch';
+import { TelegramHistory } from '../components/TelegramHistory';
+import { useLocation } from 'react-router-dom';
 import type { AssistantConversation, RequestView } from '../domain/assistantRequest';
 import { CitationChips } from '../components/CitationChips';
 import { AssistantRequests } from '../components/AssistantRequests';
@@ -10,12 +13,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AssistantSessionRef, ChatMessage, DelegatedRun } from '../domain/types';
 import { hermes } from '../adapters';
 import type { AssistantAttachment } from '../adapters/interfaces';
-import { Card, Drawer, SectionTitle, StateBadge, AgentStatusBadge } from '../components/ui';
+import { Card, Drawer, SectionTitle, AgentStatusBadge } from '../components/ui';
 import { useVoice } from '../hooks/useVoice';
 import { ChunkDrawer } from '../components/ChunkDrawer';
 import { AgentChannel } from '../components/AgentChannel';
 import { DelegatedRunDrawer } from '../components/DelegatedRunDrawer';
-import { useRuntime, agentName, selectPendingApprovals, toast } from '../state/runtime';
+import { useRuntime, toast } from '../state/runtime';
 import { AGENT_NAME } from '../config';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
@@ -38,7 +41,7 @@ function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onC
     <Drawer title={session.title} onClose={onClose} width={480}>
       <p className="mb-3 flex items-center gap-2 text-[11px] text-ink-faint">
         <span className="rounded-full border border-edge px-2 py-0.5 font-medium uppercase tracking-wider">read-only</span>
-        <span className="capitalize">{session.source}</span> · {session.messageCount} messages · {AGENT_NAME} is the only agent you chat with
+        <span className="capitalize">{session.source === 'web' ? 'EAiOS' : session.source}</span> · {session.messageCount} messages · {AGENT_NAME} is the only agent you chat with
       </p>
       {messages === null ? (
         <p className="text-xs text-ink-faint">Loading transcript…</p>
@@ -59,6 +62,8 @@ function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onC
 }
 
 export default function Assistant() {
+  const location=useLocation();
+  const [insightBrief]=useState(()=>typeof location.state?.insightBrief==='string'?location.state.insightBrief.slice(0,16000):'');
   const s = useRuntime();
   // Ally = the default profile (id 'default' live, 'ally' in the mock fixture).
   const allyId = s.agents.find((a) => a.id === 'default')?.id ?? s.agents.find((a) => a.id === 'ally')?.id ?? s.agents[0]?.id ?? 'default';
@@ -68,12 +73,11 @@ export default function Assistant() {
   const contextAgent = s.agents.find((a) => a.id === contextId);
   const contextName = contextIsAlly ? AGENT_NAME : contextAgent?.name ?? contextId;
 
-  const approvals = selectPendingApprovals(s);
   const [thread, setThread] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState<string | null>(null);
   const [progress, setProgress] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(insightBrief);
   const draftRef = useRef(draft);
   useEffect(() => {
     draftRef.current = draft;
@@ -83,10 +87,16 @@ export default function Assistant() {
   const [attachBusy, setAttachBusy] = useState(false);
   const [openChunk, setOpenChunk] = useState<string | null>(null);
   const [openSession, setOpenSession] = useState<AssistantSessionRef | null>(null);
+  const [sessionListError, setSessionListError] = useState('');
+  const [conversationQuery, setConversationQuery] = useState('');
+  const [conversationDay, setConversationDay] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  useEffect(() => { const timer = setTimeout(() => setSearchQuery(conversationQuery.trim()), 300); return () => clearTimeout(timer); }, [conversationQuery]);
   const [sessions, setSessions] = useState<AssistantSessionRef[]>([]);
   const [requestRows, setRequestRows] = useState<RequestView[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<AssistantConversation | null>(() => {
-    try { const stored = JSON.parse(localStorage.getItem('eaios.assistant.selectedConversation') ?? 'null'); return stored && typeof stored.id === 'string' && typeof stored.title === 'string' ? stored : null; } catch { return null; }
+    if(insightBrief)return null;
+    try { const stored = JSON.parse(localStorage.getItem('eaios.assistant.selectedConversation') ?? 'null'); return stored && typeof stored.id === 'string' && typeof stored.title === 'string' && !(stored.source === 'telegram' && !stored.id.startsWith('telegram-day:')) ? stored : null; } catch { return null; }
   });
   const selectConversation = useCallback((value: AssistantConversation | null) => {
     setSelectedConversation(value);
@@ -171,13 +181,14 @@ export default function Assistant() {
   // D-B2: the selected profile's full conversation history (all sources).
   useEffect(() => {
     let stale = false;
-    void hermes.listSessionsFor(contextIsAlly ? undefined : contextId).then((rows) => {
-      if (!stale) setSessions(rows);
-    });
-    return () => {
-      stale = true;
-    };
-  }, [contextId, contextIsAlly]);
+    setSessionListError('Loading conversations…');
+    const refresh = () => void hermes.listSessionsFor(contextIsAlly ? undefined : contextId, {query: searchQuery, day: conversationDay}).then((rows) => {
+      if (!stale) { setSessions(rows); setSessionListError(''); }
+    }).catch(() => { if (!stale) setSessionListError('Conversation history could not refresh.'); });
+    refresh();
+    const timer = setInterval(refresh, 15000);
+    return () => { stale = true; clearInterval(timer); };
+  }, [contextId, contextIsAlly, searchQuery, conversationDay]);
 
   // Delegated runs (Don 2026-08-29): every executed task appears as a
   // read-only session in the rail — Ally context sees all staff runs, an
@@ -219,12 +230,17 @@ export default function Assistant() {
       const previous = requestGroups.get(id);
       requestGroups.set(id, { id, title: previous?.title ?? r.text.slice(0, 80), preview: r.response.slice(0, 80), startedAt: r.createdAt, messageCount: (previous?.messageCount ?? 0) + 2, source: 'web' });
     }
-    const requestSessions = [...requestGroups.values()];
+    const matchesLocal = (row: AssistantSessionRef) => {
+      const date = new Date(row.startedAt);
+      const localDay = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      return (!conversationDay || localDay === conversationDay) && (!searchQuery || `${row.title} ${row.preview} ${localDay} ${date.toLocaleDateString('en-US')}`.toLowerCase().includes(searchQuery.toLowerCase()));
+    };
+    const requestSessions = [...requestGroups.values()].filter(matchesLocal);
     const requestIds = new Set(requestSessions.map(r => r.id));
     const combined = [...requestSessions, ...sessions.filter(r => !requestIds.has(r.id))];
     const seen = new Set(combined.map((s) => s.id));
-    return [...combined, ...runSessions.filter((r) => !seen.has(r.id))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  }, [sessions, contextRuns, requestRows, contextIsAlly]);
+    return [...combined, ...runSessions.filter((r) => !seen.has(r.id) && matchesLocal(r))].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }, [sessions, contextRuns, requestRows, contextIsAlly, searchQuery, conversationDay]);
 
   const resumeSession = useCallback(async (storedId: string) => {
     const res = await hermes.resumeAssistantSession(storedId);
@@ -262,26 +278,31 @@ export default function Assistant() {
         title: `Conversations — ${contextName}`,
         count: allSessions.length,
         node: (
+          <div>
+          <ConversationSearch query={conversationQuery} day={conversationDay} onQuery={setConversationQuery} onDay={setConversationDay}/>
           <ul className="space-y-1.5">
+            {sessionListError && <li role="status" className="text-xs text-warn">{sessionListError}</li>}
             {allSessions.map((sess) => (
               <li key={sess.id}>
                 <button
-                  onClick={() => (sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly ? hermes.listAssistantRequests ? selectConversation({ id: sess.id, title: sess.title, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === sess.id)?.profile }) : void resumeSession(sess.id) : setOpenSession(sess))}
+                  onClick={() => (sess.source === 'telegram' && contextIsAlly ? selectConversation({ id: sess.id, title: sess.title, source: 'telegram' }) : sess.source === 'kanban' ? openKanbanRun(sess) : contextIsAlly ? hermes.listAssistantRequests ? selectConversation({ id: sess.id, title: sess.title, source: sess.source, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === sess.id)?.profile }) : void resumeSession(sess.id) : setOpenSession(sess))}
                   aria-current={selectedConversation?.id === sess.id ? "true" : undefined}
                   className={`w-full rounded-lg px-2 py-1.5 text-left hover:bg-canvas-overlay ${selectedConversation?.id === sess.id ? "bg-signal/10" : ""}`}
-                  title={sess.source === 'kanban' ? 'Delegated run — view result + transcript (read-only)' : contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
+                  title={sess.source === 'telegram' ? 'Read saved Telegram conversation (no messages sent)' : sess.source === 'kanban' ? 'Delegated run — view result + transcript (read-only)' : contextIsAlly ? 'Resume this conversation in the chat' : 'View transcript (read-only)'}
                 >
-                  <div className="truncate text-xs font-medium text-ink">{sess.title}</div>
+                  <div className={`truncate font-medium text-ink ${sess.source === 'telegram' ? 'text-sm' : 'text-xs'}`}>{sess.title}</div>
+                  {sess.source !== 'telegram' && <div className="mt-1 text-xs font-medium text-ink-dim">{new Date(sess.startedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>}
                   {sess.preview && <div className="mt-0.5 truncate text-[11px] text-ink-faint">{sess.preview}</div>}
                   <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
-                    <span className="capitalize">{sess.source}</span>
+                    <span className="capitalize">{sess.source === 'web' ? 'EAiOS' : sess.source}</span>
                     <span>{sess.messageCount} msg</span>
                   </div>
                 </button>
               </li>
             ))}
-            {allSessions.length === 0 && <li className="px-2 text-xs text-ink-faint">No conversations yet.</li>}
+            {allSessions.length === 0 && <li className="px-2 text-xs text-ink-faint">{searchQuery || conversationDay ? 'No matching conversations.' : 'No conversations yet.'}</li>}
           </ul>
+          </div>
         ),
       },
       {
@@ -310,7 +331,7 @@ export default function Assistant() {
         ),
       },
     ],
-    [allSessions, contextRuns, contextName, contextIsAlly, resumeSession, openKanbanRun, selectConversation, selectedConversation, requestRows],
+    [conversationQuery, conversationDay, searchQuery, sessionListError, allSessions, contextRuns, contextName, contextIsAlly, resumeSession, openKanbanRun, selectConversation, selectedConversation, requestRows],
   );
   usePageRail(railSections);
 
@@ -384,12 +405,6 @@ export default function Assistant() {
   };
 
   const busy = sending || streaming !== null;
-  const activeWork = s.work
-    .filter((w) => w.state === 'in_progress' || w.state === 'waiting_approval')
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 5);
-  const knowledgeReady = s.knowledge.filter((k) => k.indexingStatus === 'ready').length;
-  const knowledgeIndexing = s.knowledge.filter((k) => k.indexingStatus === 'processing').length;
 
   return (
     <div className="flex h-full flex-col gap-6">
@@ -424,18 +439,19 @@ export default function Assistant() {
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 xl:flex-row">
         {/* conversation — always Ally */}
-        <Card className="flex min-h-0 flex-col h-[calc(100dvh-8rem)] flex-none p-4 xl:flex-[3] xl:h-full">
-          {hermes.listAssistantRequests && contextIsAlly && <label className="mb-3 block text-xs text-ink-dim lg:hidden">
+        <Card className="flex min-h-0 min-w-0 flex-col h-[calc(100dvh-8rem)] flex-none p-4 xl:flex-[3] xl:h-full">
+          {contextIsAlly && <div className="lg:hidden"><ConversationSearch query={conversationQuery} day={conversationDay} onQuery={setConversationQuery} onDay={setConversationDay}/>{sessionListError && <p role="status" className="mb-2 text-xs text-warn">{sessionListError}</p>}</div>}
+          {contextIsAlly && <label className="mb-3 block text-xs text-ink-dim lg:hidden">
             Conversations — {AGENT_NAME}
             <select aria-label="Open saved conversation" value={selectedConversation?.id ?? ''} className="mt-1 block w-full rounded-lg border border-edge bg-canvas p-2 text-sm text-ink" onChange={e => {
               const session = allSessions.find(row => row.id === e.target.value);
-              if (session) selectConversation({ id: session.id, title: session.title, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === session.id)?.profile });
+              if (session) selectConversation({ id: session.id, title: session.title, source: session.source, profile: requestRows.find(r => (r.conversationId ?? r.storedSessionId) === session.id)?.profile });
             }}>
-              <option value="" disabled>Choose a conversation</option>
-              {allSessions.filter(row => !['kanban','tool'].includes(row.source)).map(row => <option key={row.id} value={row.id}>{row.title}</option>)}
+              <option value="" disabled>{allSessions.length === 0 && (searchQuery || conversationDay) ? 'No matching conversations' : 'Choose a conversation'}</option>
+              {allSessions.filter(row => !['kanban','tool'].includes(row.source)).map(row => <option key={row.id} value={row.id}>{row.source === 'telegram' ? 'Telegram · ' : ''}{row.title}</option>)}
             </select>
           </label>}
-          {hermes.listAssistantRequests ? <AssistantRequests selection={selectedConversation} onSelect={selectConversation} onRows={setRequestRows} /> : <>
+          {selectedConversation?.source === 'telegram' && contextIsAlly ? <TelegramHistory conversation={selectedConversation} onClose={() => selectConversation(null)} /> : hermes.listAssistantRequests ? <AssistantRequests initialPrompt={insightBrief} selection={selectedConversation} onSelect={selectConversation} onRows={setRequestRows} /> : <>
           <SectionTitle className="shrink-0">Conversation with {AGENT_NAME}</SectionTitle>
           <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto">
             {thread.length === 0 && streaming === null && (
@@ -537,60 +553,11 @@ export default function Assistant() {
           </>}
         </Card>
 
-        {/* context column — Ally: orchestration; staff agent: channel view */}
-        <div className="flex min-h-0 flex-[2] flex-col gap-4 overflow-y-auto">
-          {contextIsAlly ? (
-            <>
-              <Card className="p-4">
-                <SectionTitle>Current orchestration</SectionTitle>
-                {activeWork.length === 0 ? (
-                  <p className="text-xs text-ink-dim">No active agent work right now.</p>
-                ) : (
-                  <ol className="space-y-3">
-                    {activeWork.map((w, i) => (
-                      <li key={w.id} className="flex items-start gap-3">
-                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-edge bg-canvas text-[11px] text-ink-dim">{i + 1}</span>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm text-ink">{w.title}</div>
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-faint">
-                            {w.ownerId ? agentName(s, w.ownerId) : 'Executive'} <StateBadge label={w.state.replace('_', ' ')} tone={w.state === 'in_progress' ? 'signal' : 'warn'} />
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </Card>
-
-              <Card className="p-4">
-                <SectionTitle>Context in scope</SectionTitle>
-                <ul className="space-y-1.5 text-xs text-ink-dim">
-                  <li>Workspace: <span className="text-ink">EAiOS</span></li>
-                  <li>
-                    Knowledge: <span className="text-ink">{knowledgeReady} source{knowledgeReady === 1 ? '' : 's'} ready{knowledgeIndexing ? `, ${knowledgeIndexing} indexing` : ''}</span>
-                  </li>
-                </ul>
-              </Card>
-
-              <Card className="border-warn/25 p-4">
-                <SectionTitle>Approval forecast</SectionTitle>
-                {approvals.length === 0 ? (
-                  <p className="text-xs text-ink-dim">No external actions expected to need approval.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {approvals.map((a) => (
-                      <li key={a.id} className="text-xs text-ink-dim">
-                        <span className="text-ink">{a.targetObject ?? a.targetSystem}</span> — {a.actionType} via {a.targetSystem}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Card>
-            </>
-          ) : (
+        {!contextIsAlly && (
+          <div className="flex min-h-0 flex-[2] flex-col gap-4 overflow-y-auto">
             <AgentChannel agentId={contextId} agentName={contextName} />
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {openChunk && <ChunkDrawer chunkId={openChunk} onClose={() => setOpenChunk(null)} />}

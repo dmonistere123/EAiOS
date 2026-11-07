@@ -265,7 +265,7 @@ describe('citations (6.4b, F8)', () => {
 // ---------- page ----------
 
 describe('Assistant page (mock mode)', () => {
-  it('sends a message, streams the reply, and shows real work in the plan panel', async () => {
+  it('sends and streams messages in the focused chat layout', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -274,10 +274,9 @@ describe('Assistant page (mock mode)', () => {
     );
     // seeded greeting from the mock adapter
     expect(await screen.findByText(/chief of staff/, undefined, { timeout: 4000 })).toBeInTheDocument();
-    // orchestration panel reads the REAL work slice, not a hardcoded plan
-    expect(await screen.findByText('Prepare investor update email')).toBeInTheDocument();
-    // knowledge counts are honest (fixture: 2 ready, 1 processing, 1 failed)
-    expect(screen.getByText(/2 sources ready, 1 indexing/)).toBeInTheDocument();
+    expect(screen.queryByText('Current orchestration')).not.toBeInTheDocument();
+    expect(screen.queryByText('Context in scope')).not.toBeInTheDocument();
+    expect(screen.queryByText('Approval forecast')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Message Ally'), 'status on the investor update');
     await user.click(screen.getByRole('button', { name: 'Send' }));

@@ -33,8 +33,8 @@ function renderAt(route: string) {
 describe('Assistant rail — Delegated runs', () => {
   it('worker sessions appear IN Conversations — Ally (they are Ally sessions), tagged kanban', async () => {
     renderAt('/assistant');
-    const convo = await screen.findByText(/Conversations —/);
-    expect(convo).toBeInTheDocument();
+    const conversations = await screen.findAllByText(/Conversations —/);
+    expect(conversations.length).toBeGreaterThan(0);
     // the fixture run's worker session is merged into the conversations list
     // (it also appears in the Delegated runs section — both, by design)
     const entries = await screen.findAllByRole('button', { name: /Email triage — both inboxes/ });

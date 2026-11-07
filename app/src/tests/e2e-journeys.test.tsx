@@ -62,6 +62,8 @@ describe('Journey 1 — Morning review', () => {
     const inspect = (await screen.findAllByRole('button', { name: 'Inspect' }))[0]; // oldest first
     await user.click(inspect);
     const inspector = await screen.findByRole('dialog');
+    expect(within(inspector).queryByRole('combobox', { name: 'Executor profile' })).not.toBeInTheDocument();
+    expect(within(inspector).getByRole('button', { name: 'Approve & execute' })).toBeEnabled();
     await user.click(within(inspector).getByRole('button', { name: 'Approve & execute' }));
     // rail reflects: pending count in the nav badge drops 3 → 2
     const navLink = await screen.findByRole('link', { name: /Approvals/ });

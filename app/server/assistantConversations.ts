@@ -1,8 +1,10 @@
+import { telegramDays, readTelegramDay, type ConversationFilter } from './conversationIndex.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { compressionLineage, profileStatePath } from './assistantEvidence.ts';
 
 /** History reads never activate/resume a runtime or submit a prompt. */
 export function readConversation(home: string, id: string, profile?: string) {
+  if (id.startsWith('telegram-day:')) return readTelegramDay(home, id.slice('telegram-day:'.length), profile);
   if (!id || id.length > 256) throw new Error('Invalid conversation');
   const db = new DatabaseSync(profileStatePath(home, profile), { readOnly: true });
   try {
@@ -34,4 +36,10 @@ export function readConversation(home: string, id: string, profile?: string) {
     }
     return { messages: selected.reverse(), limited: selected.length < rows.length, root, sessionId: lineage.at(-1) };
   } finally { db.close(); }
+}
+
+/** Telegram history is indexed separately so automated runs cannot crowd it out.
+ * Profile-scoped, visible/unarchived sessions only; never starts a runtime. */
+export function listTelegramConversations(home: string, profile?: string, filter: ConversationFilter = {}) {
+  return telegramDays(home, profile, filter);
 }

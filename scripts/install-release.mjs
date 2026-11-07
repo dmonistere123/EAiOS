@@ -53,7 +53,7 @@ export async function backupPersistentData(options, backupDir) {
   }
   const accountsFile=join(options.dataRoot,'social-data','accounts.json');
   if(existsSync(accountsFile)) { copyFileSync(accountsFile,join(backupDir,'social-accounts.json')); chmodSync(join(backupDir,'social-accounts.json'),0o600); }
-  for (const name of ['settings.local.json', 'dismissed.json', 'notify-state.json']) {
+  for (const name of ['modules.local.json', 'settings.local.json', 'dismissed.json', 'notify-state.json']) {
     const path = join(options.dataRoot, name);
     if (existsSync(path)) { copyFileSync(path, join(backupDir, name)); chmodSync(join(backupDir, name), 0o600); }
   }

@@ -1,3 +1,6 @@
+import { moduleConfig } from './modules.ts';
+import { searchConversationSessions } from './conversationIndex.ts';
+import { insightsSnapshot, generateInsights, insightDays, InsightsError } from './executiveInsights.ts';
 import { deleteArtifact } from './artifactDelete.ts';
 import { bindReplyApproval, decideReplyApproval, listReplySources } from './mailReplies.ts';
 import { changeHumanSender, taskAttachments, submitHumanApproval, humanApprovals, decideHumanApproval, updateHumanStatus } from './humanApproval.ts';
@@ -11,7 +14,7 @@ import { keyContext, keySettings, saveKey, KeySettingsError } from './apiKeys.ts
 import type { ApiKeyScope } from '../src/domain/apiKeys.ts';
 import { readCronPrompts } from './cronPrompts.ts';
 import { reconcileReleaseArtifact, releaseArtifact, listReleaseArtifacts } from './releaseArtifacts.ts';
-import { readConversation } from './assistantConversations.ts';
+import { readConversation, listTelegramConversations } from './assistantConversations.ts';
 import { conciergeInfo, conciergeReply, ConciergeError } from './concierge.ts';
 import { assistantRequests, terminal } from './assistantRequests.ts';
 import { requestArtifacts } from './assistantArtifacts.ts';
@@ -165,6 +168,20 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if(path==='/api/modules' && req.method==='GET'){json(res,200,JSON.stringify(moduleConfig(dataRoot)));return true;}
+    if (path === '/api/executive-insights' || path === '/api/executive-insights/generate') {
+      res.setHeader('cache-control','no-store');
+      try {
+        if (path === '/api/executive-insights' && req.method === 'GET') json(res,200,JSON.stringify(insightsSnapshot(ctx,insightDays(url.searchParams.get('days') ?? 30))));
+        else if (path.endsWith('/generate') && req.method === 'POST') {
+          try { requireSameOriginJson(req); } catch { throw new InsightsError(403,'A same-origin JSON request is required.'); }
+          const body=await readJsonBody(req,2048);
+          json(res,200,JSON.stringify(await generateInsights(ctx,insightDays(body.days))));
+        } else json(res,405,JSON.stringify({error:'Method not allowed.'}));
+      } catch(e) { json(res,e instanceof InsightsError?e.status:503,JSON.stringify({error:e instanceof InsightsError?e.message:'Executive Insights is temporarily unavailable.'})); }
+      return true;
+    }
+
     if (path === '/api/mail-routing' || path === '/api/mail-routing/choices' || path === '/api/mail-routing/messages') {
       res.setHeader('cache-control','no-store');
       try {
@@ -251,6 +268,18 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       } catch (e) {
         json(res, e instanceof KeySettingsError ? e.status : 503, JSON.stringify({ error: e instanceof KeySettingsError ? e.message : 'Key settings are unavailable. No key values are returned.' }));
       }
+      return true;
+    }
+
+    if (path === '/api/assistant/telegram-conversations' && req.method === 'GET') {
+      res.setHeader('cache-control', 'no-store');
+      try {
+        const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+        const profile = params.get('profile') || undefined;
+        const filter = { query: params.get('q') || '', day: params.get('day') || '' };
+        const sessions = listTelegramConversations(ctx.hermesHome, profile, filter);
+        json(res, 200, JSON.stringify({ sessions: [...sessions, ...(filter.query || filter.day ? searchConversationSessions(ctx.hermesHome, profile, filter) : [])] }));
+      } catch { json(res, 503, JSON.stringify({ error: 'Telegram history is unavailable.' })); }
       return true;
     }
 

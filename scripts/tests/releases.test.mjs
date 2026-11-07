@@ -65,7 +65,7 @@ async function installFixture(t, failure = '') {
   git(root, 'add', '.'); git(root, 'commit', '-m', 'release'); const b = git(root, 'rev-parse', 'HEAD'); git(root, 'tag', 'v0.2.0');
   const remote = join(dir, 'origin.git'); git(dir, 'clone', '--bare', root, remote); git(root, 'remote', 'add', 'origin', remote); git(root, 'reset', '--hard', a);
   generateVersion(root); mkdirSync(join(root, 'app/dist'), { recursive: true }); cpSync(join(root, 'app/public/version.json'), join(root, 'app/dist/version.json'));
-  const sentinels = ['settings.local.json', 'dismissed.json', 'app/.env.local', 'sidecar/.env', 'sidecar/data/podcasts/audio/saved.mp3'];
+  const sentinels = ['modules.local.json', 'settings.local.json', 'dismissed.json', 'app/.env.local', 'sidecar/.env', 'sidecar/data/podcasts/audio/saved.mp3'];
   for (const name of sentinels) write(join(root, name), `keep:${name}`);
   const hermesHome = join(dir, 'hermes'); mkdirSync(hermesHome);
   const state = new DatabaseSync(join(hermesHome, 'state.db')); state.exec("PRAGMA journal_mode=WAL; CREATE TABLE customer_records (text); INSERT INTO customer_records VALUES ('keep chat');"); state.close();
