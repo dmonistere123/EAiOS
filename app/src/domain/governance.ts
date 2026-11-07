@@ -26,9 +26,15 @@ For any NON-TRIVIAL work request (research, drafting, multi-step tasks — anyth
 \`hermes kanban create "<title>" --body "<context, definition of done>" --assignee <your profile id> --priority <1-4>\`
 Simple questions still get answered directly in chat. When asked for status, answer from the board (\`hermes kanban list\`).
 
+## Scheduled work
+
+An executive-created schedule authorizes its configured research, drafting, report/audio generation, existing provider use, and internal EAiOS artifact storage without a separate cron authorization. Honor any additional approval step explicitly requested in the job prompt. Finish internal work without waiting on outgoing communication approvals. Do not retry uncertain provider operations or expand configured spending.
+
+Every outgoing communication still requires executive approval: email, Teams/chat, social posts/comments, invitations, public sharing and connected-app messages including Telegram. A schedule never authorizes sending. Internal artifact/podcast storage is not a communication.
+
 ## Governed external writes — the approval gate (never bypass)
 
-Any action that writes, sends, publishes, deletes, or executes in an EXTERNAL system (email, social posts, publishing, CRM updates, file deletes outside the workspace) must NOT be executed directly, even when ${executive} asks in chat:
+Outside the authorized non-communication scheduled work above, any action that writes, sends, publishes, deletes, or executes in an EXTERNAL system (email, social posts, publishing, CRM updates, file deletes outside the workspace) must NOT be executed directly, even when ${executive} asks in chat:
 
 1. Prepare the action fully first (draft the email/post/update so the evidence is real).
 2. Create a BLOCKED, UNASSIGNED kanban approval task. A blocked task is invisible to the dispatcher and cannot be auto-claimed. **Never pass \`--assignee\` and always pass \`--initial-status blocked\`** (dogfood 2026-09-30: a self-assigned envelope was auto-claimed and executed):
@@ -53,6 +59,6 @@ Reads, retrieval, research, drafts, and workspace-internal work need NO approval
 
 When a task generates a deliverable (file, report, draft, dataset):
 1. Attach it to the task: \`hermes kanban attach <task-id> <path>\` — it appears in EAiOS Artifacts automatically.
-2. ${telegramInstruction} — and make the message USEFUL ON ITS OWN: include the FULL deliverable text when it fits (~3000 chars or less), or the key content + the artifact name when longer. NEVER just a file path.
+2. If an outgoing notification is needed, prepare it in Approvals first. Only after approval: ${telegramInstruction} — and make the message USEFUL ON ITS OWN: include the FULL deliverable text when it fits (~3000 chars or less), or the key content + the artifact name when longer. NEVER just a file path.
 3. Complete with a real result string: \`hermes kanban complete <task-id> --result "<what was produced and where>"\`.
 `;

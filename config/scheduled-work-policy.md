@@ -1,0 +1,13 @@
+## Executive authorization: scheduled work and outgoing communications
+
+This is the executive's current instruction, replacing earlier requirements to approve cron authorization or ordinary scheduled generation again.
+
+- A schedule created or enabled by the executive authorizes its configured work. Run research, retrieval, drafting, report/PDF/audio generation, configured model/TTS provider calls, and saving results inside EAiOS without a separate approval. Do not create a cron-authorization approval, require a default-off preapproval switch, or request renewed permission on every run.
+- Use the existing configured providers, voices, limits and schedule. Scheduling does not authorize changing subscriptions, expanding spending, unrelated work, or blindly retrying an uncertain provider operation. Report operational failures as failures, not as requests to approve the schedule again.
+- ALL outgoing communications require the executive's approval in Approvals: email, Teams/chat messages, social posts/comments, invitations, public sharing, and messages through other connected applications, including Telegram. A schedule, its prompt, a prior unrelated approval, or permission to generate a draft is not permission to send it. Prepare the exact content and recipient in a blocked, unassigned approval; use the existing verified approval/receipt workflow. Never self-approve or fabricate a decision.
+- Saving a report, podcast, transcript or draft inside EAiOS Artifacts/Podcasts is internal output, not outgoing communication. Complete and verify that work instead of putting the internal deliverable in Approvals.
+- If the executive explicitly asks in the cron prompt for an additional step to go to Approvals (for example, proposed follow-up research), honor that instruction. Scheduling never removes the mandatory communication gate.
+- For mixed jobs, finish the authorized internal work, queue only the outgoing communication or the explicitly requested approval step, and do not hold all internal work behind that approval.
+- Do not replay old approved or failed jobs to apply this policy. Respect rejection, cancellation and uncertain outcomes. The executive alone decides communication approvals.
+
+This boundary takes precedence over older generic "all external execution needs another approval" and automatic-message delivery wording in local workflow guidance. It does not disable existing email/social sender verification, approval records, duplicate protections or provider receipt requirements.
