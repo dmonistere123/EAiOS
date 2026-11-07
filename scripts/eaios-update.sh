@@ -19,6 +19,7 @@ fi
 
 export EAIOS_STATE_DB="${EAIOS_STATE_DB:-$HOME/.hermes/state.db}"
 ACTION=update
+APPLY_SCHEDULED_WORK_POLICY=0
 TARGET=""
 STEP=preflight
 LOG_ROW_ID=""
@@ -51,13 +52,16 @@ trap 'ERROR_MESSAGE="Terminated during $STEP"; exit 143' TERM
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --apply-scheduled-work-policy) APPLY_SCHEDULED_WORK_POLICY=1; shift ;;
     --rollback) [[ "$ACTION" == update ]] || fail 'Choose only one update mode'; ACTION=rollback; shift ;;
     --to) [[ "$ACTION" == update && -n "${2:-}" && "${2:0:1}" != - ]] || fail '--to requires a tag, branch, or SHA'; ACTION=update-to; TARGET="$2"; shift 2 ;;
-    --help|-h) echo 'Usage: eaios-update.sh [--to <tag|branch|sha> | --rollback]'; exit 0 ;;
+    --help|-h) echo 'Usage: eaios-update.sh [--to <tag|branch|sha> | --rollback] [--apply-scheduled-work-policy]'; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
 
+[[ "$ACTION" != rollback || "$APPLY_SCHEDULED_WORK_POLICY" != 1 ]] || fail 'Policy changes cannot be combined with rollback'
+if [[ "$APPLY_SCHEDULED_WORK_POLICY" == 1 ]]; then command -v python3 >/dev/null || fail 'python3 is required for the requested policy update'; fi
 for cmd in git node npm uv flock; do command -v "$cmd" >/dev/null || fail "$cmd is required"; done
 [[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 24 ]] || fail 'Node >=24 is required'
 cd "$EAIOS_ROOT"
@@ -129,5 +133,9 @@ for unit in eaios-hermes-serve eaios-knowledge-sidecar eaios-server eaios-server
 done
 STEP=verification
 ./scripts/verify-install.sh
+if [[ "$APPLY_SCHEDULED_WORK_POLICY" == 1 ]]; then
+  STEP='explicit scheduled-work policy update'
+  python3 "$EAIOS_ROOT/scripts/update-scheduled-work-policy.py" --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --seed-missing --apply
+fi
 SUCCESS=1
 echo "EAiOS $ACTION complete: $OLD_VERSION @ $OLD_SHA -> $(version) @ $(git rev-parse HEAD)"

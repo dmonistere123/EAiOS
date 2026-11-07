@@ -191,3 +191,24 @@ By default it reads `model.provider` and `model.default` from the service's `$HE
 If authentication is missing, an administrator must securely provision the matching key in that existing private server-side `.env` file, or the service environment, through the normal approved secrets process. Never paste keys into the widget, browser configuration, source files, or chat. If a box needs a different supported model/provider, set both `EAIOS_CONCIERGE_PROVIDER` and `EAIOS_CONCIERGE_MODEL` in its server environment. A service-environment change requires the normal reviewed restart; file configuration is read on each request.
 
 Check `/api/concierge/context` and open the widget after the normal approved deployment. Neither action calls a model. A separately authorized test question is needed to verify provider authentication/model compatibility. See [Concierge operation and rollback](CONCIERGE.md) for limits and release checks.
+
+## Scheduled work defaults (v0.1.12)
+
+A genuinely new Hermes home receives the scheduled-work policy before services start:
+configured internal work needs no repeat approval; scheduled Telegram output to the
+executive is allowed; other communications still require approval.
+
+An existing Hermes home is preserved by default, even when installing EAiOS there
+for the first time. Explicitly adopt the new policy with:
+
+```sh
+./install/install.sh --apply-scheduled-work-policy
+# Or, on an existing installation:
+bash scripts/eaios-update.sh --to v0.1.12 --apply-scheduled-work-policy
+```
+
+The updater flag is optional and cannot accompany rollback. Settings-based upgrades
+leave policy untouched; afterward use the helper described in the v0.1.12 release
+notes if you want to opt in. Custom instruction text is preserved and backed up.
+No existing cron prompts, delivery targets, credentials or account bindings are
+changed by this installation option.

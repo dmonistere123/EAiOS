@@ -24,7 +24,8 @@ function fixture(t) {
   // release.sh runs the real profile-preservation test. Include its installer
   // and payloads so it exercises disposable Hermes homes inside this fixture.
   for (const path of ['scripts/tests/test_install_linkedin_workflow.py', 'scripts/install-linkedin-workflow.py',
-    'scripts/linkedin-comments.py', 'install/hermes-skills/linkedin-posting.md']) {
+    'scripts/linkedin-comments.py', 'install/hermes-skills/linkedin-posting.md',
+    'scripts/update-scheduled-work-policy.py', 'config/scheduled-work-policy.md']) {
     const target = join(repo, path);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(join(scripts, '..', path), target);
@@ -209,4 +210,22 @@ test('an interrupted update records failure and releases its lock', async t => {
   child.kill('SIGTERM'); await finished;
   assert.ok(f.rows()[0].finished_at); assert.match(f.rows()[0].error_message, /Terminated/);
   assert.equal(f.run().status, 0, 'lock released after termination');
+});
+
+
+test('scheduled-work policy is explicit, preserves custom instructions, and cannot accompany rollback', t => {
+  const f = fixture(t), home = join(f.dir, 'customer-hermes');
+  write(join(home, 'SOUL.md'), 'CUSTOM IDENTITY AND RULES\n');
+  let result = f.run(['--to', 'v0.2.0'], { HERMES_HOME: home });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(readFileSync(join(home, 'SOUL.md'), 'utf8'), 'CUSTOM IDENTITY AND RULES\n');
+  result = f.run(['--to', 'v0.2.0', '--apply-scheduled-work-policy'], { HERMES_HOME: home });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const content = readFileSync(join(home, 'SOUL.md'), 'utf8');
+  assert.ok(content.includes('CUSTOM IDENTITY AND RULES'));
+  assert.ok(content.includes('Deliver them without another approval'));
+  assert.ok(content.includes('All other outgoing communications require'));
+  result = f.run(['--rollback', '--apply-scheduled-work-policy'], { HERMES_HOME: home });
+  assert.notEqual(result.status, 0);
+  assert.equal(readFileSync(join(home, 'SOUL.md'), 'utf8'), content);
 });

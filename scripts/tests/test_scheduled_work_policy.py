@@ -33,6 +33,18 @@ class PolicyInstallTests(unittest.TestCase):
                 self.assertEqual((Path(backup)/name).read_text(), 'custom original\n')
             self.assertEqual(module.install(home, POLICY, True), ([], None))
 
+    def test_fresh_home_and_partial_existing_home(self):
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d)
+            module.install(home, POLICY, True, True)
+            self.assertTrue((home/'SOUL.md').exists())
+            self.assertTrue((home/module.TARGETS[1]).read_text().startswith('---\n'))
+            self.assertEqual(module.install(home, POLICY, True, True), ([], None))
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d); (home/'SOUL.md').write_text('My custom identity\n')
+            module.install(home, POLICY, True, True)
+            self.assertIn('My custom identity\n', (home/'SOUL.md').read_text())
+
     def test_missing_target_makes_no_partial_changes(self):
         with tempfile.TemporaryDirectory() as d:
             home = Path(d); (home/'SOUL.md').write_text('unchanged')

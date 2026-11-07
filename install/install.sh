@@ -35,6 +35,7 @@
 #   SKIP_TESTS           Set to 1 to skip the optional npm test run.
 #   SKIP_DESKTOP         Set to 1 to skip Hermes Desktop installation prompt.
 #   NONINTERACTIVE       Set to 1 to never prompt (default: 0).
+#   --apply-scheduled-work-policy  Explicitly adopt current schedule rules on an existing home.
 #   EAIOS_AGENT_NAME     Display name for the existing default Hermes orchestrator (default: Ally).
 #   EAIOS_EXECUTIVE_NAME Display name for the executive (default: Executive).
 #   EAIOS_TELEGRAM_HOME_CHAT_ID Optional numeric Telegram delivery chat id.
@@ -55,6 +56,10 @@ SKIP_NODE="${SKIP_NODE:-0}"
 SKIP_HERMES="${SKIP_HERMES:-0}"
 SKIP_TESTS="${SKIP_TESTS:-1}"
 SKIP_DESKTOP="${SKIP_DESKTOP:-0}"
+APPLY_SCHEDULED_WORK_POLICY=0
+# Detect a genuinely new Hermes home before installing Hermes itself.
+FRESH_HERMES_HOME=0
+[[ -e "${HERMES_HOME:-$HOME/.hermes}" ]] || FRESH_HERMES_HOME=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
@@ -104,6 +109,7 @@ while [[ $# -gt 0 ]]; do
     --branch=*)              EAIOS_BRANCH="${1#*=}"; shift ;;
     --root)                  EAIOS_ROOT="$2"; shift 2 ;;
     --root=*)                EAIOS_ROOT="${1#*=}"; shift ;;
+    --apply-scheduled-work-policy) APPLY_SCHEDULED_WORK_POLICY=1; shift ;;
     --skip-node)             SKIP_NODE=1; shift ;;
     --skip-hermes)           SKIP_HERMES=1; shift ;;
     --run-tests)             SKIP_TESTS=0; shift ;;
@@ -383,6 +389,14 @@ GOOGLE_APPLICATION_CREDENTIALS=
 SIDEOF
   chmod 600 "$SIDECAR_ENV"
   log_success "$SIDECAR_ENV created"
+fi
+
+# New homes receive current defaults; existing homes require explicit opt-in.
+if [[ "$FRESH_HERMES_HOME" == 1 || "$APPLY_SCHEDULED_WORK_POLICY" == 1 ]]; then
+  python3 "$EAIOS_ROOT/scripts/update-scheduled-work-policy.py" \
+    --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --seed-missing --apply
+else
+  log_info "Preserving existing agent instructions. Optional policy update: --apply-scheduled-work-policy"
 fi
 
 # ---------------------------------------------------------------------------
