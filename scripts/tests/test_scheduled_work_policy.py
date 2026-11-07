@@ -15,7 +15,9 @@ class PolicyInstallTests(unittest.TestCase):
             self.assertEqual(module.render(changed, POLICY), changed)
             self.assertIn(original.split('---\n')[-1], changed)
             if original.startswith('---'): self.assertTrue(changed.startswith('---\nname: custom\n---\n'))
-            self.assertIn('ALL outgoing communications require', changed)
+            self.assertIn('All other outgoing communications require', changed)
+            self.assertIn('Telegram messages to anyone other than the executive', changed)
+            self.assertIn('Deliver them without another approval', changed)
             self.assertIn('If the executive explicitly asks', changed)
 
     def test_explicit_apply_backup_and_dry_run(self):
