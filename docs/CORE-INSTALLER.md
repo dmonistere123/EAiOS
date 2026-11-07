@@ -1,6 +1,6 @@
 # EAiOS core installer
 
-For a new box, use the separate entry point from a v0.1.13 checkout:
+For a new box, use the separate entry point from a v0.1.14 checkout:
 
 ```bash
 bash install/install-core.sh
@@ -9,7 +9,7 @@ bash install/install-core.sh
 For a remote installation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.13/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.14/install/install-core.sh | bash
 ```
 
 The existing `install/install.sh` remains the full installer. The updater is shared by both editions and reads the machine's persistent module selection from `EAIOS_DATA_ROOT/modules.local.json`. Missing configuration means full edition, preserving existing boxes. Invalid configuration fails closed rather than silently enabling optional modules.
