@@ -27,7 +27,7 @@
 - Application updates must preserve each box’s agents, profiles, SOUL instructions, skills, credentials, conversations, and custom playbooks. Never add agent/skill installers to routine updates or recovery. Optional workflow changes require a separate explicit opt-in command.
 - Ordinary development does not authorize deployment, service restarts, database changes, or Tailscale changes. A build in the live checkout updates served assets even without a restart.
 - Follow the application's approval-envelope workflow for external writes, including pushes, posts, and sends. Prepare a concrete reviewable change first. An unassigned approval task must precede execution unless the user explicitly overrides that policy.
-- Approval envelopes must remain unassigned until approved. Approval assignment uses only `requestedBy`; preserve `sourceContext` and unknown envelope fields during rewrites.
+- Approval envelopes must remain unassigned until approved. Approval assignment honors a validated `executorProfile` when provided and otherwise routes to the default orchestrator. `requestedBy` identifies the drafter; preserve it, `sourceContext`, and unknown envelope fields during rewrites.
 - Never commit secrets, live env files, databases, or copied runtime state. Do not print secret values. `VITE_` names are browser-exposed by default; do not assume an ignored env file keeps those values server-side.
 - Query live SQLite only read-only when necessary; the handoff reports malformed JSON from `hermes kanban list --json`.
 - Never restart `tailscaled` as a routine troubleshooting step. Consult the handoff's specific outage preconditions and obtain authorization for operational work.

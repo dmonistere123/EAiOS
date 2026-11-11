@@ -212,3 +212,25 @@ leave policy untouched; afterward use the helper described in the v0.1.12 releas
 notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
+
+## v0.1.15 edition contents
+
+Full includes the ticker dashboard, footer, and watchlist settings. Stock movers
+and selected Bitcoin widgets open expanded. Core excludes all ticker surfaces
+and its data endpoint. Both editions include the approval executor-routing repair.
+Existing module selection files are preserved during updates; installing a new
+release does not convert Core to Full or change saved ticker preferences.
+
+For a fresh Core installation pinned to this release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.15/install/install-core.sh | bash
+```
+
+For a fresh Full installation pinned to this release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.15/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.15
+```
+
+Existing installations should use Settings → Check for updates → Install update.

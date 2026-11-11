@@ -15,9 +15,9 @@ test('core installer works via stdin without running a real installation',async(
  const {execFileSync}=await import('node:child_process');const {writeFileSync,chmodSync}=await import('node:fs');
  const root=mkdtempSync(join(tmpdir(),'eaios-core-bootstrap-'));
  try{
-  const curl=join(root,'curl');writeFileSync(curl,`#!/bin/bash\nwhile [[ $# -gt 0 ]]; do if [[ "$1" == '-o' ]]; then shift; target="$1"; fi; shift; done\nprintf '%s\\n' 'test "$EAIOS_EDITION" = core' 'test "$EAIOS_BRANCH" = v0.1.14' 'echo BOOTSTRAP_OK' > "$target"\n`);chmodSync(curl,0o700);
+  const curl=join(root,'curl');writeFileSync(curl,`#!/bin/bash\nwhile [[ $# -gt 0 ]]; do if [[ "$1" == '-o' ]]; then shift; target="$1"; fi; shift; done\nprintf '%s\\n' 'test "$EAIOS_EDITION" = core' 'test "$EAIOS_BRANCH" = v0.1.15' 'echo BOOTSTRAP_OK' > "$target"\n`);chmodSync(curl,0o700);
   const source=readFileSync(new URL('../../install/install-core.sh',import.meta.url));
-  const result=execFileSync('bash',[],{input:source,cwd:root,env:{...process.env,EAIOS_BRANCH:'v0.1.14',PATH:root+':'+process.env.PATH},encoding:'utf8'});
+  const result=execFileSync('bash',[],{input:source,cwd:root,env:{...process.env,EAIOS_BRANCH:'v0.1.15',PATH:root+':'+process.env.PATH},encoding:'utf8'});
   assert.match(result,/BOOTSTRAP_OK/);
  }finally{rmSync(root,{recursive:true,force:true});}
 });

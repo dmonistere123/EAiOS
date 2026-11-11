@@ -53,10 +53,10 @@ describe('approval execution gate with real temporary SQLite', () => {
     expect(events().map(e => e.kind)).toEqual(['approval_decided', 'blocked']);
     expect(db.prepare('SELECT count(*) AS n FROM task_links').get()?.n).toBe(1);
   });
-  it('records human approval and releases to Ally atomically; repeated approval is a no-op', () => {
+  it('records human approval and releases to the named specialist atomically; repeated approval is a no-op', () => {
     decide();
-    expect(row()).toMatchObject({ status: 'ready', assignee: 'default' });
-    expect(JSON.parse(String(row().body))).toMatchObject({ ...draft, executorProfile:'default', decision: 'approved' });
+    expect(row()).toMatchObject({ status: 'ready', assignee: 'quill' });
+    expect(JSON.parse(String(row().body))).toMatchObject({ ...draft, decision: 'approved' });
     expect(events().map(e => e.kind)).toEqual(['approval_decided', 'unblocked', 'assigned']);
     const before = JSON.stringify(row());
     expect(decide().alreadyDecided).toBe(true);
@@ -64,14 +64,39 @@ describe('approval execution gate with real temporary SQLite', () => {
     expect(events()).toHaveLength(3);
     expect(() => decide('rejected')).toThrow('already been recorded');
   });
-  it.each([{executorProfile:undefined},{executorProfile:'default'},{executorProfile:'ghost'}])('ignores stale or missing executor selections and routes approved work to Ally: %j', change=>{
+  it.each([{executorProfile:undefined},{executorProfile:'default'}])('routes work to Ally when no specialist is requested: %j', change=>{
     const altered=JSON.stringify({...draft,...change});db.prepare('UPDATE tasks SET body=?').run(altered);
     decide('approved',{expectedBody:altered});expect(row()).toMatchObject({status:'ready',assignee:'default'});expect(JSON.parse(String(row().body))).toMatchObject({executorProfile:'default',requestedBy:'default',decision:'approved',payload:draft.payload});
   });
   it('resumes an approved blocked task with a new executor without changing approved payload',()=>{
     const approved=JSON.stringify({...draft,decision:'approved',decidedAt:'2026-11-04T12:00:00Z'});db.prepare("UPDATE tasks SET body=?,assignee='default',status='blocked'").run(approved);
-    resumeApprovedTask(path,'draft',{executorProfile:'dev',expectedBody:approved});expect(row()).toMatchObject({status:'ready',assignee:'default'});expect(JSON.parse(String(row().body))).toMatchObject({payload:draft.payload,decision:'approved',executorProfile:'default'});
+    resumeApprovedTask(path,'draft',{executorProfile:'dev',expectedBody:approved});expect(row()).toMatchObject({status:'ready',assignee:'dev'});expect(JSON.parse(String(row().body))).toEqual({...JSON.parse(approved),executorProfile:'dev'});
     expect(events().map(e=>e.kind)).toEqual(['executive_executor_assignment','unblocked','assigned']);
+  });
+  it('preserves the ticker specialist through approval and recovery', () => {
+    const ticker = JSON.stringify({...draft, actionType:'execute',targetSystem:'eaios-local',executorProfile:'dev'});
+    db.prepare('UPDATE tasks SET body=?').run(ticker);
+    decide('approved',{expectedBody:ticker});
+    expect(row().assignee).toBe('dev');
+    const approved = String(row().body);
+    db.prepare("UPDATE tasks SET status='blocked'").run();
+    resumeApprovedTask(path,'draft',{expectedBody:approved});
+    expect(row()).toMatchObject({body:approved,assignee:'dev',status:'ready'});
+    expect(JSON.parse(String(events().at(-3)!.payload))).toMatchObject({executor:'dev',preservedDecision:'approved'});
+  });
+  it.each([{executorProfile:'ghost'},{requestedBy:'quill',executorProfile:'quill'}])('refuses invalid specialist routing without approving: %j',change=>{
+    const altered=JSON.stringify({...draft,...change});db.prepare('UPDATE tasks SET body=?').run(altered);
+    expect(()=>decide('approved',{expectedBody:altered})).toThrow();
+    expect(row()).toMatchObject({body:altered,status:'blocked',assignee:null});expect(events()).toEqual([]);
+  });
+  it('rejects stale, active, or invalid recovery without modifying the decision',()=>{
+    const approved=JSON.stringify({...draft,decision:'approved',decidedAt:'2026-11-10T12:00:00Z'});
+    db.prepare('UPDATE tasks SET body=?').run(approved);
+    expect(()=>resumeApprovedTask(path,'draft',{expectedBody:body,executorProfile:'dev'})).toThrow('changed');
+    expect(()=>resumeApprovedTask(path,'draft',{expectedBody:approved,executorProfile:'ghost'})).toThrow('eligible');
+    db.prepare("UPDATE tasks SET claim_lock='worker'").run();
+    expect(()=>resumeApprovedTask(path,'draft',{expectedBody:approved,executorProfile:'dev'})).toThrow('unclaimed');
+    expect(row().body).toBe(approved);expect(events()).toEqual([]);
   });
   it('rolls back both the decision and release when audit persistence fails', () => {
     db.exec("CREATE TRIGGER fail_assignment BEFORE INSERT ON task_events WHEN NEW.kind = 'assigned' BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END");

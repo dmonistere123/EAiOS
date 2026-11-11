@@ -1,3 +1,4 @@
+import Ticker from '../pages/Ticker';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AppShell from './AppShell';
 import Today from '../pages/Today';
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
       { path: 'usage', element: <Usage /> },
       { path: 'insights', element: <ExecutiveInsights /> },
       { path: 'backup', element: <Backup /> },
+      { path: 'ticker', element: <Ticker /> },
       { path: 'settings', element: <Settings /> },
     ],
   },

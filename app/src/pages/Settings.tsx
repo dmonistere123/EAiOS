@@ -1,3 +1,5 @@
+import { useOutletContext } from 'react-router-dom';
+import { TickerSettings } from '../components/TickerSettings';
 import { HumanAssistantPanel } from '../components/HumanAssistantPanel';
 import { ApiKeysPanel } from '../components/ApiKeysPanel';
 /** Settings — safe config surface + allowlisted .MD/.TXT environment editor. */
@@ -221,6 +223,7 @@ function AllyProfileSelector() {
 }
 
 export default function Settings() {
+  const modules = useOutletContext<{ modules: string[] } | null>()?.modules;
   return (
     <div className="space-y-6">
       <header>
@@ -229,6 +232,7 @@ export default function Settings() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {modules?.includes('ticker') && <TickerSettings />}
         <HumanAssistantPanel />
         <ApiKeysPanel />
         <AllyProfileSelector />

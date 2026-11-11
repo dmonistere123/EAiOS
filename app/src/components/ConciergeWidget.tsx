@@ -118,7 +118,7 @@ export function ConciergeWidget() {
         aria-label="Open the navigation concierge"
         title="New here? Ask the concierge how to get around"
         className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full border-2 border-signal/40 shadow-[0_0_18px_2px_rgba(50,197,255,0.35)] transition-shadow hover:border-signal hover:shadow-[0_0_22px_3px_rgba(50,197,255,0.5)]"
-        style={{ background: 'radial-gradient(circle at 35% 35%, rgba(50,197,255,0.22), rgba(5,9,20,0.95))' }}
+        style={{ bottom: 'calc(var(--ticker-height, 0px) + 24px)', background: 'radial-gradient(circle at 35% 35%, rgba(50,197,255,0.22), rgba(5,9,20,0.95))' }}
       >
         <BrainGlyph className="h-7 w-7" />
       </button>
@@ -130,7 +130,7 @@ export function ConciergeWidget() {
       <button
         onClick={() => { setReady(false); setMode('open'); }}
         aria-label="Expand the navigation concierge"
-        className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-signal/40 bg-canvas-raised py-2 pl-3 pr-4 shadow-lg hover:border-signal"
+        style={{ bottom: 'calc(var(--ticker-height, 0px) + 24px)' }} className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full border border-signal/40 bg-canvas-raised py-2 pl-3 pr-4 shadow-lg hover:border-signal"
       >
         <BrainGlyph className="h-5 w-5" />
         <span className="text-xs font-medium text-ink">Concierge</span>
@@ -142,7 +142,7 @@ export function ConciergeWidget() {
   return (
     <section
       aria-label="EAiOS navigation concierge"
-      className="eaios-concierge-panel fixed bottom-6 right-6 z-30 flex h-[30rem] max-h-[calc(100vh-4rem)] w-96 max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-edge bg-canvas-raised shadow-2xl"
+      style={{ bottom: 'calc(var(--ticker-height, 0px) + 24px)' }} className="eaios-concierge-panel fixed bottom-6 right-6 z-30 flex h-[30rem] max-h-[calc(100vh-4rem)] w-96 max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-edge bg-canvas-raised shadow-2xl"
     >
       {loadError && <div role="alert" className="px-4 py-2 text-xs text-warn">{loadError} <button onClick={() => { setReady(false); setRetry(n => n + 1); }} className="underline">Retry</button></div>}
       <header className="flex items-center gap-2.5 border-b border-edge px-4 py-3">

@@ -1,3 +1,5 @@
+import { BottomTicker } from '../components/BottomTicker';
+import { loadTickerPrefs } from '../adapters/ticker';
 import { adapterMode } from '../adapters';
 /**
  * AppShell — left nav / center workspace / right operational rail.
@@ -5,7 +7,7 @@ import { adapterMode } from '../adapters';
  * widths + collapse persist per user (localStorage eaios.panes.v1).
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   selectActivityNewest, selectCronByNextRun, selectPendingApprovals, useRuntime, agentName,
@@ -54,6 +56,7 @@ const NAV: { to: string; label: string; icon: string; external?: boolean }[] = [
   { to: '/artifacts', label: 'Artifacts', icon: '▤' },
   { to: '/usage', label: 'Usage', icon: '◔' },
   { to: '/backup', label: 'Backup', icon: '⛃' },
+  { to: '/ticker', label: 'Ticker', icon: '↗' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ];
 
@@ -223,6 +226,7 @@ function RightRail() {
 // ---------- shell ----------
 
 export default function AppShell() {
+  const [tickerHidden, setTickerHidden] = useState(() => loadTickerPrefs().hidden);
   const location=useLocation();
   const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV.map(n=>n.to.slice(1)):null);
   const [moduleError,setModuleError]=useState(false);
@@ -231,11 +235,12 @@ export default function AppShell() {
   },[]);
 
   const [prefs, setPrefs] = useState<PanePrefs>(loadPrefs);
-  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth < 1024);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const isNarrow = viewportWidth < 1024;
   const s = useRuntime();
 
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < 1024);
+    const onResize = () => setViewportWidth(window.innerWidth);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
@@ -249,14 +254,15 @@ export default function AppShell() {
   const leftDrag = useDrag('left', prefs.left, setLeft);
   const rightDrag = useDrag('right', prefs.right, setRight);
 
-  const leftWidth = prefs.leftCollapsed ? 64 : isNarrow ? LIMITS.left.min : prefs.left;
+  const navCollapsed = prefs.leftCollapsed || viewportWidth < 640;
+  const leftWidth = navCollapsed ? 64 : isNarrow ? LIMITS.left.min : prefs.left;
   const declaredRail = useRailDeclaration();
   const pageHidesRail = declaredRail?.length === 0;
   const showRail = !pageHidesRail && !isNarrow && !prefs.rightCollapsed;
   const pending = selectPendingApprovals(s).length;
 
   return (
-    <div className="flex h-full flex-col bg-canvas text-ink">
+    <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-canvas text-ink" style={{ '--ticker-height': !modules?.includes('ticker') ? '0px' : tickerHidden ? '24px' : '40px' } as CSSProperties}>
       {/* top strip */}
       <header className="flex h-12 shrink-0 items-center gap-4 border-b border-edge px-4">
         <div className="flex items-center gap-2">
@@ -316,7 +322,7 @@ export default function AppShell() {
                 className="mx-2 mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-dim transition-colors hover:bg-canvas-overlay hover:text-ink"
               >
                 <span aria-hidden className="w-4 text-center">{n.icon}</span>
-                {!prefs.leftCollapsed && <span className="truncate">{n.label}</span>}
+                {!navCollapsed && <span className="truncate">{n.label}</span>}
               </a>
             ) : (
               <NavLink
@@ -330,8 +336,8 @@ export default function AppShell() {
                 }
               >
                 <span aria-hidden className="w-4 text-center">{n.icon}</span>
-                {!prefs.leftCollapsed && <span className="truncate">{n.label}</span>}
-                {!prefs.leftCollapsed && n.to === '/approvals' && pending > 0 && (
+                {!navCollapsed && <span className="truncate">{n.label}</span>}
+                {!navCollapsed && n.to === '/approvals' && pending > 0 && (
                   <span className="ml-auto rounded-full bg-warn/20 px-2 text-[11px] text-warn">{pending}</span>
                 )}
               </NavLink>
@@ -341,16 +347,16 @@ export default function AppShell() {
             onClick={() => setPrefs((p) => ({ ...p, leftCollapsed: !p.leftCollapsed }))}
             className="mx-2 mb-3 rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay"
           >
-            {prefs.leftCollapsed ? '»' : '« Collapse'}
+            {navCollapsed ? '»' : '« Collapse'}
           </button>
         </nav>
 
-        {!prefs.leftCollapsed && !isNarrow && <DragHandle {...leftDrag} label="Resize navigation pane" />}
+        {!navCollapsed && !isNarrow && <DragHandle {...leftDrag} label="Resize navigation pane" />}
 
         {/* center */}
         <main className="min-w-0 flex-1 overflow-y-auto" id="main">
-          <div className="mx-auto h-full max-w-6xl px-6 py-6">
-            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<Outlet />}
+          <div className="mx-auto h-full max-w-6xl px-4 py-6 pb-24 md:px-6 lg:pb-6">
+            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts','ticker'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<Outlet context={{ modules }} />}
           </div>
         </main>
 
@@ -375,13 +381,14 @@ export default function AppShell() {
           <button
             onClick={() => setPrefs((p) => ({ ...p, rightCollapsed: true }))}
             className="fixed bottom-3 text-[10px] text-ink-faint hover:text-ink-dim"
-            style={{ right: 4 }}
+            style={{ right: 4, bottom: 'calc(var(--ticker-height, 0px) + 12px)' }}
           >
             hide rail »
           </button>
         )}
       </div>
       {/* F26: floating navigation concierge — every page, drawers/toasts outrank it */}
+      {modules?.includes('ticker') && <BottomTicker hidden={tickerHidden} onHidden={setTickerHidden} />}
       <ConciergeWidget />
       <ToastHost />
     </div>

@@ -1,3 +1,4 @@
+import { handleTickerRequest } from './ticker.ts';
 import { moduleConfig,optionalModuleForPath } from './modules.ts';
 import { handleLiveVoice } from './liveVoice.ts';
 import { appKey } from './apiKeys.ts';
@@ -237,6 +238,7 @@ export function createEaiosServer(config: ProdConfig) {
       const path = new URL(req.url ?? '/', 'http://localhost').pathname;
       const optional=optionalModuleForPath(path);
       if(optional&&!moduleConfig(apiCtx.dataRoot??apiCtx.eaiosRoot).enabled.includes(optional)){res.statusCode=403;res.setHeader('content-type','application/json');res.end(JSON.stringify({error:'This optional module is not enabled on this box.'}));return;}
+      if (await handleTickerRequest(req,res)) return;
       if (await handleLiveVoice(req, res, `http://${config.hermesWsHost}:${config.hermesWsPort}`, config.hermesToken)) return;
       if (path.startsWith('/api/')) {
         if (path === '/api/ws') {

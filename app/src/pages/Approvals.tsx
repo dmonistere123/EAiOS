@@ -54,12 +54,12 @@ function SourceContext({ approval }: { approval: Approval }) {
   );
 }
 
-function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
+export function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
   const [busy, setBusy] = useState(false);
   const [editingPayload, setEditingPayload] = useState(false);
   const [draftPayload, setDraftPayload] = useState(approval.payload ?? '');
-  const executor = 'default';
+  const executor = approval.executorProfileId ?? 'default';
   const work = s.work.find((w) => w.id === approval.workItemId);
 
   useEffect(() => {
@@ -119,7 +119,7 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
 
         <div className="rounded-lg border border-edge bg-canvas p-3 text-xs text-ink-dim">
           <div>Requested by <span className="text-ink">{agentName(s, approval.requestedByAgentId)}</span> · <RelativeTime iso={approval.submittedAt} /></div>
-          {genericApproval&&<p className="mt-2">After your approval, {agentName(s, 'default')} coordinates execution and delegates as needed.</p>}
+          {genericApproval&&<p className="mt-2">{executor === 'default' ? `After your approval, ${agentName(s, executor)} coordinates execution and delegates as needed.` : `After your approval, ${agentName(s, executor)} carries out this prepared task.`}</p>}
           {work && <div className="mt-1">Work item: <span className="text-ink">{work.title}</span></div>}
           <div className="mt-1">Policy: <span className="text-ink">external {approval.actionType} requires executive approval</span></div>
         </div>
@@ -185,12 +185,12 @@ function Inspector({ approval, onClose }: { approval: Approval; onClose: () => v
           </div>
         )}
 
-        {recoverable?<div className="space-y-2 pt-2"><button onClick={()=>void resume()} disabled={busy} className="w-full rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas disabled:opacity-50">Resume with Ally</button><p className="text-[11px] text-ink-faint">Preserves the recorded approval and approved payload.</p></div>:<><div className="grid grid-cols-3 gap-2 pt-2">
+        {recoverable?<div className="space-y-2 pt-2"><button onClick={()=>void resume()} disabled={busy} className="w-full rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas disabled:opacity-50">Resume with {agentName(s, executor)}</button><p className="text-[11px] text-ink-faint">Preserves the recorded approval and approved payload.</p></div>:<><div className="grid grid-cols-3 gap-2 pt-2">
           <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
           <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
           <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
-        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':'After your approval, Ally coordinates execution of this reviewed task and delegates as needed. Every decision is audited.'}</p>
+        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':`After your approval, ${agentName(s, executor)} ${executor === 'default' ? 'coordinates execution and delegates as needed' : 'carries out this reviewed task'}. Every decision is audited.`}</p>
         </>}
       </div>
     </Drawer>
