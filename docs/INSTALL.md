@@ -213,7 +213,7 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.19 edition contents
+## v0.1.20 edition contents
 
 Both editions include the expandable EAiOS, The App Stack, and Settings navigation,
 and the orbital Staff page with the AI assistant first and the human assistant
@@ -236,14 +236,37 @@ See [Today data sources](TODAY-DATA-SOURCES.md) for per-box calendar selection.
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.19/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.20/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.19/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.19
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.20/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.20
 ```
 
 Existing installations should use Settings → App Settings → Check for updates → Install update
 after the matching GitHub Release is published.
+
+
+## Human booking workflow (v0.1.20)
+
+Travel retains Duffel flight search but production no longer purchases reservations.
+Selected flights, hotel, car and dining plans become a required itinerary attachment
+on a reviewed human delegation email. The assistant records checklist progress and
+confirmations; only executive completion approval removes the delegation from the
+open queue. Existing trips and delegation history are preserved.
+
+For remote checklist access, configure `EAIOS_ASSISTANT_ORIGIN` on both dashboard
+services to a dedicated HTTPS origin, e.g. `https://your-box.example:8443`.
+The front-door process (port 5173) then starts an assignment-only listener on
+loopback port 5280 (`EAIOS_ASSISTANT_PORT` can override this). Route that HTTPS
+origin exclusively to the listener. It must never proxy executive APIs. Each link
+has a seven-day expiry and can be rotated/revoked in HI Assistant. Links contain
+private bearer credentials; do not forward them or publish them. No network
+exposure is enabled automatically by installers. Without this setup, executive
+HI checklist controls work, but a remote assistant link is unavailable.
+
+Hotel/dining web research uses the configured app OpenRouter key. Suggestions
+include source links and make no availability or price promises. Duffel test/live
+search mode continues to follow the existing key; neither mode books through EAiOS.

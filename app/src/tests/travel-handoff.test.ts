@@ -14,7 +14,8 @@ import { travelAction } from '../../server/travelBooking.ts';
 import { duffel } from '../../server/duffel.ts';
 import { parseResearch } from '../../server/travelResearch.ts';
 import { getTrip } from '../../server/travel.ts';
-import { createServer } from 'node:http';
+import { createAssistantServer } from '../../server/assistantServer.ts';
+import { createServer, request as httpRequest } from 'node:http';
 let root:string;
 beforeEach(()=>{root=mkdtempSync(join(tmpdir(),'travel-hi-'));vi.stubEnv('EAIOS_TRAVEL_ASSISTED','1');});
 afterEach(()=>{vi.unstubAllEnvs();vi.restoreAllMocks();rmSync(root,{recursive:true,force:true});});
@@ -87,4 +88,18 @@ it('accepts only research suggestions backed by returned HTTPS citations',async(
  initializeTravelStage(root);const trip=(await getTrip('staging-demo',root))!;
  const data={output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({options:[{kind:'hotel',name:'Verified hotel',url:'https://hotel.example/'},{kind:'restaurant',name:'Invented',url:'https://invented.example/'}]}),annotations:[{type:'url_citation',url:'https://hotel.example/'}]}]}]};
  const groups=parseResearch(data,trip);expect(groups[0].options).toHaveLength(1);expect(groups[1].options).toHaveLength(0);expect(groups[0].options[0].amount).toBeUndefined();
+});
+
+it('production assistant listener serves only the task shell and rejects executive/static escape routes',async()=>{
+ const {d}=await sent(),access=issueAssistantAccess(root,d.id);
+ const server=createAssistantServer(root,root,'https://assistant.example.test');
+ await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const addr=server.address();if(!addr||typeof addr==='string')throw Error();
+ const base='http://127.0.0.1:'+addr.port,headers={host:'assistant.example.test',authorization:'Bearer '+access.token};
+ const call=(path:string,h:Record<string,string>=headers)=>new Promise<number>((resolve,reject)=>{const req=httpRequest(base+path,{headers:h},res=>{res.resume();res.on('end',()=>resolve(res.statusCode!));});req.on('error',reject);req.end();});
+ try{
+  expect(await call('/api/assistant-task')).toBe(200);
+  for(const path of ['/api/human-delegations','/api/settings/api-keys','/api/assistant-task/completion-decision','/human-assistant','/assets/../server/prod.ts'])expect(await call(path)).toBe(404);
+  expect(await call('/api/assistant-task',{...headers,host:'evil.example'})).toBe(403);
+  expect(await call('/api/assistant-task',{})).toBe(403);
+ }finally{await new Promise<void>(r=>server.close(()=>r()));}
 });

@@ -14,7 +14,7 @@ const fieldClass='mt-2 w-full rounded-xl border border-edge bg-canvas px-4 py-3 
 const primary='rounded-xl bg-signal px-5 py-3 text-sm font-semibold text-canvas hover:bg-signal/90 disabled:opacity-50';
 const secondary='rounded-xl border border-edge px-4 py-2 text-sm text-ink-dim hover:bg-canvas-overlay disabled:opacity-50';
 const noRail: import('../state/rail').RailSectionDef[] = [];
-const assisted=import.meta.env.VITE_TRAVEL_HANDOFF==='1';
+const assisted=import.meta.env.VITE_TRAVEL_ASSISTED==='1'||import.meta.env.VITE_TRAVEL_HANDOFF==='1';
 const steps=['Trip details','Your preferences','Your options','Your itinerary'];
 const dateLabel=(value:string)=>new Date(`${value.slice(0,10)}T12:00:00`).toLocaleDateString(undefined,{month:'short',day:'numeric'});
 const title=(b:TravelBooking)=>b.title??(b.kind==='flight'?`${b.airline} ${b.flightNumber}`:b.kind==='hotel'?b.hotelName:b.kind==='restaurant'?b.restaurantName:`${b.company} ${b.carType}`);

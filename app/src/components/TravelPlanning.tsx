@@ -19,7 +19,7 @@ export function PlanDrawer({trip, onClose, onSaved}: {trip: TravelTrip; onClose:
   }
   return <Drawer title="Add an itinerary plan" onClose={onClose}>
     <div className="space-y-3">
-      {import.meta.env.VITE_TRAVEL_HANDOFF==='1'?<p className="text-sm text-ink-dim">Add your chosen hotel, restaurant or rental plan and its source link for your human assistant to book.</p>:<BookingLinks />}
+      {(import.meta.env.VITE_TRAVEL_ASSISTED==='1'||import.meta.env.VITE_TRAVEL_HANDOFF==='1')?<p className="text-sm text-ink-dim">Add your chosen hotel, restaurant or rental plan and its source link for your human assistant to book.</p>:<BookingLinks />}
       <label className="block text-xs">Reservation type<select className={inputClass} value={form.kind} onChange={e => setForm({...form, kind: e.target.value as TravelPlanInput['kind']})}>{['flight','hotel','car','restaurant'].map(k => <option key={k}>{k}</option>)}</select></label>
       {(['title','location','startsAt','endsAt','externalUrl','notes'] as const).map(key => <label className="block text-xs" key={key}>{({title:'Plan title',location:'Location / route',startsAt:'Start date and time',endsAt:'End date and time',externalUrl:'Provider booking link (HTTPS)',notes:'Notes'})[key]}<input className={inputClass} type={key.includes('At') ? 'datetime-local' : key === 'externalUrl' ? 'url' : 'text'} value={form[key] ?? ''} onChange={e => setForm({...form, [key]:e.target.value})}/></label>)}
       {form.kind === 'restaurant' && <label className="block text-xs">Party size<input className={inputClass} type="number" min="1" max="30" value={form.partySize} onChange={e=>setForm({...form,partySize:Number(e.target.value)})}/></label>}

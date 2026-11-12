@@ -682,6 +682,7 @@ export default defineConfig(({ mode }) => {
   const hermesToken = env.VITE_HERMES_TOKEN ?? ''
 
   return {
+    define: {'import.meta.env.VITE_TRAVEL_ASSISTED': JSON.stringify('1')},
     plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), profileEnvMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware(), kanbanDelegateMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).

@@ -1,4 +1,4 @@
-import { appKey } from './apiKeys.ts';
+import { appKey, keyContext, savedKey } from './apiKeys.ts';
 import { cacheOffer,TravelApiError } from './travel.ts';
 import type { TravelTrip } from '../src/domain/types.ts';
 import type { TravelShortlist } from '../src/domain/travelGuide.ts';
@@ -31,7 +31,8 @@ export function parseResearch(response:Record<string,any>,trip:TravelTrip):Trave
   return result;
 }
 export async function researchTravel(trip:TravelTrip,root:string):Promise<TravelShortlist[]> {
-  const key=appKey('OPENROUTER_API_KEY');if(!key)throw new TravelApiError(503,'Web research is not configured. Add your chosen hotel or restaurant with its source link.');
+  const ctx=keyContext.getStore();
+  const key=appKey('OPENROUTER_API_KEY')||(ctx?savedKey(ctx,'hermes','OPENROUTER_API_KEY'):'');if(!key)throw new TravelApiError(503,'Web research is not configured. Add your chosen hotel or restaurant with its source link.');
   const cacheKey=JSON.stringify([root,trip.id,trip.destination,trip.startsAt,trip.endsAt,trip.preferredHotels,trip.diningPreferences]);
   const existing=pending.get(cacheKey);if(existing)return existing;
   const request=(async()=>{

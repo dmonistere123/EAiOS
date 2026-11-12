@@ -1,3 +1,4 @@
+import { createAssistantServer } from './assistantServer.ts';
 import { handleTickerRequest } from './ticker.ts';
 import { moduleConfig,optionalModuleForPath } from './modules.ts';
 import { handleLiveVoice } from './liveVoice.ts';
@@ -332,9 +333,15 @@ export function createEaiosServer(config: ProdConfig) {
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
+  // Production Travel is a planning and human-booking workflow.
+  process.env.EAIOS_TRAVEL_ASSISTED='1';
   const config = loadConfig();
   assistantRequests(config.apiCtx.dataRoot ?? config.apiCtx.eaiosRoot, config.apiCtx.hermesHome);
   const server = createEaiosServer(config);
+  if(config.port===5173&&process.env.EAIOS_ASSISTANT_ORIGIN){
+    const port=Number(process.env.EAIOS_ASSISTANT_PORT??5280);
+    createAssistantServer(config.apiCtx.hermesHome,config.distDir,process.env.EAIOS_ASSISTANT_ORIGIN,port).listen(port,'127.0.0.1');
+  }
   server.listen(config.port, config.host, () => {
     console.log(`eaios-server listening on http://${config.host}:${config.port}`);
     console.log(`  dist:      ${config.distDir}`);
