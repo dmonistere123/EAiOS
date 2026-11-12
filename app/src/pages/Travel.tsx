@@ -162,7 +162,7 @@ export default function Travel() {
       {trip&&<button className={secondary} disabled={busy||!!choosing} onClick={newTrip}>Plan another trip</button>}
     </header>
     {travelMode==='mock' ? <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">Design preview · example recommendations, not live availability.</p> : import.meta.env.VITE_TRAVEL_LIVE==='1' && <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">{assisted?'Flight test mode · Duffel fares are sandbox results. Hotel and dining research uses web sources. Nothing is booked.':'Test mode · provider prices and bookings are sandbox examples. Your trip plans are saved.'}</p>}
-    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className={`grid items-start gap-6 ${step>0?'md:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]':'xl:grid-cols-[minmax(0,1fr)_340px]'}`}>
       <div className="min-w-0 space-y-5">
         <ol aria-label="Planning progress" className="grid grid-cols-3 gap-2">{steps.map((label,i)=><li key={label} aria-current={step===i?'step':undefined} className={`border-t-2 pt-3 text-xs ${step===i?'border-signal font-semibold text-signal':'border-edge text-ink-faint'}`}><span className="mr-1.5">{i+1}.</span>{label}</li>)}</ol>
         {error&&<div role="alert" className="rounded-xl border border-risk/30 bg-risk/10 p-4 text-sm text-risk">{error}</div>}
@@ -193,7 +193,7 @@ export default function Travel() {
           <button className={primary} disabled={busy} onClick={()=>void findOptions()}>Find my options →</button>
         </Card>}
         {step===1&&<div className="space-y-5">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Your options</h2><a href="#trip-chat" className="mt-2 inline-block text-sm text-signal xl:hidden">Talk to Ally ↓</a><p className="mt-1 text-sm text-ink-dim">Compare flights and up to ten sourced hotels and restaurants. Tell Ally what to change as you explore.</p></div><button disabled={busy} className={secondary} onClick={()=>setStep(0)}>Edit trip details</button></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-semibold">Your options</h2><a href="#trip-chat" className="mt-2 inline-block text-sm text-signal md:hidden">Talk to Ally ↓</a><p className="mt-1 text-sm text-ink-dim">Compare flights and up to ten sourced hotels and restaurants. Tell Ally what to change as you explore.</p></div><button disabled={busy} className={secondary} onClick={()=>setStep(0)}>Edit trip details</button></div>
           {busy&&<div role="status" className="rounded-xl border border-signal/30 bg-signal/5 p-6"><p className="font-medium">Planning your trip to {stayLocation}…</p><p className="mt-2 text-sm text-ink-dim">Checking flights, hotels, restaurants, and any requested rental cars. Your trip is saved; no purchases are being made.</p></div>}
           {!busy&&(['flight','hotel','restaurant',...(needsCar?['car' as const]:[])] as const).map(kind=>{
             const group=optionsFor(kind), labels={flight:'Flights',hotel:'Hotels',restaurant:'Restaurants',car:'Rental cars'};
@@ -217,7 +217,7 @@ export default function Travel() {
           {assisted&&!trip.planningQuestion&&!busy&&<TravelHandoff key={trip.id} tripId={trip.id}/>}{addPlan&&<PlanDrawer trip={trip} onClose={()=>setAddPlan(false)} onSaved={()=>void refresh()}/>}
         </div>}
       </div>
-      <aside className="space-y-4 xl:sticky xl:top-5">
+      <aside className="space-y-4 md:sticky md:top-5">
         {trip&&step>0&&<Card className="border-signal/30 p-5">
           <h2 id="trip-chat" className="scroll-mt-6 text-lg font-semibold">Plan with {AGENT_NAME}</h2><p className="mt-1 text-xs text-ink-dim">This conversation stays with your trip. Your selections stay saved while we refine the choices.</p>
           <div ref={chatRef} role="log" aria-label="Trip conversation" aria-live="polite" className="my-4 max-h-80 space-y-3 overflow-y-auto">
