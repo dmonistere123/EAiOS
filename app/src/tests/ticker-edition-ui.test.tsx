@@ -1,5 +1,6 @@
 import {it,expect,vi,afterEach} from 'vitest';
 import {render,screen,waitFor} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {MemoryRouter,Routes,Route} from 'react-router-dom';
 import AppShell from '../app/AppShell';
 import Settings from '../pages/Settings';
@@ -16,6 +17,7 @@ it.each(['core','full'])('%s renders only the intended ticker surfaces',async ed
  const page=render(<MemoryRouter initialEntries={['/settings']}><Routes><Route element={<AppShell/>}><Route path="settings" element={<Settings/>}/></Route></Routes></MemoryRouter>);
  await screen.findByRole('heading',{name:'Settings'});
  await waitFor(()=>expect(screen.queryByText('Loading your modules…')).not.toBeInTheDocument());
+ if(edition==='full')await userEvent.setup().click(screen.getByRole('button',{name:'The App Stack'}));
  expect(screen.queryByRole('link',{name:'Ticker'})!==null).toBe(edition==='full');
  expect(screen.queryByTestId('ticker-footer')!==null).toBe(edition==='full');
  expect(screen.queryByTestId('ticker-settings')!==null).toBe(edition==='full');

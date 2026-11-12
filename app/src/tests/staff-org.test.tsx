@@ -1,21 +1,14 @@
-/**
- * W3 tests — Staff org visualization + per-agent rail, post "AI Office"
- * orbital redesign: brain hub (SVG glyph, Orchestrator caption), staff on
- * dashed orbital rings that revolve via hand-rolled CSS (reduced-motion
- * contract in index.css); List toggle restores the pre-W3 grid; selecting
- * an agent opens its properties drawer AND declares its channel into the
- * right rail (D-B4); no selection = default watchtower; honest no-Bot-Chat
- * empty state.
- */
-import { describe, expect, it, beforeAll } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { describe, expect, it, beforeAll, vi, afterEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import Staff from '../pages/Staff';
 import AppShell from '../app/AppShell';
 import { startRuntime } from '../state/runtime';
-import { distributeIntoRings } from '../components/OrgChart';
+import { OrgChart } from '../components/OrgChart';
+import type { Agent } from '../domain/types';
+
+afterEach(() => vi.unstubAllGlobals());
 
 beforeAll(() => {
   startRuntime();
@@ -34,7 +27,7 @@ function renderAt(route: string) {
 }
 
 describe('org visualization', () => {
-  it('org view is the default: brain hub, staff on orbital rings; working agents pulse', async () => {
+  it('org view is the default: brain hub, staff on orbital rings; working agents display their runtime status', async () => {
     const { container } = render(
       <MemoryRouter>
         <Staff />
@@ -42,7 +35,7 @@ describe('org visualization', () => {
     );
     await screen.findByRole('group', { name: 'Org chart' });
     // hub + all four staff nodes, accessibly named with their live status
-    expect(screen.getByRole('button', { name: 'Ally, working' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Ally, working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Scout, working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Quill, waiting approval' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Ledger, idle' })).toBeInTheDocument();
@@ -50,33 +43,34 @@ describe('org visualization', () => {
     // the hub is the hand-rolled brain glyph with the orchestrator caption
     expect(container.querySelector('[data-brain-hub]')).not.toBeNull();
     expect(screen.getByText('Orchestrator Agent')).toBeInTheDocument();
-    // four staff fit one orbital ring: one dashed track + one revolving wrapper
-    expect(container.querySelectorAll('[data-orbit-track]').length).toBe(1);
-    expect(container.querySelectorAll('.eaios-orbit-ring').length).toBe(1);
-    // every orbiting node counter-rotates so its label stays upright
-    expect(container.querySelectorAll('.eaios-orbit-counter').length).toBe(4);
-    // pulse markers on exactly the working agents (ally + scout)
-    expect(container.querySelectorAll('.animate-ping').length).toBe(2);
+    expect(container.querySelectorAll('.staff-orbit-node[data-status="working"]')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Pause motion' })).toHaveAttribute('aria-pressed', 'true');
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Pause motion' }));
+    expect(screen.getByRole('button', { name: 'Rotate team' })).toHaveAttribute('aria-pressed', 'false');
+
   });
 
-  it('ring distribution: ≤5 staff orbit one ring, more split across two', () => {
-    expect(distributeIntoRings([1, 2, 3, 4])).toEqual([[1, 2, 3, 4]]);
-    expect(distributeIntoRings([1, 2, 3, 4, 5])).toEqual([[1, 2, 3, 4, 5]]);
-    expect(distributeIntoRings([1, 2, 3, 4, 5, 6, 7])).toEqual([
-      [1, 2, 3, 4],
-      [5, 6, 7],
-    ]);
+  it('keeps large teams readable and makes every specialist selectable', async () => {
+    const make = (id: string, hub = false): Agent => ({id, name: id, role: 'Specialist', reportsToAgentId: hub ? undefined : 'default', model: {provider:'mock',model:'mock'}, availableModels:[], tools:[], status:'idle'});
+    const agents = [make('default', true), ...Array.from({length:8}, (_,i) => make(`Specialist ${i+1}`))];
+    const select = vi.fn(); render(<OrgChart agents={agents} onSelect={select}/>);
+    const user = userEvent.setup();
+    expect(screen.getByRole('button',{name:'Specialist 6, idle'})).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Specialist 7, idle'})).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button',{name:'Next agents'}));
+    await user.click(screen.getByRole('button',{name:'Specialist 8, idle'}));
+    expect(select).toHaveBeenCalledWith(agents[8]);
+    expect(screen.getByRole('button',{name:'Rotate team'})).toHaveAttribute('aria-pressed','false');
+    expect(screen.getByRole('button',{name:'Next agents'})).toBeDisabled();
   });
 
-  it('prefers-reduced-motion disables the orbit (CSS contract)', () => {
-    const css = readFileSync('src/index.css', 'utf8'); // vitest cwd = app root
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
-    const block = css.slice(css.indexOf('prefers-reduced-motion'));
-    expect(block).toContain('.eaios-orbit-ring');
-    expect(block).toContain('.eaios-orbit-counter');
+  it('respects the system reduced-motion preference', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<MemoryRouter><Staff /></MemoryRouter>);
+    expect(await screen.findByRole('button', { name: 'Reduced motion' })).toBeDisabled();
   });
 
-  it('List toggle restores the pre-W3 grid; Org toggles back', async () => {
+  it('List toggle restores the pre-W3 grid; Orbital toggles back', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -87,7 +81,7 @@ describe('org visualization', () => {
     await user.click(screen.getByRole('tab', { name: 'List' }));
     expect(screen.queryByRole('group', { name: 'Org chart' })).not.toBeInTheDocument();
     expect(await screen.findAllByText('Idle — ready for work')).toHaveLength(2); // ledger + sentinel cards
-    await user.click(screen.getByRole('tab', { name: 'Org' }));
+    await user.click(screen.getByRole('tab', { name: 'Orbital' }));
     expect(await screen.findByRole('group', { name: 'Org chart' })).toBeInTheDocument();
   });
 
@@ -100,7 +94,7 @@ describe('org visualization', () => {
     );
     await screen.findByRole('group', { name: 'Org chart' });
     await user.click(screen.getByRole('tab', { name: 'Idle' }));
-    expect(screen.getByRole('button', { name: 'Ally, working' })).toBeInTheDocument(); // hub survives the filter
+    expect(await screen.findByRole('button', { name: 'Ally, working' })).toBeInTheDocument(); // hub survives the filter
     expect(screen.getByRole('button', { name: 'Ledger, idle' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Scout, working' })).not.toBeInTheDocument();
   });

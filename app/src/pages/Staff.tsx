@@ -1,6 +1,9 @@
+import { Link } from 'react-router-dom';
+import { staffHub } from '../components/StaffAvatar';
+import { StaffDelegationCards } from '../components/StaffDelegationCards';
 import { HumanWorkStatus } from '../components/HumanWorkStatus';
 /** Staff — the AI agent workforce. Status is runtime-driven, never decorative.
- * W3: org visualization (Ally hub, radial staff, working = pulse) with the
+ * Orbital team display (AI hub, real specialist status) with the
  * pre-W3 grid kept as the List toggle; selecting an agent opens its
  * properties drawer AND declares its channel into the right rail (D-B4). */
 import { useEffect, useMemo, useState } from 'react';
@@ -8,7 +11,7 @@ import type { Agent } from '../domain/types';
 import type { ModelOptionGroup } from '../adapters/interfaces';
 import { hermes, humanDirectory, humanDelegation } from '../adapters';
 import type { HumanContact, HumanDelegation } from '../domain/humanDelegation';
-import { HumanStaffForm, HumanAvatar } from '../components/HumanStaffForm';
+import { HumanStaffForm } from '../components/HumanStaffForm';
 import { useRuntime, refreshAgents, toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import type { RailSectionDef } from '../state/rail';
@@ -30,8 +33,8 @@ export function slugify(raw: string): string {
     .replace(/^(\d)/, 'a$1'); // ids must start with a letter
 }
 
-function AddAgentDrawer({ onClose, onHumanSaved }: { onClose: () => void; onHumanSaved:(c:HumanContact)=>void }) {
-  const [kind,setKind]=useState<'ai'|'human'>('ai');
+function AddAgentDrawer({ onClose, onHumanSaved, initialKind = 'ai' }: { onClose: () => void; onHumanSaved:(c:HumanContact)=>void; initialKind?: 'ai' | 'human' }) {
+  const [kind,setKind]=useState<'ai'|'human'>(initialKind);
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [catalog, setCatalog] = useState<ModelOptionGroup[] | null>(null);
@@ -464,17 +467,19 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
   );
 }
 
-export default function Staff() {
+export default function Staff({ humanOnly = false }: { humanOnly?: boolean }) {
   const s = useRuntime();
   const [filter, setFilter] = useState<Filter>('all');
   const [view, setView] = useState<'org' | 'list'>('org');
   const [selected, setSelected] = useState<Agent | null>(null);
   const [adding, setAdding] = useState(false);
+  const [addKind, setAddKind] = useState<'ai' | 'human'>('ai');
+  const [humansLoading, setHumansLoading] = useState(true);
   const [humans,setHumans]=useState<HumanContact[]>([]);
   const [humanJobs,setHumanJobs]=useState<HumanDelegation[]>([]);
   const [humanError,setHumanError]=useState('');
   const [selectedHuman,setSelectedHuman]=useState<HumanContact|null>(null);
-  useEffect(()=>{Promise.all([humanDirectory.listContacts(),humanDelegation.list()]).then(([c,d])=>{setHumans(c);setHumanJobs(d);}).catch(()=>setHumanError('Human staff directory is unavailable. AI staff remain available.'));},[]);
+  useEffect(()=>{let active=true;Promise.all([humanDirectory.listContacts(),humanDelegation.list()]).then(([c,d])=>{if(active){setHumans(c);setHumanJobs(d);}}).catch(()=>{if(active)setHumanError('Human staff directory is unavailable. Try again later.');}).finally(()=>{if(active)setHumansLoading(false);});return()=>{active=false;};},[]);
   const saveHuman=(c:HumanContact)=>{setHumans(rows=>[...rows.filter(r=>r.id!==c.id),c]);setHumanError('');setAdding(false);setSelectedHuman(null);toast('ok',`${c.displayName} saved. No email sent.`);};
   const selectHuman=(c:HumanContact)=>{setSelected(null);setSelectedHuman(c);};
 
@@ -483,7 +488,7 @@ export default function Staff() {
   const workTitle = (id?: string) => s.work.find((w) => w.id === id)?.title;
 
   // Ally (the hub) always renders in the org chart — filters apply to staff only.
-  const hubAgent = s.agents.find((a) => !a.reportsToAgentId) ?? s.agents[0];
+  const hubAgent = staffHub(s.agents);
   const orgAgents = hubAgent ? [hubAgent, ...agents.filter((a) => a.id !== hubAgent.id)] : agents;
 
   // W3: the selected agent's channel rides the right rail (W1 data path).
@@ -542,10 +547,10 @@ export default function Staff() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Staff</h1>
-          <p className="mt-1 text-sm text-ink-dim">Your AI and human staff, coordinated by Ally. Select a staff member for details.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{humanOnly ? 'HI Assistant' : 'Staff'}</h1>
+          <p className="mt-1 text-sm text-ink-dim">{humanOnly ? 'Your human backstop for delegation, personal judgment, and follow-through.' : 'Your AI team, coordinated by your assistant. Human support when you need it.'}</p>
         </div>
-        <div className="flex items-center gap-3">
+        {!humanOnly && <div className="flex flex-wrap items-center gap-3">
           <div className="flex gap-1.5" role="tablist" aria-label="Staff view">
             {(['org', 'list'] as const).map((v) => (
               <button
@@ -555,7 +560,7 @@ export default function Staff() {
                 onClick={() => setView(v)}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium capitalize ${view === v ? 'bg-signal/15 text-signal' : 'text-ink-dim hover:bg-canvas-overlay'}`}
               >
-                {v === 'org' ? 'Org' : 'List'}
+                {v === 'org' ? 'Orbital' : 'List'}
               </button>
             ))}
           </div>
@@ -573,16 +578,16 @@ export default function Staff() {
             ))}
           </div>
           <button
-            onClick={() => setAdding(true)}
+            onClick={() => { setAddKind('ai'); setAdding(true); }}
             className="rounded-lg bg-signal px-4 py-2 text-sm font-semibold text-canvas hover:bg-signal/90"
           >
             + Add agent
           </button>
-        </div>
+        </div>}
       </header>
 
-      {view === 'org' ? (
-        <OrgChart agents={orgAgents} selectedId={selected?.id} onSelect={selectAgent} humans={humans.filter(c=>c.active)} selectedHumanId={selectedHuman?.id} onSelectHuman={selectHuman} activeHumanIds={humanJobs.filter(d=>['awaiting_acceptance','accepted','in_progress','blocked','no_response'].includes(d.status)).map(d=>d.contactId)} />
+      {!humanOnly && (view === 'org' ? (
+        <OrgChart agents={orgAgents} selectedId={selected?.id} onSelect={selectAgent} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {agents.map((a) => (
@@ -613,13 +618,15 @@ export default function Staff() {
             </button>
           ))}
         </div>
-      )}
+      ))}
 
-      {humanError&&<p role="status" className="text-xs text-warn">{humanError}</p>}
-      {view==='list'&&humans.some(c=>c.active)&&<section aria-label="Human staff" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{humans.filter(c=>c.active).map(c=><button key={c.id} className="text-left" onClick={()=>selectHuman(c)}><Card className="space-y-2 p-5"><HumanAvatar/><strong>{c.displayName}</strong><p className="text-xs text-ink-dim">{c.title||'Human assistant'}</p><p className="text-xs text-ink-dim">{c.email}</p><StateBadge label="Human" tone="neutral"/></Card></button>)}</section>}
+      <StaffDelegationCards hub={hubAgent} humans={humans.filter(c => c.active)} jobs={humanJobs} humanOnly={humanOnly}
+        loading={humansLoading} error={humanError} onSelectAgent={selectAgent} onSelectHuman={selectHuman}
+        onAddHuman={() => { setAddKind('human'); setAdding(true); }} />
+      {humanOnly && <p className="text-xs text-ink-dim">Configure your delegation sender in <Link to="/settings" className="text-signal">App Settings</Link>. Separate human logins and a shared assistant inbox are not yet available.</p>}
       {selectedHuman&&<Drawer title={`${selectedHuman.displayName} — human staff`} onClose={()=>setSelectedHuman(null)}><HumanStaffForm key={selectedHuman.id+':'+selectedHuman.revision} contact={selectedHuman} onSaved={saveHuman}/><h3 className="mt-6 text-sm font-semibold">Delegated work</h3>{humanJobs.filter(d=>d.contactId===selectedHuman.id).length===0?<p className="mt-2 text-sm text-ink-dim">No delegated work yet.</p>:<ul className="mt-2 space-y-2">{humanJobs.filter(d=>d.contactId===selectedHuman.id).map(d=><li key={d.id} className="rounded border border-edge p-3 text-sm">{s.work.find(w=>w.id===d.workItemId)?.title??d.workItemId}<HumanWorkStatus delegation={d} onChange={updated=>setHumanJobs(rows=>rows.map(r=>r.id===updated.id?updated:r))}/></li>)}</ul>}</Drawer>}
       {selected && <AgentPropertiesDrawer agent={s.agents.find((x) => x.id === selected.id) ?? selected} onClose={() => setSelected(null)} />}
-      {adding && <AddAgentDrawer onClose={() => setAdding(false)} onHumanSaved={saveHuman} />}
+      {adding && <AddAgentDrawer initialKind={addKind} onClose={() => setAdding(false)} onHumanSaved={saveHuman} />}
     </div>
   );
 }

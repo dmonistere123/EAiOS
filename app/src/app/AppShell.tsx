@@ -1,3 +1,4 @@
+import { WorkspaceNavigation, NAV_MODULES } from '../components/WorkspaceNavigation';
 import { BottomTicker } from '../components/BottomTicker';
 import { loadTickerPrefs } from '../adapters/ticker';
 import { adapterMode } from '../adapters';
@@ -8,7 +9,7 @@ import { adapterMode } from '../adapters';
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   selectActivityNewest, selectCronByNextRun, selectPendingApprovals, useRuntime, agentName,
 } from '../state/runtime';
@@ -40,25 +41,6 @@ export function resetPanePrefs() {
   window.location.reload();
 }
 
-const NAV: { to: string; label: string; icon: string; external?: boolean }[] = [
-  { to: '/today', label: 'Today', icon: '☀' },
-  { to: '/insights', label: 'Executive Insights', icon: '◉' },
-  { to: '/assistant', label: 'My Assistant', icon: '◈' },
-  { to: '/staff', label: 'Staff', icon: '⛁' },
-  { to: '/connections', label: 'Connections', icon: '⬡' },
-  { to: '/approvals', label: 'Approvals', icon: '✓' },
-  { to: '/schedule', label: 'Schedule', icon: '▦' },
-  { to: '/travel', label: 'Travel (RM)', icon: '✈' },
-  { to: '/knowledge', label: 'Knowledge', icon: '❖' },
-  { to: '/podcasts', label: 'Podcasts', icon: '❚❚' },
-  { to: '/social', label: 'Social Media', icon: '↗' },
-  { to: '/skills', label: 'Skills & Playbooks', icon: '⚒' },
-  { to: '/artifacts', label: 'Artifacts', icon: '▤' },
-  { to: '/usage', label: 'Usage', icon: '◔' },
-  { to: '/backup', label: 'Backup', icon: '⛃' },
-  { to: '/ticker', label: 'Ticker', icon: '↗' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-];
 
 function useDrag(side: 'left' | 'right', width: number, setWidth: (n: number) => void) {
   const dragging = useRef(false);
@@ -228,7 +210,7 @@ function RightRail() {
 export default function AppShell() {
   const [tickerHidden, setTickerHidden] = useState(() => loadTickerPrefs().hidden);
   const location=useLocation();
-  const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV.map(n=>n.to.slice(1)):null);
+  const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV_MODULES:null);
   const [moduleError,setModuleError]=useState(false);
   useEffect(()=>{if(adapterMode==='mock')return;const controller=new AbortController();
     void fetch('/api/modules',{signal:controller.signal}).then(async r=>{if(!r.ok)throw new Error('Module configuration unavailable');return r.json();}).then(v=>{if(!Array.isArray(v.enabled)||!v.enabled.every((x:unknown)=>typeof x==='string'))throw new Error('Invalid modules');setModules(v.enabled);}).catch(()=>{if(!controller.signal.aborted)setModuleError(true);});return()=>controller.abort();
@@ -254,7 +236,8 @@ export default function AppShell() {
   const leftDrag = useDrag('left', prefs.left, setLeft);
   const rightDrag = useDrag('right', prefs.right, setRight);
 
-  const navCollapsed = prefs.leftCollapsed || viewportWidth < 640;
+  const [mobileExpanded, setMobileExpanded] = useState(false);
+  const navCollapsed = viewportWidth < 640 ? !mobileExpanded : prefs.leftCollapsed;
   const leftWidth = navCollapsed ? 64 : isNarrow ? LIMITS.left.min : prefs.left;
   const declaredRail = useRailDeclaration();
   const pageHidesRail = declaredRail?.length === 0;
@@ -307,50 +290,23 @@ export default function AppShell() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         {/* left nav */}
-        <nav aria-label="Primary" style={{ width: leftWidth }} className="flex shrink-0 flex-col border-r border-edge bg-canvas-raised transition-[width] duration-75">
+        <nav aria-label="Primary" style={{ width: leftWidth }} className={`flex shrink-0 flex-col border-r border-edge bg-canvas-raised transition-[width] duration-75 ${viewportWidth < 640 && !navCollapsed ? 'absolute inset-y-0 left-0 z-40 shadow-xl' : ''}`}>
           <div className="flex-1 overflow-y-auto py-3">
-            {NAV.filter(n=>modules?.includes(n.to.slice(1))).map((n) => n.external ? (
-              <a
-                key={n.to}
-                href={n.to}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={`${n.label} (opens in a new tab)`}
-                aria-label={`${n.label} (opens in a new tab)`}
-                className="mx-2 mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-ink-dim transition-colors hover:bg-canvas-overlay hover:text-ink"
-              >
-                <span aria-hidden className="w-4 text-center">{n.icon}</span>
-                {!navCollapsed && <span className="truncate">{n.label}</span>}
-              </a>
-            ) : (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                title={n.label}
-                className={({ isActive }) =>
-                  `mx-2 mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
-                    isActive ? 'bg-signal/15 font-medium text-signal' : 'text-ink-dim hover:bg-canvas-overlay hover:text-ink'
-                  }`
-                }
-              >
-                <span aria-hidden className="w-4 text-center">{n.icon}</span>
-                {!navCollapsed && <span className="truncate">{n.label}</span>}
-                {!navCollapsed && n.to === '/approvals' && pending > 0 && (
-                  <span className="ml-auto rounded-full bg-warn/20 px-2 text-[11px] text-warn">{pending}</span>
-                )}
-              </NavLink>
-            ))}
+            <WorkspaceNavigation modules={modules} collapsed={navCollapsed} pending={pending} onNavigate={() => setMobileExpanded(false)}
+              onExpand={() => { setPrefs(p => ({ ...p, leftCollapsed: false })); setMobileExpanded(true); }} />
           </div>
           <button
-            onClick={() => setPrefs((p) => ({ ...p, leftCollapsed: !p.leftCollapsed }))}
+            onClick={() => viewportWidth < 640 ? setMobileExpanded(v => !v) : setPrefs(p => ({ ...p, leftCollapsed: !p.leftCollapsed }))}
+            aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
             className="mx-2 mb-3 rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay"
           >
             {navCollapsed ? '»' : '« Collapse'}
           </button>
         </nav>
 
+        {viewportWidth < 640 && !navCollapsed && <div className="w-16 shrink-0" />}
         {!navCollapsed && !isNarrow && <DragHandle {...leftDrag} label="Resize navigation pane" />}
 
         {/* center */}

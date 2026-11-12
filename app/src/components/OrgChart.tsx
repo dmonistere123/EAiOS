@@ -1,148 +1,98 @@
-import type { HumanContact } from '../domain/humanDelegation';
-import { HumanAvatar } from './HumanStaffForm';
-/**
- * OrgChart (W3 → "AI Office" orbital redesign) — Ally's brain hub at the
- * center, staff agents on concentric dashed orbital rings that slowly
- * revolve (hand-rolled CSS only: ring wrapper rotates, each node
- * counter-rotates so labels stay upright; mirrors the allygnment.com
- * ai-office hero). NO new dependencies. Nodes are real buttons
- * (keyboard-accessible); status stays truthful — working agents glow/pulse,
- * failed/offline dim (decoration only; semantics stay with
- * AgentStatusBadge, D5). prefers-reduced-motion stops the orbit; the
- * static ring layout remains.
- *
- * Layout is flat-hierarchy radial: every staff agent reports to Ally in
- * the current data model, so orbital rings around the hub are the honest
- * shape.
- */
+import { useEffect, useRef, useState } from 'react';
 import type { Agent } from '../domain/types';
 import { AgentStatusBadge } from './ui';
-import { BrainGlyph } from './BrainGlyph';
+import { StaffAvatar, staffHub } from './StaffAvatar';
 
-/** Ring geometry: inset (% of the square stage) per ring. ≤5 staff orbit on
- * one ring; more split across two concentric rings. */
-const ONE_RING_INSETS = [10];
-const TWO_RING_INSETS = [25, 6];
-const RING_DURATIONS = ['48s', '72s'];
-
-/** Distribute staff across 1–2 orbital rings (inner ring gets the extra node). */
-export function distributeIntoRings<T>(items: T[]): T[][] {
-  if (items.length <= 5) return [items];
-  const inner = Math.ceil(items.length / 2);
-  return [items.slice(0, inner), items.slice(inner)];
+function AgentNode({ agent, hub, selected, onSelect }: { agent: Agent; hub?: boolean; selected: boolean; onSelect: (agent: Agent) => void }) {
+  return <button type="button" className={`staff-orbit-node${hub ? ' staff-orbit-hub' : ''}`}
+    data-agent-id={agent.id} data-status={agent.status} data-brain-hub={hub || undefined}
+    aria-label={`${agent.name}, ${agent.status.replace(/_/g, ' ')}`} aria-pressed={selected} onClick={() => onSelect(agent)}>
+    <span className="staff-orbit-avatar"><StaffAvatar agent={agent} hub={hub} /></span>
+    <span className="staff-orbit-name">{agent.name}</span>
+    {hub && <span className="staff-orbit-caption">Orchestrator Agent</span>}
+    <AgentStatusBadge status={agent.status} />
+  </button>;
 }
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase();
-}
-
-function HubNode({ agent, selected, onSelect }: { agent: Agent; selected: boolean; onSelect: (a: Agent) => void }) {
-  const working = agent.status === 'working';
-  return (
-    <button
-      onClick={() => onSelect(agent)}
-      aria-label={`${agent.name}, ${agent.status.replace(/_/g, ' ')}`}
-      aria-pressed={selected}
-      className="group absolute left-1/2 top-1/2 z-10 flex w-36 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5"
-    >
-      <span className="relative flex items-center justify-center">
-        {working && <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal/30" />}
-        <span
-          className={`eaios-hub relative flex h-28 w-28 items-center justify-center rounded-full border-2 transition-shadow ${
-            selected ? 'border-signal shadow-[0_0_22px_3px_rgba(50,197,255,0.5)]' : 'border-signal/40'
-          }`}
-          style={{ background: 'radial-gradient(circle at 35% 35%, rgba(50,197,255,0.22), rgba(5,9,20,0.95))' }}
-        >
-          <BrainGlyph className="h-14 w-14" />
-        </span>
-      </span>
-      <span className={`text-center text-sm leading-tight ${selected ? 'font-medium text-signal' : 'text-ink'}`}>{agent.name}</span>
-      <span className="-mt-1 text-center text-[10px] font-semibold uppercase tracking-wider text-signal/80">Orchestrator Agent</span>
-      <AgentStatusBadge status={agent.status} />
-    </button>
-  );
-}
-
-function Node({ agent, selected, onSelect }: { agent: Agent; selected: boolean; onSelect: (a: Agent) => void }) {
-  const working = agent.status === 'working';
-  const dimmed = agent.status === 'failed' || agent.status === 'offline';
-  return (
-    <button
-      onClick={() => onSelect(agent)}
-      aria-label={`${agent.name}, ${agent.status.replace(/_/g, ' ')}`}
-      aria-pressed={selected}
-      className={`group flex w-20 flex-col items-center gap-1.5 ${dimmed ? 'opacity-50' : ''}`}
-    >
-      <span className="relative flex items-center justify-center">
-        {working && <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-signal/30" />}
-        <span
-          className={`relative flex h-11 w-11 items-center justify-center rounded-full border text-xs font-semibold transition-shadow ${
-            selected
-              ? 'border-signal bg-signal/25 text-signal shadow-[0_0_18px_2px_rgba(50,197,255,0.45)]'
-              : working
-                ? 'border-signal/60 bg-signal/15 text-signal shadow-[0_0_14px_1px_rgba(50,197,255,0.35)]'
-                : 'border-edge bg-canvas-raised text-ink-dim group-hover:border-signal/40'
-          }`}
-        >
-          {initials(agent.name)}
-        </span>
-      </span>
-      <span className={`text-center text-[11px] leading-tight ${selected ? 'font-medium text-signal' : 'text-ink'}`}>{agent.name}</span>
-      <AgentStatusBadge status={agent.status} />
-    </button>
-  );
-}
-
-export function OrgChart({ agents, selectedId, onSelect, humans=[], selectedHumanId, onSelectHuman, activeHumanIds=[] }: { agents: Agent[]; selectedId?: string | null; onSelect: (a: Agent) => void; humans?:HumanContact[];activeHumanIds?:string[];selectedHumanId?:string;onSelectHuman?:(c:HumanContact)=>void }) {
-  // Hub = the agent nobody reports to (Ally); fallback: first agent.
-  const hub = agents.find((a) => !a.reportsToAgentId) ?? agents[0];
-  const staff = agents.filter((a) => a.id !== hub?.id);
-  if (!hub) return null;
-
-  const rings = distributeIntoRings<{id:string;agent?:Agent;human?:HumanContact}>([...staff.map(agent=>({id:agent.id,agent})),...humans.map(human=>({id:human.id,human}))]);
-  const insets = rings.length === 1 ? ONE_RING_INSETS : TWO_RING_INSETS;
-
-  return (
-    <div role="group" aria-label="Org chart" className="eaios-orgchart relative h-[26rem] w-full overflow-hidden rounded-xl border border-edge bg-canvas-raised">
-      {/* Square stage centered in the panel — rings stay circular regardless of panel aspect. */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ width: 'min(88%, 24rem)', aspectRatio: '1' }}>
-        {rings.map((ring, ri) => {
-          if (ring.length === 0) return null;
-          const duration = RING_DURATIONS[ri] ?? RING_DURATIONS[0];
-          const direction = ri % 2 === 1 ? 'reverse' : 'normal';
-          return [
-            // static dashed track
-            <div
-              key={`track-${ri}`}
-              aria-hidden
-              data-orbit-track
-              className="absolute rounded-full border border-dashed"
-              style={{ inset: `${insets[ri]}%`, borderColor: 'rgba(50,197,255,0.15)' }}
-            />,
-            // revolving wrapper — nodes ride the rotation and counter-rotate to stay upright
-            <div key={`ring-${ri}`} className="eaios-orbit-ring" style={{ inset: `${insets[ri]}%`, animationDuration: duration, animationDirection: direction }}>
-              {ring.map((agent, i) => {
-                const theta = -Math.PI / 2 + (2 * Math.PI * i) / ring.length;
-                const x = 50 + 50 * Math.cos(theta);
-                const y = 50 + 50 * Math.sin(theta);
-                return (
-                  <div key={agent.id} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: `${x}%`, top: `${y}%` }}>
-                    <div className="eaios-orbit-counter" style={{ animationDuration: duration, animationDirection: direction }}>
-                      {agent.agent?<Node agent={agent.agent} selected={selectedId === agent.id} onSelect={onSelect} />:<button onClick={()=>agent.human&&onSelectHuman?.(agent.human)} aria-label={`${agent.human!.displayName}, human assistant`} aria-pressed={selectedHumanId===agent.id} className="flex w-20 flex-col items-center gap-1.5"><span className={`flex h-11 w-11 items-center justify-center rounded-full border ${selectedHumanId===agent.id?'border-signal bg-signal/25 text-signal':'border-edge bg-canvas-raised text-ink-dim'}`}>{activeHumanIds.includes(agent.id)&&<span aria-hidden="true" className="absolute h-12 w-12 animate-spin rounded-full border-2 border-transparent border-t-signal motion-reduce:animate-none"/>}<HumanAvatar/></span><span className="text-center text-[11px] text-ink">{agent.human!.displayName}</span><span className="text-[10px] text-ink-dim">Human assistant</span></button>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>,
-          ];
-        })}
-      </div>
-      <HubNode agent={hub} selected={selectedId === hub.id} onSelect={onSelect} />
+/** Orbital movement is decorative. Only runtime status can light an agent as working. */
+export function OrgChart({ agents, selectedId, onSelect }: { agents: Agent[]; selectedId?: string | null; onSelect: (agent: Agent) => void }) {
+  const hub = staffHub(agents);
+  const staff = agents.filter(a => a.id !== hub?.id);
+  const [pageIndex, setPageIndex] = useState(0);
+  const page = Math.min(pageIndex, Math.max(0, Math.ceil(staff.length / 6) - 1));
+  const visible = staff.slice(page * 6, page * 6 + 6);
+  const visibleKey = visible.map(a => a.id).join('\0');
+  const stageRef = useRef<HTMLDivElement>(null);
+  const angleRef = useRef(-Math.PI / 2);
+  const [playing, setPlaying] = useState(true);
+  const [reduced, setReduced] = useState(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    const change = () => setReduced(mq?.matches ?? false);
+    mq?.addEventListener('change', change);
+    return () => mq?.removeEventListener('change', change);
+  }, []);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const nodes = [...stage.querySelectorAll<HTMLElement>('.staff-orbit-node:not(.staff-orbit-hub)')];
+    let width = stage.getBoundingClientRect().width || 540;
+    let frame = 0, last = 0, lastDraw = 0, hovered = false, focused = false, inView = true;
+    function position() {
+      stage!.dataset.compact = String(width < 440);
+      nodes.forEach((node, i) => {
+        const angle = angleRef.current + i * Math.PI * 2 / nodes.length;
+        node.style.transform = `translate(${Math.cos(angle) * (width / 2 - 66)}px, ${Math.sin(angle) * 144}px)`;
+      });
+    }
+    function running() { return playing && !reduced && width >= 440 && !hovered && !focused && inView && !document.hidden; }
+    function tick(time: number) {
+      frame = 0;
+      if (!running()) return;
+      if (last) angleRef.current += Math.min(time - last, 100) * Math.PI * 2 / 90000;
+      last = time;
+      if (time - lastDraw >= 32) { position(); lastDraw = time; }
+      frame = requestAnimationFrame(tick);
+    }
+    function sync() { cancelAnimationFrame(frame); frame = 0; last = 0; if (running()) frame = requestAnimationFrame(tick); }
+    const enter = () => { hovered = true; sync(); };
+    const leave = () => { hovered = false; sync(); };
+    const focus = () => { focused = true; sync(); };
+    const blur = (e: FocusEvent) => { focused = stage!.contains(e.relatedTarget as Node); sync(); };
+    stage.addEventListener('pointerenter', enter); stage.addEventListener('pointerleave', leave);
+    stage.addEventListener('focusin', focus); stage.addEventListener('focusout', blur);
+    document.addEventListener('visibilitychange', sync);
+    const resize = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(entries => { width = entries[0].contentRect.width; position(); sync(); }) : null;
+    resize?.observe(stage);
+    const observer = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(entries => { inView = entries[0].isIntersecting; sync(); }) : null;
+    observer?.observe(stage);
+    position(); sync();
+    return () => {
+      cancelAnimationFrame(frame); resize?.disconnect(); observer?.disconnect();
+      stage.removeEventListener('pointerenter', enter); stage.removeEventListener('pointerleave', leave);
+      stage.removeEventListener('focusin', focus); stage.removeEventListener('focusout', blur);
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, [visibleKey, playing, reduced]);
+  function select(agent: Agent) { setPlaying(false); onSelect(agent); }
+  return <section role="group" aria-label="Org chart" className="staff-orbit-deck">
+    <div className="staff-orbit-toolbar"><h2>AI team · Orbital view</h2>
+      <button type="button" onClick={() => setPlaying(v => !v)} aria-pressed={playing && !reduced} disabled={reduced || !staff.length} className="staff-motion-control">
+        {reduced ? 'Reduced motion' : playing ? 'Pause motion' : 'Rotate team'}
+      </button>
     </div>
-  );
+    <div className="staff-orbit-stage" ref={stageRef}>
+      <div className="staff-orbit-track" aria-hidden="true"/><div className="staff-orbit-track inner" aria-hidden="true"/>
+      <div className="staff-orbit-track outer" aria-hidden="true"/><div className="staff-crosshair" aria-hidden="true"/>
+      {hub ? <AgentNode agent={hub} hub selected={selectedId === hub.id} onSelect={select} /> : <p className="staff-orbit-no-hub">Coordinator unavailable</p>}
+      {visible.map(agent => <AgentNode key={agent.id} agent={agent} selected={selectedId === agent.id} onSelect={select} />)}
+    </div>
+    <div className="staff-orbit-legend"><span><i className="working"/>Working</span><span><i className="waiting"/>Awaiting approval</span><span><i/>Other states labeled on each agent</span></div>
+    {!staff.length && <p className="px-4 pb-4 text-xs text-ink-dim">No specialist agents match this view.</p>}
+    {staff.length > 6 && <div className="flex items-center justify-between gap-3 border-t border-edge px-4 py-3 text-xs text-ink-dim">
+      <button type="button" disabled={page === 0} onClick={() => setPageIndex(page - 1)} className="text-signal disabled:opacity-40">Previous agents</button>
+      <span>{page * 6 + 1}–{Math.min(staff.length, (page + 1) * 6)} of {staff.length}</span>
+      <button type="button" disabled={(page + 1) * 6 >= staff.length} onClick={() => setPageIndex(page + 1)} className="text-signal disabled:opacity-40">Next agents</button>
+    </div>}
+  </section>;
 }
