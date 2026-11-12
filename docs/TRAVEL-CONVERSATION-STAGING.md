@@ -25,3 +25,11 @@ The revised planner is available at http://127.0.0.1:5275/travel in the existing
 - Live staging browser exercise: Birmingham departure, New Orleans arrival, Baton Rouge stay, Board Meeting, Southwest-only, IHG, seafood and rental request. The airline nonmatch is explicit. A selected hotel survives a dining-only conversation refresh. Live source extraction returned ten restaurant choices.
 
 To review: open the staging Travel URL and create a trip, or reopen the clearly labeled `STAGING REVIEW · Baton Rouge board visit`. The pre-existing staging samples remain intact. Use the production deployment/preservation procedure before promoting this revision; do not replace the customized production release wholesale with this checkout.
+
+## Reusing previous trips
+
+The new-trip form now has a “Plan a similar trip” selector, and saved itineraries have the same action. It copies the latest structured preferences and separate airport/stay locations into a new draft. Dates, dated free-text instructions, chat history, driver age/test-location settings, reservations, approvals and HI handoffs are not copied. The executive chooses fresh dates and can edit preferences before new searches. A `basedOnTripId` reference preserves which saved trip supplied the preferences; the original trip is unchanged. This is explicit reuse, not an inferred global preference profile.
+
+Staging labels now explicitly identify Duffel Airways as a fictional test airline. “Prefer” continues to permit alternatives, while “only” filters them out. Test-mode results do not establish real-world availability.
+
+Reuse validation: 46 tests passed across the Travel UI, conversation, server and human-handoff suites; TypeScript and staging build passed (existing bundle-size warning remains).

@@ -85,3 +85,13 @@ it('binds expanded choices to retrieved sources and rejects unsupported names an
  const groups=await expandResearch(response,trip,['restaurant'],'test');
  expect(groups[0].options).toHaveLength(2);expect(groups[0].options.every(o=>o.externalUrl==='https://example.com/guide')).toBe(true);expect(groups[0].options[0].meta.address).toBe('Baton Rouge');
 });
+
+it('persists a previous-trip reference while creating a fresh independent itinerary',async()=>{
+ const {similarTripDraft}=await import('../domain/travelReuse.ts');
+ const old=await getTrip(trip.id,root);
+ const draft=similarTripDraft({...trip,preferredHotels:'IHG',preferredAirlines:'Southwest',airlinePolicy:'only',tripNotes:'Dated meeting instructions',carPreferences:{driverAge:45,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00',useTestLocation:true}});
+ expect(draft.startsAt).toBe('');expect(draft.endsAt).toBe('');expect(draft.tripNotes).toBe('');expect(draft.carPreferences).toBeUndefined();
+ const created=(await createTrip({...draft,startsAt:'2027-03-10',endsAt:'2027-03-12'},root)).data!;
+ expect(created.id).not.toBe(trip.id);expect(created.basedOnTripId).toBe(trip.id);expect(created.bookings).toEqual([]);expect(created.approvals).toEqual([]);expect(created.conversation).toBeUndefined();
+ expect((await getTrip(created.id,root))?.preferredHotels).toBe('IHG');expect(await getTrip(trip.id,root)).toEqual(old);
+});

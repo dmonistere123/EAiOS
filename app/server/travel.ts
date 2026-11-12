@@ -504,8 +504,9 @@ export async function updateTravelTrip(id:string,input:CreateTripInput,root:stri
 }
 
 function planningFields(input:CreateTripInput) {
+  if(input.basedOnTripId!==undefined&&(typeof input.basedOnTripId!=='string'||!input.basedOnTripId.trim()||input.basedOnTripId.length>200))throw new TravelApiError(400,'Choose a valid previous trip.');
   if(input.purpose!==undefined&&!travelPurposes.includes(input.purpose))throw new TravelApiError(400,'Choose a valid reason for travel.');
   if(input.airlinePolicy!==undefined&&!['prefer','only'].includes(input.airlinePolicy))throw new TravelApiError(400,'Choose prefer or only for airlines.');
   for(const key of ['tripNotes','diningLocation'] as const)if(input[key]!==undefined&&(typeof input[key]!=='string'||input[key]!.length>8000))throw new TravelApiError(400,'Keep trip details under 8,000 characters.');
-  return {purpose:input.purpose,tripNotes:input.tripNotes??'',airlinePolicy:input.airlinePolicy??'prefer',diningLocation:input.diningLocation??''};
+  return {basedOnTripId:input.basedOnTripId,purpose:input.purpose,tripNotes:input.tripNotes??'',airlinePolicy:input.airlinePolicy??'prefer',diningLocation:input.diningLocation??''};
 }

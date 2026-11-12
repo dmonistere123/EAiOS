@@ -105,3 +105,27 @@ it('interprets the trip brief then refreshes only hotels after a conversational 
  expect(screen.getByText('Example flight')).toBeInTheDocument();
  expect(screen.getByLabelText('Message Ally')).toHaveValue('');
 });
+
+it('starts a separate trip from saved preferences and requires new dates',async()=>{
+ const previous={...trip,originPlace:origin,destinationPlace:destination,airlinePolicy:'only' as const,purpose:'Board Meeting' as const,tripNotes:'Meet on January 10',conversation:[{role:'user' as const,text:'Old trip instructions',at:'old'}]};
+ vi.mocked(hermes.listTrips).mockResolvedValue([previous]);
+ render(<Travel/>);
+ await userEvent.selectOptions(await screen.findByLabelText('Plan a similar trip'),trip.id);
+ expect(screen.getByLabelText('Where are you going?')).toHaveValue('Baton Rouge');
+ expect(screen.getByLabelText('Preferred airlines')).toHaveValue('Southwest');
+ expect(screen.getByLabelText('Airline requirement')).toHaveValue('only');
+ expect(screen.getByLabelText('Preferred hotels')).toHaveValue('IHG');
+ expect(screen.getByLabelText('Reason for travel')).toHaveValue('Board Meeting');
+ expect(screen.getByLabelText('Departure date')).toHaveValue('');
+ expect(screen.getByLabelText('Return date')).toHaveValue('');
+ expect(screen.getByLabelText('Tell Ally about the trip')).toHaveValue('');
+ await userEvent.click(screen.getByRole('button',{name:'Find my options →'}));
+ expect(hermes.createTrip).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByLabelText('Departure date'),{target:{value:'2027-03-10'}});
+ fireEvent.change(screen.getByLabelText('Return date'),{target:{value:'2027-03-12'}});
+ await userEvent.click(screen.getByRole('button',{name:'Find my options →'}));
+ await screen.findByText('Example flight');
+ expect(hermes.createTrip).toHaveBeenCalledWith(expect.objectContaining({basedOnTripId:trip.id,startsAt:'2027-03-10',endsAt:'2027-03-12',preferredAirlines:'Southwest',airlinePolicy:'only'}));
+ expect(hermes.updateTravelTrip).not.toHaveBeenCalled();
+ expect(vi.mocked(hermes.createTrip).mock.calls[0][0]).not.toHaveProperty('bookings');
+});

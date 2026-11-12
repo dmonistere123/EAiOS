@@ -5,6 +5,7 @@ export const travelPurposes = ['Personal', 'Board Meeting', 'Customer Meeting', 
 export type TravelPurpose = typeof travelPurposes[number];
 export interface TripMessage { role: 'user' | 'assistant'; text: string; at: string }
 export interface TripPlanningFields {
+  basedOnTripId?: string;
   purpose?: TravelPurpose;
   tripNotes?: string;
   airlinePolicy?: 'prefer' | 'only';

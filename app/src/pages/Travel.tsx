@@ -1,3 +1,4 @@
+import {similarTripDraft} from '../domain/travelReuse';
 import {tripConversation} from '../adapters/travelConversation';
 import {travelPurposes, type TravelPurpose} from '../domain/travelConversation';
 import { TravelHandoff } from '../components/TravelHandoff';
@@ -50,6 +51,7 @@ export default function Travel() {
   const [step,setStep]=useState(0);
   useEffect(()=>{topRef.current?.scrollIntoView?.({block:'start'});},[step]);
   useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[trip?.conversation?.length]);
+  const [basedOnTripId,setBasedOnTripId]=useState<string>();
   const [name,setName]=useState('');
   const [stayLocation,setStayLocation]=useState('');
   const [purpose,setPurpose]=useState<TravelPurpose>('Personal');
@@ -89,7 +91,7 @@ export default function Travel() {
     try{const fresh=await hermes.getTrip(trip.id);if(fresh)setTrip(fresh);await loadTrips();}catch(e){setError(errorText(e));}
   }
   function syncTrip(saved:TravelTrip) {
-    setTrip(saved);setName(saved.name);setStayLocation(saved.destination);setPurpose(saved.purpose??'Personal');setNotes(saved.tripNotes??'');setAirlinePolicy(saved.airlinePolicy??'prefer');setDiningLocation(saved.diningLocation??'');setOrigin(saved.originPlace);setDestination(saved.destinationPlace);setStart(saved.startsAt.slice(0,10));setEnd(saved.endsAt.slice(0,10));setAirlines(saved.preferredAirlines??'');setHotels(saved.preferredHotels??'');setDining(saved.diningPreferences??'');setNeedsCar(saved.needsCar??false);setBudget(saved.budgetUsd===undefined?'':String(saved.budgetUsd));setPlannerKey(k=>k+1);
+    setBasedOnTripId(saved.basedOnTripId);setTrip(saved);setName(saved.name);setStayLocation(saved.destination);setPurpose(saved.purpose??'Personal');setNotes(saved.tripNotes??'');setAirlinePolicy(saved.airlinePolicy??'prefer');setDiningLocation(saved.diningLocation??'');setOrigin(saved.originPlace);setDestination(saved.destinationPlace);setStart(saved.startsAt.slice(0,10));setEnd(saved.endsAt.slice(0,10));setAirlines(saved.preferredAirlines??'');setHotels(saved.preferredHotels??'');setDining(saved.diningPreferences??'');setNeedsCar(saved.needsCar??false);setBudget(saved.budgetUsd===undefined?'':String(saved.budgetUsd));setPlannerKey(k=>k+1);
   }
   async function talkToAlly() {
     if(!trip||!message.trim()||busy)return;
@@ -110,7 +112,16 @@ export default function Travel() {
     setTrip(saved);setName(saved.name);setOrigin(saved.originPlace);setDestination(saved.destinationPlace);setStart(saved.startsAt.slice(0,10));setEnd(saved.endsAt.slice(0,10));setBudget(saved.budgetUsd===undefined?'':String(saved.budgetUsd));setAirlines(saved.preferredAirlines??'');setHotels(saved.preferredHotels??'');setDining(saved.diningPreferences??'');setNeedsCar(saved.needsCar??false);setCar(saved.carPreferences??{driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});setShortlists([]);setError('');setStep(saved.planningQuestion?1:2);setPlannerKey(k=>k+1);
   }
   function newTrip() {
-    setTrip(null);setName('');setStayLocation('');setPurpose('Personal');setNotes('');setAirlinePolicy('prefer');setDiningLocation('');setMessage('');setOrigin(undefined);setDestination(undefined);setStart('');setEnd('');setBudget('');setAirlines('');setHotels('');setDining('');setNeedsCar(false);setCar({driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});setShortlists([]);setError('');setStep(0);setPlannerKey(k=>k+1);
+    setBasedOnTripId(undefined);setTrip(null);setName('');setStayLocation('');setPurpose('Personal');setNotes('');setAirlinePolicy('prefer');setDiningLocation('');setMessage('');setOrigin(undefined);setDestination(undefined);setStart('');setEnd('');setBudget('');setAirlines('');setHotels('');setDining('');setNeedsCar(false);setCar({driverAge:0,residenceCountry:'US',pickupTime:'12:00',dropoffTime:'12:00'});setShortlists([]);setError('');setStep(0);setPlannerKey(k=>k+1);
+  }
+  function planSimilar(source:TravelTrip) {
+    const draft=similarTripDraft(source);
+    newTrip();setBasedOnTripId(source.id);setName(draft.name);setStayLocation(draft.destination);
+    setOrigin(draft.originPlace);setDestination(draft.destinationPlace);setPurpose(draft.purpose??'Personal');
+    setBudget(draft.budgetUsd===undefined?'':String(draft.budgetUsd));setAirlines(draft.preferredAirlines??'');
+    setAirlinePolicy(draft.airlinePolicy??'prefer');setHotels(draft.preferredHotels??'');setDining(draft.diningPreferences??'');
+    setDiningLocation(draft.diningLocation??'');setNeedsCar(draft.needsCar??false);setAddPlan(false);
+    topRef.current?.scrollIntoView?.({block:'start'});
   }
   function checkDetails() {
     if(!name.trim()||!stayLocation.trim()){setError('Enter a trip name and where you will be staying.');return false;}
@@ -125,7 +136,7 @@ export default function Travel() {
     if(!assisted&&needsCar&&(!Number.isInteger(car.driverAge)||car.driverAge<18||car.driverAge>100)){setError('Enter the driver’s age at pickup (18–100) to find rental cars.');return;}
     setBusy(true);setError('');setShortlists([]);setStep(1);
     try {
-      const input:CreateTripInput={name:name.trim()||`${destination!.city} trip`,destination:stayLocation.trim(),purpose,tripNotes:notes,airlinePolicy,diningLocation,originPlace:origin,destinationPlace:destination,startsAt:start,endsAt:end,budgetUsd:budget?Number(budget):undefined,preferredAirlines:airlines,preferredHotels:hotels,diningPreferences:dining,needsCar,carPreferences:needsCar&&car.driverAge>=18?car:undefined};
+      const input:CreateTripInput={basedOnTripId,name:name.trim()||`${destination!.city} trip`,destination:stayLocation.trim(),purpose,tripNotes:notes,airlinePolicy,diningLocation,originPlace:origin,destinationPlace:destination,startsAt:start,endsAt:end,budgetUsd:budget?Number(budget):undefined,preferredAirlines:airlines,preferredHotels:hotels,diningPreferences:dining,needsCar,carPreferences:needsCar&&car.driverAge>=18?car:undefined};
       const saved=trip ? await hermes.updateTravelTrip(trip.id,input) : await hermes.createTrip(input);
       if(!saved.ok||!saved.data)throw new Error(saved.error?.safeMessage??'Could not save this trip.');
       syncTrip(saved.data);
@@ -161,13 +172,15 @@ export default function Travel() {
       <div><p className="text-xs font-semibold uppercase tracking-widest text-signal">Travel with {AGENT_NAME}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Let’s plan your next trip.</h1><p className="mt-2 max-w-2xl text-sm text-ink-dim">Tell me where you’re going. I’ll narrow the choices so you can focus on the trip.</p></div>
       {trip&&<button className={secondary} disabled={busy||!!choosing} onClick={newTrip}>Plan another trip</button>}
     </header>
-    {travelMode==='mock' ? <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">Design preview · example recommendations, not live availability.</p> : import.meta.env.VITE_TRAVEL_LIVE==='1' && <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">{assisted?'Flight test mode · Duffel fares are sandbox results. Hotel and dining research uses web sources. Nothing is booked.':'Test mode · provider prices and bookings are sandbox examples. Your trip plans are saved.'}</p>}
+    {travelMode==='mock' ? <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">Design preview · example recommendations, not live availability.</p> : import.meta.env.VITE_TRAVEL_LIVE==='1' && <p className="rounded-lg bg-warn/10 px-4 py-2 text-xs text-warn">{assisted?'Flight test mode · Duffel Airways is a fictional test airline. All flight fares shown here are sandbox results. Hotel and dining research uses web sources. Nothing is booked.':'Test mode · provider prices and bookings are sandbox examples. Your trip plans are saved.'}</p>}
+    {basedOnTripId&&<p className="rounded-xl border border-signal/30 bg-signal/5 px-4 py-3 text-sm">Preferences reused from <strong>{trips.find(t=>t.id===basedOnTripId)?.name??'a previous trip'}</strong>. Review them, choose new dates, and add details for this visit. Each trip keeps its own itinerary.</p>}
     <div className={`grid items-start gap-6 ${step>0?'md:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]':'xl:grid-cols-[minmax(0,1fr)_340px]'}`}>
       <div className="min-w-0 space-y-5">
         <ol aria-label="Planning progress" className="grid grid-cols-3 gap-2">{steps.map((label,i)=><li key={label} aria-current={step===i?'step':undefined} className={`border-t-2 pt-3 text-xs ${step===i?'border-signal font-semibold text-signal':'border-edge text-ink-faint'}`}><span className="mr-1.5">{i+1}.</span>{label}</li>)}</ol>
         {error&&<div role="alert" className="rounded-xl border border-risk/30 bg-risk/10 p-4 text-sm text-risk">{error}</div>}
         {step===0&&<Card className="space-y-6 p-6 md:p-8">
           <div><h2 className="text-xl font-semibold">Tell Ally about your trip</h2><p className="mt-1 text-sm text-ink-dim">Start with the essentials. Then tell me what would make this trip work for you.</p></div>
+          {!trip&&trips.length>0&&<label className="block text-sm font-medium">Plan a similar trip<select aria-label="Plan a similar trip" className={fieldClass} value={basedOnTripId??''} onChange={e=>{const source=trips.find(t=>t.id===e.target.value);if(source)planSimilar(source);else newTrip();}}><option value="">Start fresh, or reuse a saved trip…</option>{[...trips].sort((a,b)=>b.startsAt.localeCompare(a.startsAt)).map(t=><option key={t.id} value={t.id}>{t.name} · {t.destination} · {t.startsAt.slice(0,10)}</option>)}</select><span className="mt-2 block text-xs font-normal text-ink-dim">Reuse airports, airline and hotel preferences, dining, budget, and rental-car needs. New dates and current availability are required.</span></label>}
           <label className="block text-sm font-medium">Trip name<input className={fieldClass} required maxLength={200} value={name} onChange={e=>setName(e.target.value)} placeholder="For example, December board meeting"/></label>
           <label className="block text-sm font-medium">Where are you going?<input className={fieldClass} required maxLength={500} value={stayLocation} onChange={e=>setStayLocation(e.target.value)} placeholder="City, neighborhood, or address where you want to stay"/></label>
           <TravelCityPicker key={`origin-${plannerKey}`} label="Where are you leaving from?" value={origin} onChange={setOrigin}/>
@@ -211,7 +224,7 @@ export default function Travel() {
         </div>}
         {step===2&&trip&&<div className="space-y-5">
           <div><h2 className="text-2xl font-semibold">{trip.name}</h2><p className="mt-1 text-sm text-ink-dim">{trip.destination} · {dateLabel(trip.startsAt)}–{dateLabel(trip.endsAt)}</p><p className="mt-2 text-sm text-ink-dim">{assisted?'Your selected itinerary is saved here. Your human assistant handles booking and returns confirmations for your review.':'Your choices, checkout, and confirmations are all here. Selecting an option does not purchase it.'}</p></div>
-          <div className="flex flex-wrap gap-3"><button className={primary} disabled={busy||!!choosing} onClick={()=>{setStep(shortlists.length?1:0);setError('');}}>{shortlists.length?'Back to my options':'Find options for this trip'}</button><button className={secondary} disabled={busy||!!choosing} onClick={()=>setAddPlan(true)}>{assisted?'Add hotel, car or restaurant plan':'Add an external reservation'}</button></div>
+          <div className="flex flex-wrap gap-3"><button className={primary} disabled={busy||!!choosing} onClick={()=>{setStep(shortlists.length?1:0);setError('');}}>{shortlists.length?'Back to my options':'Find options for this trip'}</button><button className={secondary} disabled={busy||!!choosing} onClick={()=>planSimilar(trip)}>Plan a similar trip</button><button className={secondary} disabled={busy||!!choosing} onClick={()=>setAddPlan(true)}>{assisted?'Add hotel, car or restaurant plan':'Add an external reservation'}</button></div>
           {activeBookings.length===0?<Card className="p-8 text-center"><h3 className="text-lg font-medium">Your itinerary is ready to fill.</h3><p className="mt-2 text-sm text-ink-dim">Start with “Find options for this trip.” Your dates and preferences are already filled in.</p></Card>:<div className="space-y-3">{[...activeBookings].sort((a,b)=>bookingDate(a).localeCompare(bookingDate(b))).map(b=><Card key={b.id} className="p-5"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs uppercase tracking-wider text-ink-faint">{b.kind} · {dateLabel(bookingDate(b))}</p><h3 className="mt-1 font-semibold">{title(b)}</h3></div><span className="rounded-full border border-edge px-3 py-1 text-xs">{b.status==='confirmed'?(b.testMode?'Test confirmation':'Booked'):b.status==='recorded'?'Confirmation recorded':b.status==='approved'?'Selected · not booked':b.status}</span></div>{b.status==='proposed'&&<button className={`${secondary} mt-3`} disabled={!!choosing} onClick={()=>void approvePlan(b)}>Use this plan</button>}<TravelBookingActions planningOnly={assisted} booking={b} onRefresh={()=>void refresh()}/></Card>)}</div>}
           {trip.planningQuestion&&<p className="rounded-xl border border-warn/30 p-4 text-sm text-warn">Answer Ally’s question in the conversation before sending this trip.</p>}
           {assisted&&!trip.planningQuestion&&!busy&&<TravelHandoff key={trip.id} tripId={trip.id}/>}{addPlan&&<PlanDrawer trip={trip} onClose={()=>setAddPlan(false)} onSaved={()=>void refresh()}/>}
