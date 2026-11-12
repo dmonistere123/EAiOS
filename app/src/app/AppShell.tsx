@@ -312,7 +312,7 @@ export default function AppShell() {
         {/* center */}
         <main className="min-w-0 flex-1 overflow-y-auto" id="main">
           <div className="mx-auto h-full max-w-6xl px-4 py-6 pb-24 md:px-6 lg:pb-6">
-            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts','ticker'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<Outlet context={{ modules }} />}
+            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts','ticker'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<>{import.meta.env.VITE_TRAVEL_HANDOFF==='1'&&<div className="mb-5 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">STAGING · Separate sample data · Emails are captured, never sent · No provider booking</div>}<Outlet context={{ modules }} /></>}
           </div>
         </main>
 
@@ -344,7 +344,7 @@ export default function AppShell() {
         )}
       </div>
       {/* F26: floating navigation concierge — every page, drawers/toasts outrank it */}
-      {modules?.includes('ticker') && <BottomTicker hidden={tickerHidden} onHidden={setTickerHidden} />}
+      {import.meta.env.VITE_TRAVEL_HANDOFF!=='1' && modules?.includes('ticker') && <BottomTicker hidden={tickerHidden} onHidden={setTickerHidden} />}
       <ConciergeWidget />
       <ToastHost />
     </div>

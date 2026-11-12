@@ -19,7 +19,7 @@ export function PlanDrawer({trip, onClose, onSaved}: {trip: TravelTrip; onClose:
   }
   return <Drawer title="Add an itinerary plan" onClose={onClose}>
     <div className="space-y-3">
-      <BookingLinks />
+      {import.meta.env.VITE_TRAVEL_HANDOFF==='1'?<p className="text-sm text-ink-dim">Add your chosen hotel, restaurant or rental plan and its source link for your human assistant to book.</p>:<BookingLinks />}
       <label className="block text-xs">Reservation type<select className={inputClass} value={form.kind} onChange={e => setForm({...form, kind: e.target.value as TravelPlanInput['kind']})}>{['flight','hotel','car','restaurant'].map(k => <option key={k}>{k}</option>)}</select></label>
       {(['title','location','startsAt','endsAt','externalUrl','notes'] as const).map(key => <label className="block text-xs" key={key}>{({title:'Plan title',location:'Location / route',startsAt:'Start date and time',endsAt:'End date and time',externalUrl:'Provider booking link (HTTPS)',notes:'Notes'})[key]}<input className={inputClass} type={key.includes('At') ? 'datetime-local' : key === 'externalUrl' ? 'url' : 'text'} value={form[key] ?? ''} onChange={e => setForm({...form, [key]:e.target.value})}/></label>)}
       {form.kind === 'restaurant' && <label className="block text-xs">Party size<input className={inputClass} type="number" min="1" max="30" value={form.partySize} onChange={e=>setForm({...form,partySize:Number(e.target.value)})}/></label>}
@@ -28,7 +28,7 @@ export function PlanDrawer({trip, onClose, onSaved}: {trip: TravelTrip; onClose:
     </div>
   </Drawer>;
 }
-export function TravelBookingActions({booking: b, onRefresh}: {booking: TravelBooking; onRefresh: () => void}) {
+export function TravelBookingActions({booking: b, onRefresh, planningOnly=false}: {booking: TravelBooking; onRefresh: () => void;planningOnly?:boolean}) {
   const [expanded, setExpanded] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const [reference,setReference] = useState(''), [evidence,setEvidence] = useState(''), [accepted,setAccepted] = useState(false);
   const [passenger,setPassenger] = useState<TravelPassenger>({given_name:'',family_name:'',born_on:'',title:'mr',gender:'m',email:'',phone_number:''});
@@ -37,6 +37,14 @@ export function TravelBookingActions({booking: b, onRefresh}: {booking: TravelBo
     try { const result = await hermes.travelAction(b.tripId,b.id,action); if (!result.ok) throw new Error(result.error?.safeMessage); setAccepted(false); onRefresh(); }
     catch (e) {setError(e instanceof Error ? e.message : 'Travel request failed.');} finally {setBusy(false);}
   }
+  if(planningOnly)return <div className="mt-3 space-y-2 text-sm text-ink-dim">
+    {b.testMode&&<p className="text-warn">{b.provider==='duffel'?'Duffel TEST result · not live availability':'Staging sample · not a real flight'}</p>}
+    {b.amount&&<p>Estimated price: {b.currency} {b.amount}</p>}
+    {b.details&&<details><summary className="cursor-pointer text-signal">Selected itinerary and conditions</summary><p className="mt-2 whitespace-pre-wrap">{b.details}</p></details>}
+    {b.notes&&<p>{b.notes}</p>}{b.externalUrl?.startsWith('https://')&&<a href={b.externalUrl} target="_blank" rel="noreferrer" className="text-signal underline">View source</a>}
+    <p className="text-xs">Selected for human booking. Price and availability must be rechecked by your assistant.</p>
+    {b.confirmationNumber&&<p>Existing confirmation: {b.confirmationNumber}</p>}
+  </div>;
   return <div className="mt-2 space-y-2 text-xs">
     {b.testMode && <strong className="text-warn">Duffel TEST — no real reservation</strong>}
     {b.amount && <div>Total: {b.currency} {b.amount}</div>}

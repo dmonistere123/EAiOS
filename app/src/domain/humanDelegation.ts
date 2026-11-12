@@ -14,7 +14,10 @@ export interface HumanContact {
   updatedAt: string;
 }
 export type HumanContactInput = Pick<HumanContact, 'displayName'|'email'|'phone'|'title'|'organization'|'timeZone'|'notes'>;
-export type HumanDelegationStatus = 'draft'|'pending_approval'|'rejected'|'sending'|'awaiting_acceptance'|'accepted'|'in_progress'|'blocked'|'completed'|'declined'|'no_response'|'cancelled'|'send_failed'|'delivery_uncertain';
+export type HumanDelegationStatus = 'draft'|'pending_approval'|'rejected'|'sending'|'awaiting_acceptance'|'accepted'|'in_progress'|'blocked'|'awaiting_completion'|'completed'|'declined'|'no_response'|'cancelled'|'send_failed'|'delivery_uncertain';
+export interface HumanChecklistItem {
+  id: string; title: string; done: boolean; reference?: string; cost?: string; notes?: string;
+}
 export interface HumanDelegationArtifact {
   artifactId: string;
   filename: string;
@@ -31,6 +34,10 @@ export interface HumanDelegationPackage {
   packageHash: string;
 }
 export interface HumanDelegation {
+  tripId?: string;
+  checklist?: HumanChecklistItem[];
+  completionNote?: string;
+  completionFeedback?: string;
   receipt?: {id:string;provider:string};
   deliveryError?:string;
   id: string;
@@ -49,7 +56,7 @@ export interface HumanDelegationEvent {
   id: number;
   delegationId: string;
   eventType: string;
-  actorType: 'executive'|'system';
+  actorType: 'executive'|'system'|'human_assistant';
   note: string;
   occurredAt: string;
 }

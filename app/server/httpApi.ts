@@ -1,3 +1,5 @@
+import { completionApprovals, decideCompletion, updateChecklist, requestHumanCompletion, issueAssistantAccess, revokeAssistantAccess } from './humanCompletion.ts';
+import { prepareTravelHandoff } from './travelHandoff.ts';
 import { todayActivity, reviewActivity } from './todayActivity.ts';
 import { todayMeetings } from './todayMeetings.ts';
 import { moduleConfig } from './modules.ts';
@@ -213,12 +215,26 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       try {
         const contactRoute=path.match(/^\/api\/human-contacts\/(hc_[a-f0-9-]{36})$/);
         const delegationRoute=path.match(/^\/api\/human-delegations\/(hd_[a-f0-9-]{36})$/);
-        const actionRoute=path.match(/^\/api\/human-delegations\/(hd_[a-f0-9-]{36})\/(submit|decision|status|sender)$/);
-        if(req.method==='GET' && path==='/api/human-delegations/approvals') json(res,200,JSON.stringify(humanApprovals(ctx.hermesHome)));
+        const actionRoute=path.match(/^\/api\/human-delegations\/(hd_[a-f0-9-]{36})\/(submit|decision|status|sender|checklist|completion|completion-decision|access|revoke-access)$/);
+        if(req.method==='GET' && path==='/api/human-delegations/approvals') json(res,200,JSON.stringify([...humanApprovals(ctx.hermesHome),...completionApprovals(ctx.hermesHome)]));
         else if(req.method==='GET' && path==='/api/human-delegations/attachments') json(res,200,JSON.stringify(taskAttachments(ctx.hermesHome,url.searchParams.get('taskId')??'')));
         else if(req.method==='POST' && actionRoute){
           try{requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
           const input=await readJsonBody(req,16000);
+          if(['checklist','completion','completion-decision','access','revoke-access'].includes(actionRoute[2])) {
+            const id=actionRoute[1],action=actionRoute[2];
+            let result:unknown;
+            if(action==='checklist')result=updateChecklist(ctx.hermesHome,id,input);
+            else if(action==='completion')result=requestHumanCompletion(ctx.hermesHome,id,input);
+            else if(action==='completion-decision')result=decideCompletion(ctx.hermesHome,id,input);
+            else if(action==='revoke-access'){revokeAssistantAccess(ctx.hermesHome,id);result={ok:true};}
+            else {
+              const origin=process.env.EAIOS_ASSISTANT_ORIGIN;
+              if(!origin)throw new HumanDelegationError(503,'The separate assistant service has not been configured.');
+              const access=issueAssistantAccess(ctx.hermesHome,id);result={url:origin+'/assistant-task#'+access.token,expiresAt:access.expiresAt};
+            }
+            json(res,200,JSON.stringify(result));return true;
+          }
           json(res,200,JSON.stringify(actionRoute[2]==='sender'?await changeHumanSender(ctx,actionRoute[1],input):actionRoute[2]==='submit'?await submitHumanApproval(ctx,actionRoute[1],input):actionRoute[2]==='status'?updateHumanStatus(ctx.hermesHome,actionRoute[1],input):await decideHumanApproval(ctx,actionRoute[1],input)));
         }
         else if(req.method==='GET' && path==='/api/human-contacts') json(res,200,JSON.stringify(listHumanContacts(ctx.hermesHome)));
@@ -796,6 +812,17 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       return true;
     }
 
+    const handoffRoute=path.match(/^\/api\/travel\/trips\/([^/]+)\/handoff$/);
+    if(handoffRoute && req.method==='POST') {
+      try {
+        requireSameOriginJson(req);
+        const expected=mailSettings(ctx.hermesHome).delegationSender;
+        if(!expected)throw new HumanDelegationError(409,'Choose a delegation sender in Settings first.');
+        const identity=await verifyMailbox(ctx,expected.connectionId);requireReviewedSender(expected,identity);
+        json(res,201,JSON.stringify(await prepareTravelHandoff(ctx,handoffRoute[1],await readJsonBody(req,12000),identity)));
+      }catch(e){json(res,e instanceof HumanDelegationError||e instanceof TravelApiError?e.status:400,JSON.stringify({error:e instanceof Error?e.message:'Could not prepare itinerary.'}));}
+      return true;
+    }
     /* travel (F31) — Duffel/browser-use/OpenTable proxy; 503 when no provider is configured */
     if (path === '/api/travel/trips' && req.method === 'GET') {
       try {

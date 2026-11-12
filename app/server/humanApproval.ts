@@ -1,4 +1,5 @@
 /** Immutable, private mail packages. Approval claims never launch a Hermes worker. */
+import { requestHumanCompletion } from './humanCompletion.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { join,sep } from 'node:path';
 import { openSync,closeSync,realpathSync,fstatSync,readFileSync,lstatSync,constants } from 'node:fs';
@@ -40,13 +41,14 @@ function snapshot(home:string,taskId:string,ids:unknown):MailAttachment[]{
  });}finally{db.close();}
 }
 function idleTask(home:string,id:string){const db=new DatabaseSync(join(home,'kanban.db'),{readOnly:true});try{const t=db.prepare('SELECT * FROM tasks WHERE id=?').get(id);if(!t||t.assignee||t.claim_lock||t.current_run_id||!['todo','triage','ready','blocked'].includes(String(t.status)))throw new HumanDelegationError(409,'The source task is no longer idle and unassigned.');}finally{db.close();}}
-export async function submitHumanApproval(ctx:KeyContext,id:string,input:Record<string,unknown>){
+export async function submitHumanApproval(ctx:KeyContext,id:string,input:Record<string,unknown>,verify:typeof verifyMailbox=verifyMailbox){
  const d=humanStore(ctx.hermesHome,db=>read(db,id));if(!d.package||d.status!=='draft'||d.revision!==input.revision)throw new HumanDelegationError(409,'Reload this draft before requesting approval.');
  idleTask(ctx.hermesHome,d.workItemId);
  const expected=mailSettings(ctx.hermesHome).delegationSender;if(!expected)throw new HumanDelegationError(409,'Configure a delegation sender.');
  if(d.package.sender.accountId!==expected.connectionId||d.package.sender.email.toLowerCase()!==expected.email.toLowerCase())throw new HumanDelegationError(409,'Sender changed since this draft. Prepare a new draft.');
- const identity=await verifyMailbox(ctx,expected.connectionId);requireReviewedSender(expected,identity);
+ const identity=await verify(ctx,expected.connectionId);requireReviewedSender(expected,identity);
  const files=snapshot(ctx.hermesHome,d.workItemId,input.artifactIds);
+ if(d.tripId&&!files.some(f=>/^itinerary-.*\.txt$/.test(f.filename)))throw new HumanDelegationError(400,'Include the saved itinerary attachment with this travel delegation.');
  if(identity.provider==='outlook'&&files.reduce((n,f)=>n+f.sizeBytes,0)>2500000)throw new HumanDelegationError(409,'Outlook currently supports at most 2.5 MB of attachments per delegation. No attachment was omitted.');
  return humanStore(ctx.hermesHome,db=>{ensure(db);const current=read(db,id);if(current.status!=='draft'||current.revision!==d.revision)throw new HumanDelegationError(409,'Draft changed.');
   current.package!.artifacts=files.map(({data:_data,...meta})=>meta);
@@ -87,6 +89,7 @@ export async function decideHumanApproval(ctx:KeyContext,id:string,input:Record<
 }
 
 export function updateHumanStatus(home:string,id:string,input:Record<string,unknown>){
+ if(input.status==='completed')return requestHumanCompletion(home,id,input);
  const transitions:Record<string,string[]>={draft:['cancelled'],pending_approval:['cancelled'],awaiting_acceptance:['accepted','declined','blocked','cancelled'],accepted:['in_progress','blocked','completed','cancelled'],in_progress:['blocked','completed','cancelled'],blocked:['in_progress','completed','cancelled'],no_response:['accepted','cancelled']};
  return humanStore(home,db=>{const d=read(db,id);if(d.revision!==input.revision||!transitions[d.status]?.includes(String(input.status)))throw new HumanDelegationError(409,'This status change is not available. Reload the delegation.');d.status=input.status as HumanDelegation['status'];d.revision++;d.updatedAt=new Date().toISOString();put(db,d);event(db,id,'status_'+d.status,'Status confirmed by executive.');return d;});
 }

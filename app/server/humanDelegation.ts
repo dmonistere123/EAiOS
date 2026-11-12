@@ -92,7 +92,7 @@ function insertHumanDraft(db:DatabaseSync,workItemId:string,contactId:string,not
 }
 
 /** Draft-only preparation. No dispatcher assignment and no provider write. */
-export function prepareHumanDraft(home:string,input:Record<string,unknown>,sender: import('../src/domain/mailRouting.ts').MailboxIdentity):HumanDelegation {
+export function prepareHumanDraft(home:string,input:Record<string,unknown>,sender: import('../src/domain/mailRouting.ts').MailboxIdentity,metadata?:Pick<HumanDelegation,'tripId'|'checklist'>):HumanDelegation {
   if(typeof input.workItemId!=='string'||typeof input.contactId!=='string')throw new HumanDelegationError(400,'Choose a task and human assistant.');
   const tasks=new DatabaseSync(join(home,'kanban.db'),{readOnly:true});
   let task:{title:string;body:string;assignee:string|null;status:string;claim_lock?:string|null;current_run_id?:number|null}|undefined;
@@ -111,7 +111,7 @@ export function prepareHumanDraft(home:string,input:Record<string,unknown>,sende
     const body=`Hello ${c.displayName},\n\nTask: ${task!.title}\n\nContext:\n${task!.body??''}\n\nRequested outcome / instructions:\n${instructions||'Please complete the task described above.'}${dueAt?'\n\nDue: '+dueAt:''}\n\nPlease reply with your progress or any questions.`;
     const pkg={recipient:{displayName:c.displayName,email:c.email},sender:{provider:sender.provider,accountId:sender.connectionId,email:sender.email},subject,body,artifacts:[],packageHash:''};
     // Hash and attachment selection are finalized only at the future approval boundary.
-    const next:HumanDelegation={...d,...(dueAt?{dueAt}:{}),package:pkg};
+    const next:HumanDelegation={...d,...metadata,...(dueAt?{dueAt}:{}),package:pkg};
     db.prepare('UPDATE human_delegations SET body=? WHERE id=?').run(JSON.stringify(next),d.id);return next;
   });
 }

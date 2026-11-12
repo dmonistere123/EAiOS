@@ -29,11 +29,11 @@ it('shows actual open delegations and preserves the human work drawer',async()=>
  await userEvent.setup().click(node);expect(await screen.findByText('in progress')).toBeInTheDocument();
  expect(within(screen.getByRole('group',{name:'Org chart'})).getByText('Orchestrator Agent')).toBeInTheDocument();
 });
-it('shows older open work below the HI summary, uses its saved title, and removes it when completed',async()=>{
+it('shows older open work below the HI summary, uses its saved title, and keeps it visible while awaiting executive completion approval',async()=>{
  const job={id:'hd_old',contactId:contact.id,workItemId:'missing-from-board',status:'in_progress' as const,instructions:'Please coordinate the client review.',revision:1,createdAt:'2026-01-01T12:00:00Z',updatedAt:'2026-01-01T12:00:00Z',package:{recipient:{displayName:contact.displayName,email:contact.email},sender:{provider:'outlook' as const,accountId:'test',email:'exec@example.com'},subject:'Delegation: Client review',body:'Review the attached brief.',artifacts:[],packageHash:'test'}};
  vi.spyOn(humanDirectory,'listContacts').mockResolvedValue([contact]);
  vi.spyOn(humanDelegation,'list').mockResolvedValue([job,...(['completed','cancelled','declined','rejected'] as const).map(status=>({...job,id:status,status,instructions:'Hidden finished instructions'}))]);
- const update=vi.spyOn(humanDelegation,'status').mockResolvedValue({...job,status:'completed',revision:2});
+ const update=vi.spyOn(humanDelegation,'status').mockResolvedValue({...job,status:'awaiting_completion',revision:2});
  render(<MemoryRouter><Staff humanOnly/></MemoryRouter>);
  const section=await screen.findByRole('region',{name:'Open delegations'});
  expect(screen.getByRole('region',{name:'Human assistants — delegation backstop'}).compareDocumentPosition(section)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -43,8 +43,8 @@ it('shows older open work below the HI summary, uses its saved title, and remove
  expect(within(section).getByText('in progress')).toBeInTheDocument();
  expect(within(section).queryByText('Hidden finished instructions')).not.toBeInTheDocument();
  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
- await userEvent.setup().click(within(section).getByRole('button',{name:'Mark completed'}));
+ await userEvent.setup().click(within(section).getByRole('button',{name:'Submit for completion approval'}));
  expect(update).toHaveBeenCalledWith(job.id,job.revision,'completed');
- expect(await within(section).findByText('No open delegations.')).toBeInTheDocument();
- expect(within(screen.getByRole('button',{name:'Jane Human, human assistant'})).getByText(/No open delegations/)).toBeInTheDocument();
+ expect(await within(section).findByText('Awaiting executive completion approval.')).toBeInTheDocument();
+ expect(within(screen.getByRole('button',{name:'Jane Human, human assistant'})).getByText(/1 open delegation/)).toBeInTheDocument();
 });

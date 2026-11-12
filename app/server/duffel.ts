@@ -11,6 +11,7 @@ export function duffelTestMode(): boolean {
   return key.startsWith('duffel_test_');
 }
 export async function duffel<T>(path: string, data?: unknown, correlationId?: string): Promise<T> {
+  if(process.env.EAIOS_TRAVEL_ASSISTED==='1' && data!==undefined && /^\/(air\/orders|stays\/bookings|cars\/bookings)(?:\/|$)/.test(path))throw new DuffelError(403,'Provider booking is disabled. Your human assistant books the itinerary.');
   duffelTestMode();
   const response = await fetch(`https://api.duffel.com${path}`, {
     method: data === undefined ? 'GET' : 'POST',

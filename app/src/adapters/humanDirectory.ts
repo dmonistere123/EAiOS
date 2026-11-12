@@ -15,12 +15,16 @@ async function delegationRequest<T>(path:string,body?:unknown):Promise<T>{
  const r=await fetch('/api/human-delegations'+path,{cache:'no-store',...(body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)})});const data=await r.json();if(!r.ok)throw new Error(data.error??'Human delegation request failed.');return data;
 }
 export const humanDelegation = {
+  checklist:(id:string,revision:number,items:import('../domain/humanDelegation').HumanChecklistItem[])=>delegationRequest<import('../domain/humanDelegation').HumanDelegation>('/'+encodeURIComponent(id)+'/checklist',{revision,items}),
+  completion:(id:string,revision:number,note:string)=>delegationRequest<import('../domain/humanDelegation').HumanDelegation>('/'+encodeURIComponent(id)+'/completion',{revision,note}),
+  access:(id:string)=>delegationRequest<{url:string;expiresAt:string}>('/'+encodeURIComponent(id)+'/access',{}),
+  revokeAccess:(id:string)=>delegationRequest('/'+encodeURIComponent(id)+'/revoke-access',{}),
   changeSender:(id:string,connectionId:string,expectedBody:string)=>delegationRequest('/'+encodeURIComponent(id)+'/sender',{connectionId,expectedBody}),
   status:(id:string,revision:number,status:string)=>delegationRequest<import('../domain/humanDelegation').HumanDelegation>('/'+encodeURIComponent(id)+'/status',{revision,status}),
   attachments:(taskId:string)=>delegationRequest<Omit<import('../domain/humanDelegation').HumanDelegationArtifact,'contentHash'>[]>('/attachments?taskId='+encodeURIComponent(taskId)),
   approvals:()=>delegationRequest<import('../domain/types').Approval[]>('/approvals'),
   submit:(id:string,revision:number,artifactIds:string[])=>delegationRequest<import('../domain/humanDelegation').HumanDelegation>('/'+encodeURIComponent(id)+'/submit',{revision,artifactIds}),
-  decide:(id:string,input:import('../domain/types').ApprovalDecision)=>delegationRequest<import('../domain/types').AuditResult>('/'+encodeURIComponent(id.replace(/^human:/,''))+'/decision',input),
+  decide:(id:string,input:import('../domain/types').ApprovalDecision)=>delegationRequest<import('../domain/types').AuditResult>('/'+encodeURIComponent(id.replace(/^human(?:-completion)?:/,''))+(id.startsWith('human-completion:')?'/completion-decision':'/decision'),input),
   async list():Promise<import('../domain/humanDelegation').HumanDelegation[]> {
     const r=await fetch('/api/human-delegations',{cache:'no-store'});const data=await r.json();
     if(!r.ok)throw new Error(data.error??'Could not load delegations.');return data;

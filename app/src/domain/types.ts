@@ -93,7 +93,7 @@ export interface Approval {
   archived?: boolean;
   /** Latest recorded creation, execution or decision time. */
   updatedAt?: string;
-  humanDelegation?: {id:string};
+  humanDelegation?: {id:string; completion?:boolean};
   mailReply?: {senderEmail:string;recipientEmail:string;sourceConnectionId?:string;sourceMessageId?:string;senderConnectionId?:string;body?:string};
   /** Exact reviewed envelope for optimistic concurrency, never an execution token. */
   reviewVersion?: string;

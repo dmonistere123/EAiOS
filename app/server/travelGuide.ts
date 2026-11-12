@@ -1,3 +1,4 @@
+import { researchTravel } from './travelResearch.ts';
 import {duffel, duffelTestMode} from './duffel.ts';
 import {TravelApiError, getTrip, searchTravel} from './travel.ts';
 import {shortlist, type TravelPlace, type TravelShortlist} from '../src/domain/travelGuide.ts';
@@ -22,7 +23,9 @@ export async function travelRecommendations(id:string,root:string):Promise<Trave
     {kind:'restaurant' as const,destination:trip.destination,date:trip.startsAt.slice(0,10),partySize:1},
     ...(trip.needsCar ? [{kind:'car' as const,pickupLocation:trip.destinationPlace.name,dropoffLocation:trip.destinationPlace.name,latitude:trip.destinationPlace.latitude,longitude:trip.destinationPlace.longitude,departureDate:trip.startsAt.slice(0,10),returnDate:trip.endsAt.slice(0,10),carPreferences:trip.carPreferences}] : []),
   ];
+  const researched=process.env.EAIOS_TRAVEL_ASSISTED==='1'?researchTravel(trip,root).catch(error=>(['hotel','restaurant'] as const).map(kind=>({kind,options:[],notice:error instanceof Error?error.message:'Web research unavailable.'}))):null;
   return Promise.all(searches.map(async params=>{
+    if(researched&&['hotel','restaurant'].includes(params.kind))return (await researched).find(group=>group.kind===params.kind)!;
     try {
       const rows=await searchTravel(params,root);
       const preference=params.kind==='flight'?trip.preferredAirlines:params.kind==='hotel'?trip.preferredHotels:trip.diningPreferences;

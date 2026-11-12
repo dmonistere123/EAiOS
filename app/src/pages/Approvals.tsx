@@ -57,6 +57,7 @@ function SourceContext({ approval }: { approval: Approval }) {
 export function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
   const [busy, setBusy] = useState(false);
+  const [completionNote,setCompletionNote]=useState('');
   const [editingPayload, setEditingPayload] = useState(false);
   const [draftPayload, setDraftPayload] = useState(approval.payload ?? '');
   const executor = approval.executorProfileId ?? 'default';
@@ -76,7 +77,7 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
     setBusy(true);
     let res;
     try {
-      const input = { decision, reviewVersion: approval.reviewVersion };
+      const input = { decision, reviewVersion: approval.reviewVersion,...(approval.humanDelegation?.completion?{note:completionNote}:{}) };
       res = approval.humanDelegation ? await humanDelegation.decide(approval.id,input) : await hermes.decideApproval(approval.id, input);
     }
     catch(e) {setBusy(false);toast('error',e instanceof Error?e.message:'Decision failed.');return;}
@@ -135,9 +136,10 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
           </ul>
         </div>
 
-        {(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')&&approval.humanDelegation&&<HumanSenderReview approval={approval} onSaved={onClose}/>}
+        {(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')&&import.meta.env.VITE_TRAVEL_HANDOFF!=='1'&&approval.humanDelegation&&!approval.humanDelegation.completion&&<HumanSenderReview approval={approval} onSaved={onClose}/>}
         {(needsMailbox||(adapterMode==='live'&&approval.mailReply))&&<ReplyMailboxReview approval={approval} onPrepared={onClose}/>}
 
+        {approval.humanDelegation?.completion&&<label className="block text-sm">Feedback for your assistant<textarea className="mt-2 w-full rounded-lg border border-edge bg-canvas p-3" maxLength={4000} rows={3} value={completionNote} onChange={e=>setCompletionNote(e.target.value)}/></label>}
         {approval.proposedDiff && (
           <div>
             <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Proposed changes</div>
@@ -186,11 +188,11 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
         )}
 
         {recoverable?<div className="space-y-2 pt-2"><button onClick={()=>void resume()} disabled={busy} className="w-full rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas disabled:opacity-50">Resume with {agentName(s, executor)}</button><p className="text-[11px] text-ink-faint">Preserves the recorded approval and approved payload.</p></div>:<><div className="grid grid-cols-3 gap-2 pt-2">
-          <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">Approve &amp; execute</button>
+          <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">{approval.humanDelegation?.completion?'Approve completion':approval.humanDelegation&&import.meta.env.VITE_TRAVEL_HANDOFF==='1'?'Approve & capture email':'Approve & execute'}</button>
           <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
           <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
-        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':`After your approval, ${agentName(s, executor)} ${executor === 'default' ? 'coordinates execution and delegates as needed' : 'carries out this reviewed task'}. Every decision is audited.`}</p>
+        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?.completion?'Approval removes this task from the open queue while preserving its itinerary, confirmations and history. Request changes to keep it open.':approval.humanDelegation&&import.meta.env.VITE_TRAVEL_HANDOFF==='1'?'Staging captures this email and attachment locally. No email is sent.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':`After your approval, ${agentName(s, executor)} ${executor === 'default' ? 'coordinates execution and delegates as needed' : 'carries out this reviewed task'}. Every decision is audited.`}</p>
         </>}
       </div>
     </Drawer>
@@ -215,7 +217,7 @@ export default function Approvals() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Approvals</h1>
-          {import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'&&<p role="status" className="mt-2 rounded border border-warn p-3 text-sm text-warn">Live email test: approving the Daphne connection test sends a real email from the reviewed From address. Other application data in this preview is simulated.</p>}
+          {import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'&&import.meta.env.VITE_TRAVEL_HANDOFF!=='1'&&<p role="status" className="mt-2 rounded border border-warn p-3 text-sm text-warn">Live email test: approving the Daphne connection test sends a real email from the reviewed From address. Other application data in this preview is simulated.</p>}
           <p className="mt-1 text-sm text-ink-dim">Nothing writes, sends, publishes, or executes externally without your decision.</p>
         </div>
         <select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)} aria-label="Filter by risk" className="rounded-lg border border-edge bg-canvas-raised px-3 py-1.5 text-xs text-ink">

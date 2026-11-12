@@ -61,6 +61,7 @@ function acceptOrder(root: string, tripId: string, bookingId: string, order: Duf
   });
 }
 export async function travelAction(tripId: string, bookingId: string, action: TravelAction, root: string): Promise<AuditResult<TravelBooking>> {
+  if(process.env.EAIOS_TRAVEL_ASSISTED==='1' && action.action==='book')throw new TravelApiError(403,'Travel is planning only. Delegate this itinerary to your human assistant for booking.');
   const audit = (b: TravelBooking): AuditResult<TravelBooking> => ({ok: true, data: b, auditEventId: b.attemptId ?? b.id});
   const initial = travelStore(root, db => locate(readTrip(db, tripId), bookingId));
   if (action.action === 'record') {

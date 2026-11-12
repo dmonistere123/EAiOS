@@ -6,7 +6,7 @@ import {liveTravel} from './live/LiveTravelAdapter';
  */
 import type { HermesAdapter } from './interfaces';
 import { hermes as mock } from './mock/MockHermesAdapter';
-import { live } from './live/LiveHermesAdapter';
+import { live, mapArtifactRow } from './live/LiveHermesAdapter';
 import { composio as mockComposio } from './mock/MockComposioAdapter';
 import { liveComposio } from './live/LiveComposioAdapter';
 import { liveKnowledge } from './live/LiveKnowledgeAdapter';
@@ -20,6 +20,8 @@ const travelOnly = import.meta.env.VITE_TRAVEL_LIVE === '1';
 export const travelMode = useLive || travelOnly ? 'live' : 'mock';
 const travelMethods = new Set(['chooseTravelOption','travelPlaces','travelRecommendations','updateTravelTrip','listTrips','getTrip','searchTravel','travelAgent','createTrip','proposeBooking','decideTravelApproval','addTravelPlan','travelAction']);
 export const hermes: HermesAdapter = travelOnly ? new Proxy(mock, {get(target, property, receiver) {
+  if(import.meta.env.VITE_TRAVEL_HANDOFF==='1' && property==='listArtifacts')return async()=>{const r=await fetch('/api/artifacts');if(!r.ok)throw new Error('Staging artifacts unavailable.');return (await r.json()).artifacts.map(mapArtifactRow);};
+  if(import.meta.env.VITE_TRAVEL_HANDOFF==='1' && property==='getArtifactPreview')return async(id:string)=>{const r=await fetch('/api/artifacts/'+encodeURIComponent(id)+'/raw');return r.ok?r.text():null;};
   if (travelMethods.has(String(property))) {const value = Reflect.get(liveTravel, property); return typeof value === 'function' ? value.bind(liveTravel) : value;}
   const value = Reflect.get(target, property, receiver); return typeof value === 'function' ? value.bind(target) : value;
 }}) : useLive ? live : mock;
@@ -43,3 +45,5 @@ export const today: typeof liveToday = useLive ? liveToday : {
   meetings: async (_start:string,_end:string,_signal?:AbortSignal) => ({calendars:[],fetchedAt:new Date().toISOString()}),
   review: async (key:string) => {mockReviews.add(key);return [...mockReviews];},
 };
+
+export { travelHandoff, assistantTask } from './travelHandoff';
