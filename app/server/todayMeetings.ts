@@ -7,6 +7,14 @@ import type { MailboxIdentity } from '../src/domain/mailRouting.ts';
 // Only verified connections are used; configured email addresses are private per-box data.
 const accountsCache=new Map<string,{until:number;accounts:MailboxIdentity[]}>();
 const cache=new Map<string,{until:number;value:Promise<TodayMeetings>}>();
+class CalendarReadError extends Error {}
+function calendarError(error: unknown): string {
+  if (error instanceof CalendarReadError) return error.message;
+  if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) {
+    return 'The calendar service timed out. Try again shortly; calendar permissions have not been verified.';
+  }
+  return 'Calendar data could not be loaded. Try again shortly. This does not necessarily mean calendar permissions are missing.';
+}
 export function validateDay(start:string,end:string) {
   const a=Date.parse(start),b=Date.parse(end);
   if(!Number.isFinite(a)||!Number.isFinite(b)||b-a<23*3600000||b-a>25*3600000)throw new Error('Choose a local calendar day.');
@@ -26,7 +34,11 @@ export async function readCalendar(ctx:ApiContext,identity:MailboxIdentity,start
     if(url.origin!=='https://graph.microsoft.com'||url.pathname!=='/v1.0/me/calendarView'||url.username||url.password||seen.has(endpoint))throw new Error('Incomplete calendar response');
     seen.add(endpoint);
     const data=await mailComposioRequest(ctx,'/api/v3.1/tools/execute/proxy',{connected_account_id:identity.connectionId,endpoint,method:'GET',parameters:[{name:'Prefer',value:'outlook.timezone="UTC"',type:'header'}]});
-    if(data.status!==200||!Array.isArray(data.data?.value))throw new Error('Calendar read permission unavailable');
+    if(data.status===401)throw new CalendarReadError('This Outlook connection needs to be reconnected in Connections.');
+    if(data.status===403)throw new CalendarReadError('Outlook denied calendar access. Check this account’s calendar permissions in Connections.');
+    if(data.status===429)throw new CalendarReadError('The calendar service is temporarily rate-limited. Try again shortly.');
+    if(data.status>=500)throw new CalendarReadError('The calendar service is temporarily unavailable. Try again shortly; no permissions change is indicated by this error.');
+    if(data.status!==200||!Array.isArray(data.data?.value))throw new Error('Unexpected calendar response');
     for(const e of data.data.value) {
       if(e.isCancelled || e.responseStatus?.response==='declined')continue;
       if(typeof e.id!=='string')throw new Error('Invalid calendar event');
@@ -64,7 +76,7 @@ export async function todayMeetings(ctx:ApiContext,from:string,to:string):Promis
       const account=accounts!.accounts.find(a=>a.email.toLowerCase()===email);
       if(!account)return {email,events:[],error:'Connect and verify this Outlook account in Connections.'};
       try{return {email,events:await readCalendar(ctx,account,start,end)};}
-      catch{return {email,events:[],error:'Calendar unavailable. Check this account’s calendar permissions in Connections.'};}
+      catch(error){return {email,events:[],error:calendarError(error)};}
     }));
     return {calendars,fetchedAt:new Date().toISOString()};
   })();

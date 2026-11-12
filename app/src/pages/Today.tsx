@@ -35,7 +35,7 @@ export default function Today() {
       setErrors(failures);
     });
     const {start,end}=localDayRange();
-    void today.meetings(start,end,controller.signal).then(value=>{if(!controller.signal.aborted){setMeetings(value);setCalendarError('');}}).catch(()=>{if(!controller.signal.aborted){setMeetings(null);setCalendarError('Outlook calendars are unavailable. Check Connections, then refresh.');}});
+    void today.meetings(start,end,controller.signal).then(value=>{if(!controller.signal.aborted){setMeetings(value);setCalendarError('');}}).catch(()=>{if(!controller.signal.aborted){setMeetings(null);setCalendarError('Outlook calendars could not be loaded. Try Refresh shortly.');}});
     return()=>controller.abort();
   },[refresh]);
   useEffect(()=>{const update=()=>{setNow(Date.now());setRefresh(n=>n+1);};const timer=setInterval(update,60000);window.addEventListener('focus',update);return()=>{clearInterval(timer);window.removeEventListener('focus',update);};},[]);

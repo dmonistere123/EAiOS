@@ -39,3 +39,19 @@ it('reports each account separately, including failures, and coalesces refreshes
  expect(a).toEqual(b);expect(a.calendars[0].events).toHaveLength(1);expect(a.calendars[1].error).toContain('permissions');expect(a.calendars[2].error).toContain('Connect');expect(mailboxChoices).toHaveBeenCalledTimes(1);
 });
 it('accepts DST-length days and rejects unbounded ranges',()=>{expect(()=>validateDay(start,'2026-11-13T05:00:00.000Z')).not.toThrow();expect(()=>validateDay(start,'2026-11-13T07:00:00.000Z')).not.toThrow();expect(()=>validateDay(start,'2026-12-01')).toThrow();});
+it.each([
+ [401,'reconnected'],[403,'denied calendar access'],[429,'rate-limited'],[502,'temporarily unavailable'],
+])('gives the correct recovery message for calendar status %s',async(status,message)=>{
+ vi.mocked(mailboxChoices).mockResolvedValue([{connectionId:identity.connectionId,mailbox:identity}]);
+ vi.mocked(mailComposioRequest).mockResolvedValue({status,data:{}});
+ const result=await todayMeetings({hermesHome:home,eaiosRoot:home},start,end);
+ expect(result.calendars[0].error).toContain(message);
+ expect(result.calendars[0].events).toEqual([]);
+});
+it('does not mislabel calendar timeouts as permission denials',async()=>{
+ vi.mocked(mailboxChoices).mockResolvedValue([{connectionId:identity.connectionId,mailbox:identity}]);
+ vi.mocked(mailComposioRequest).mockRejectedValue(new DOMException('Request timed out','TimeoutError'));
+ const result=await todayMeetings({hermesHome:home,eaiosRoot:home},start,end);
+ expect(result.calendars[0].error).toContain('timed out');
+ expect(result.calendars[0].error).not.toContain('Check this account');
+});

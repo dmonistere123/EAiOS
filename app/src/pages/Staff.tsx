@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { staffHub } from '../components/StaffAvatar';
 import { StaffDelegationCards } from '../components/StaffDelegationCards';
 import { HumanWorkStatus } from '../components/HumanWorkStatus';
+import { HumanDelegationList } from '../components/HumanDelegationList';
 /** Staff — the AI agent workforce. Status is runtime-driven, never decorative.
  * Orbital team display (AI hub, real specialist status) with the
  * pre-W3 grid kept as the List toggle; selecting an agent opens its
@@ -623,6 +624,8 @@ export default function Staff({ humanOnly = false }: { humanOnly?: boolean }) {
       <StaffDelegationCards hub={hubAgent} humans={humans.filter(c => c.active)} jobs={humanJobs} humanOnly={humanOnly}
         loading={humansLoading} error={humanError} onSelectAgent={selectAgent} onSelectHuman={selectHuman}
         onAddHuman={() => { setAddKind('human'); setAdding(true); }} />
+      {humanOnly && !humansLoading && !humanError && <HumanDelegationList jobs={humanJobs} contacts={humans} work={s.work}
+        onChange={updated => setHumanJobs(rows => rows.map(row => row.id === updated.id ? updated : row))} />}
       {humanOnly && <p className="text-xs text-ink-dim">Configure your delegation sender in <Link to="/settings" className="text-signal">App Settings</Link>. Separate human logins and a shared assistant inbox are not yet available.</p>}
       {selectedHuman&&<Drawer title={`${selectedHuman.displayName} — human staff`} onClose={()=>setSelectedHuman(null)}><HumanStaffForm key={selectedHuman.id+':'+selectedHuman.revision} contact={selectedHuman} onSaved={saveHuman}/><h3 className="mt-6 text-sm font-semibold">Delegated work</h3>{humanJobs.filter(d=>d.contactId===selectedHuman.id).length===0?<p className="mt-2 text-sm text-ink-dim">No delegated work yet.</p>:<ul className="mt-2 space-y-2">{humanJobs.filter(d=>d.contactId===selectedHuman.id).map(d=><li key={d.id} className="rounded border border-edge p-3 text-sm">{s.work.find(w=>w.id===d.workItemId)?.title??d.workItemId}<HumanWorkStatus delegation={d} onChange={updated=>setHumanJobs(rows=>rows.map(r=>r.id===updated.id?updated:r))}/></li>)}</ul>}</Drawer>}
       {selected && <AgentPropertiesDrawer agent={s.agents.find((x) => x.id === selected.id) ?? selected} onClose={() => setSelected(null)} />}
