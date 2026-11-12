@@ -1,3 +1,4 @@
+import type { TripPlanningFields } from './travelConversation.ts';
 /**
  * EAiOS domain model — verbatim from the build planner §5, §9, §10.1.
  * Mock adapters, live adapters, tests, and UI selectors all use these types.
@@ -551,7 +552,10 @@ export interface TravelApproval {
   payload?: string;
 }
 
-export interface TravelTrip {
+export interface TravelTrip extends TripPlanningFields {
+  conversation?: import('./travelConversation.ts').TripMessage[];
+  planningQuestion?: string;
+  interpretedNotes?: string;
   originPlace?: import('./travelGuide.ts').TravelPlace;
   destinationPlace?: import('./travelGuide.ts').TravelPlace;
   needsCar?: boolean;

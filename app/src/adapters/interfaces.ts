@@ -1,3 +1,4 @@
+import type { TripPlanningFields } from '../domain/travelConversation.ts';
 import type { RequestView } from '../domain/assistantRequest.ts';
 import type { TravelPlace, TravelShortlist } from '../domain/travelGuide.ts';
 import type { TravelPlanInput, TravelAction } from '../domain/travelPlan.ts';
@@ -337,7 +338,7 @@ export interface HermesAdapter {
   decideTravelApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
 }
 
-export interface CreateTripInput {
+export interface CreateTripInput extends TripPlanningFields {
   originPlace?: TravelPlace;
   destinationPlace?: TravelPlace;
   needsCar?: boolean;

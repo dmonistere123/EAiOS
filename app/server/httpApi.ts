@@ -1,3 +1,4 @@
+import { converseTravel } from './travelConversation.ts';
 import { completionApprovals, decideCompletion, updateChecklist, requestHumanCompletion, issueAssistantAccess, revokeAssistantAccess } from './humanCompletion.ts';
 import { prepareTravelHandoff } from './travelHandoff.ts';
 import { todayActivity, reviewActivity } from './todayActivity.ts';
@@ -832,12 +833,18 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       }
       return true;
     }
+    const conversationMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/conversation$/);
+    if(conversationMatch && req.method==='POST') {
+      try {requireSameOriginJson(req);json(res,200,JSON.stringify(await converseTravel(conversationMatch[1],await readJsonBody(req,12000),ctx.dataRoot??ctx.eaiosRoot)));}
+      catch(error){json(res,error instanceof TravelApiError?error.status:503,JSON.stringify({error:error instanceof TravelApiError?error.message:'Ally is temporarily unavailable. Please retry.'}));}
+      return true;
+    }
     const detailsMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/details$/);
     const recommendationsMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/recommendations$/);
     if ((path === '/api/travel/places' && req.method === 'GET') || (recommendationsMatch && req.method === 'GET') || (detailsMatch && req.method === 'POST')) {
       try {
         const result = detailsMatch ? await updateTravelTrip(detailsMatch[1],await readJsonBody(req) as unknown as CreateTripInput,ctx.dataRoot??ctx.eaiosRoot)
-          : recommendationsMatch ? {shortlists:await travelRecommendations(recommendationsMatch[1],ctx.dataRoot??ctx.eaiosRoot)}
+          : recommendationsMatch ? {shortlists:await travelRecommendations(recommendationsMatch[1],ctx.dataRoot??ctx.eaiosRoot,url.searchParams.get('kinds')?.split(','))}
           : {places:await travelPlaces(url.searchParams.get('query')??'')};
         json(res,200,JSON.stringify(result));
       } catch(error) {json(res,error instanceof TravelApiError?error.status:503,JSON.stringify({error:error instanceof Error?error.message:'Travel request failed.'}));}

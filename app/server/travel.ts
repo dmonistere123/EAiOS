@@ -1,3 +1,4 @@
+import { travelPurposes } from '../src/domain/travelConversation.ts';
 import { appKey } from './apiKeys.ts';
 import { parseEnv } from 'node:util';
 /** Persistent trip planning; approval alone never means a purchase succeeded. */
@@ -154,7 +155,7 @@ export async function createTrip(input: CreateTripInput, dataRoot: string): Prom
     throw new TravelApiError(400, 'Enter a trip name, destination, and valid dates in order.');
   }
   if (input.budgetUsd !== undefined && (!Number.isFinite(input.budgetUsd) || input.budgetUsd < 0)) throw new TravelApiError(400, 'Budget must be a positive amount.');
-  const preferences = { originPlace: validatePlace(input.originPlace), destinationPlace: validatePlace(input.destinationPlace), needsCar: input.needsCar === true, carPreferences: validateCarPreferences(input.carPreferences), budgetUsd: input.budgetUsd, preferredAirlines: String(input.preferredAirlines ?? '').slice(0, 1000), preferredHotels: String(input.preferredHotels ?? '').slice(0, 1000), diningPreferences: String(input.diningPreferences ?? '').slice(0, 1000) };
+  const preferences = { ...planningFields(input), originPlace: validatePlace(input.originPlace), destinationPlace: validatePlace(input.destinationPlace), needsCar: input.needsCar === true, carPreferences: validateCarPreferences(input.carPreferences), budgetUsd: input.budgetUsd, preferredAirlines: String(input.preferredAirlines ?? '').slice(0, 1000), preferredHotels: String(input.preferredHotels ?? '').slice(0, 1000), diningPreferences: String(input.diningPreferences ?? '').slice(0, 1000) };
   const trip: TravelTrip = { ...preferences, id: crypto.randomUUID(), name: input.name.trim(), destination: input.destination.trim(), startsAt: input.startsAt, endsAt: input.endsAt, status: 'planning', bookings: [], approvals: [] };
   travelStore(dataRoot, db => writeTrip(db, trip));
   return audit(trip);
@@ -497,7 +498,14 @@ export async function updateTravelTrip(id:string,input:CreateTripInput,root:stri
   const originPlace=validatePlace(input.originPlace),destinationPlace=validatePlace(input.destinationPlace);
   return travelStore(root,db=>{
     const trip=readTrip(db,id);if(!trip)throw new TravelApiError(404,'Trip not found.');
-    Object.assign(trip,{name:input.name.trim(),destination:input.destination.trim(),startsAt:input.startsAt,endsAt:input.endsAt,budgetUsd:input.budgetUsd,preferredAirlines:String(input.preferredAirlines??'').slice(0,1000),preferredHotels:String(input.preferredHotels??'').slice(0,1000),diningPreferences:String(input.diningPreferences??'').slice(0,1000),originPlace,destinationPlace,needsCar:input.needsCar===true,carPreferences:validateCarPreferences(input.carPreferences)});
+    Object.assign(trip,{...planningFields(input),name:input.name.trim(),destination:input.destination.trim(),startsAt:input.startsAt,endsAt:input.endsAt,budgetUsd:input.budgetUsd,preferredAirlines:String(input.preferredAirlines??'').slice(0,1000),preferredHotels:String(input.preferredHotels??'').slice(0,1000),diningPreferences:String(input.diningPreferences??'').slice(0,1000),originPlace,destinationPlace,needsCar:input.needsCar===true,carPreferences:validateCarPreferences(input.carPreferences)});
     writeTrip(db,trip);return audit(trip);
   });
+}
+
+function planningFields(input:CreateTripInput) {
+  if(input.purpose!==undefined&&!travelPurposes.includes(input.purpose))throw new TravelApiError(400,'Choose a valid reason for travel.');
+  if(input.airlinePolicy!==undefined&&!['prefer','only'].includes(input.airlinePolicy))throw new TravelApiError(400,'Choose prefer or only for airlines.');
+  for(const key of ['tripNotes','diningLocation'] as const)if(input[key]!==undefined&&(typeof input[key]!=='string'||input[key]!.length>8000))throw new TravelApiError(400,'Keep trip details under 8,000 characters.');
+  return {purpose:input.purpose,tripNotes:input.tripNotes??'',airlinePolicy:input.airlinePolicy??'prefer',diningLocation:input.diningLocation??''};
 }
