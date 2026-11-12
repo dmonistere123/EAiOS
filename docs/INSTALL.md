@@ -213,7 +213,7 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.20 edition contents
+## v0.1.21 edition contents
 
 Both editions include the expandable EAiOS, The App Stack, and Settings navigation,
 and the orbital Staff page with the AI assistant first and the human assistant
@@ -236,20 +236,20 @@ See [Today data sources](TODAY-DATA-SOURCES.md) for per-box calendar selection.
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.20/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.21/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.20/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.20
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.21/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.21
 ```
 
 Existing installations should use Settings → App Settings → Check for updates → Install update
 after the matching GitHub Release is published.
 
 
-## Human booking workflow (v0.1.20)
+## Human booking workflow (v0.1.21)
 
 Travel retains Duffel flight search but production no longer purchases reservations.
 Selected flights, hotel, car and dining plans become a required itinerary attachment
@@ -270,3 +270,11 @@ HI checklist controls work, but a remote assistant link is unavailable.
 Hotel/dining web research uses the configured app OpenRouter key. Suggestions
 include source links and make no availability or price promises. Duffel test/live
 search mode continues to follow the existing key; neither mode books through EAiOS.
+
+## Conversational trip planning (v0.1.21)
+
+Travel uses Tell Ally → Your Options → Finalize & send. Stay destination and
+arrival airport are independent. Refine options in the trip conversation, or
+use Plan a similar trip to copy preferences into a new trip with new dates.
+Hotel and restaurant research returns up to ten sourced options per category;
+airline preferences can be preferred or required. See the [release notes](RELEASE-NOTES-v0.1.21.md).
