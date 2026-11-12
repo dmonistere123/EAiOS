@@ -78,6 +78,8 @@ async function installFixture(t, failure = '') {
   mkdirSync(join(hermesHome,'eaios'),{recursive:true});
   const human = new DatabaseSync(join(hermesHome,'eaios','human-delegation.db'));
   human.exec("CREATE TABLE customer_human_state (body TEXT); INSERT INTO customer_human_state VALUES ('private contacts, sender choices and approval receipts');");human.close();
+  const today=new DatabaseSync(join(hermesHome,'eaios','today-state.db'));today.exec("CREATE TABLE reviews(key TEXT PRIMARY KEY, reviewed_at INTEGER);INSERT INTO reviews VALUES('work:test:1',123);");today.close();
+  writeFileSync(join(hermesHome,'eaios','today-calendars.json'),'{"emails":["executive@example.com"]}');
   let activeRoot = root; const calls = [];
   const opts = { codeRoot: root, dataRoot: root, repoRoot: root, hermesHome, stateDir: join(hermesHome, 'eaios'), releasesDir: join(dir, 'releases'), fetcher: async () => Response.json(release), idleCheck: () => {},
     healthFetcher: async () => Response.json({ current: JSON.parse(readFileSync(join(activeRoot, 'app/dist/version.json'), 'utf8')) }),
@@ -117,7 +119,10 @@ for (const failure of ['', 'manifest', 'build', 'dependencies', 'verification'])
     assert.equal(readFileSync(join(f.root,'social-data/accounts.json'),'utf8'),'[]');
     const human = new DatabaseSync(join(f.opts.hermesHome,'eaios','human-delegation.db'),{readOnly:true});
     assert.equal(human.prepare('SELECT body FROM customer_human_state').get().body,'private contacts, sender choices and approval receipts');human.close();
+    const today=new DatabaseSync(join(f.opts.hermesHome,'eaios','today-state.db'),{readOnly:true});assert.equal(today.prepare('SELECT key FROM reviews').get().key,'work:test:1');today.close();
     if (!failure) {
+      const todayBackup=new DatabaseSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'today-state.db'),{readOnly:true});assert.equal(todayBackup.prepare('SELECT key FROM reviews').get().key,'work:test:1');todayBackup.close();
+      assert.equal(readFileSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'today-calendars.json'),'utf8'),'{"emails":["executive@example.com"]}');
       const humanBackup=new DatabaseSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'human-delegation.db'),{readOnly:true});
       assert.equal(humanBackup.prepare('SELECT body FROM customer_human_state').get().body,'private contacts, sender choices and approval receipts');humanBackup.close();
       assert.equal(readFileSync(join(getUpdateStatus(f.opts,'0.2.0').install.backupDir,'social-accounts.json'),'utf8'),'[]');

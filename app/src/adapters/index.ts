@@ -35,3 +35,11 @@ export { apiKeys } from './apiKeys';
 export { social } from './social';
 export { liveHumanDirectory as humanDirectory, humanDelegation } from './humanDirectory';
 export { mailRouting } from './mailRouting';
+
+import { today as liveToday } from './today';
+const mockReviews = new Set<string>();
+export const today: typeof liveToday = useLive ? liveToday : {
+  activity: async (_signal?:AbortSignal) => ({runs:[],links:{},reviewed:[...mockReviews],report:null,warnings:[]}),
+  meetings: async (_start:string,_end:string,_signal?:AbortSignal) => ({calendars:[],fetchedAt:new Date().toISOString()}),
+  review: async (key:string) => {mockReviews.add(key);return [...mockReviews];},
+};

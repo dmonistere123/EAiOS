@@ -1,3 +1,5 @@
+import { todayActivity, reviewActivity } from './todayActivity.ts';
+import { todayMeetings } from './todayMeetings.ts';
 import { moduleConfig } from './modules.ts';
 import { searchConversationSessions } from './conversationIndex.ts';
 import { insightsSnapshot, generateInsights, insightDays, InsightsError } from './executiveInsights.ts';
@@ -168,6 +170,19 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if (path.startsWith('/api/today/')) {
+      res.setHeader('cache-control','no-store');
+      try {
+        if (path==='/api/today/activity' && req.method==='GET') json(res,200,JSON.stringify(todayActivity(ctx)));
+        else if (path==='/api/today/meetings' && req.method==='GET') json(res,200,JSON.stringify(await todayMeetings(ctx,url.searchParams.get('start')??'',url.searchParams.get('end')??'')));
+        else if (path==='/api/today/review' && req.method==='POST') {
+          try {requireSameOriginJson(req);} catch {json(res,403,JSON.stringify({error:'A same-origin JSON request is required.'}));return true;}
+          const body=await readJsonBody(req,2048);
+          json(res,200,JSON.stringify({reviewed:reviewActivity(ctx.hermesHome,body.key)}));
+        } else json(res,405,JSON.stringify({error:'Method not supported.'}));
+      } catch {json(res,503,JSON.stringify({error:'This Today source is unavailable. Refresh to try again.'}));}
+      return true;
+    }
     if(path==='/api/modules' && req.method==='GET'){json(res,200,JSON.stringify(moduleConfig(dataRoot)));return true;}
     if (path === '/api/executive-insights' || path === '/api/executive-insights/generate') {
       res.setHeader('cache-control','no-store');

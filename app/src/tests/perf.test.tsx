@@ -76,28 +76,29 @@ describe('§15 live kanban polling (dogfood 2026-08-29)', () => {
 });
 
 describe('§15 large lists paginate', () => {
-  it('Today queue caps at 50 with Show more', async () => {
+  it('Today shows five priorities and expands in batches', async () => {
+    const bulkAt=new Date().toISOString();
     const sixty: WorkItem[] = Array.from({ length: 60 }, (_, i) => ({
       id: `bulk-${i}`,
       title: `Bulk item ${i + 1}`,
       priority: 'low',
-      ownerType: 'executive',
-      state: 'ready',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      ownerType: 'agent',
+      state: 'in_progress',
+      createdAt: bulkAt,
+      updatedAt: bulkAt,
     }));
-    mock.__loadFixture({ work: sixty });
+    mock.__loadFixture({ work: sixty, approvals: [] });
     await refreshAll();
     render(
       <MemoryRouter>
         <Today />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('Bulk item 50')).toBeInTheDocument();
-    expect(screen.queryByText('Bulk item 51')).not.toBeInTheDocument();
+    expect(await screen.findByText('Bulk item 5')).toBeInTheDocument();
+    expect(screen.queryByText('Bulk item 6')).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /Show more \(10 remaining\)/ }));
-    expect(await screen.findByText('Bulk item 60')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Show more \(55 remaining\)/ }));
+    expect(await screen.findByText('Bulk item 25')).toBeInTheDocument();
   });
 
   it('Artifacts caps at 50 with Show more', async () => {

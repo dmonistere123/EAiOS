@@ -46,12 +46,13 @@ function renderAt(route: string, element: React.ReactElement, path: string) {
 }
 
 describe('S1 Quiet Morning — empty/positive states', () => {
-  it('2 priorities, 0 approvals, all idle — no fabricated activity', async () => {
+  it('unassigned backlog does not inflate priorities', async () => {
     mock.__loadFixture(SCENARIOS.S1);
     await refreshAll();
     renderAt('/today', <Today />, 'today');
-    expect(await screen.findByText('Read the board pre-read')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument(); // priorities KPI
+    await screen.findByText('You’re caught up');
+    expect(screen.queryByText('Read the board pre-read')).not.toBeInTheDocument();
+    expect(screen.getByText('Priorities').parentElement).toHaveTextContent('0');
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument(); // nobody working
   });
 });
@@ -61,8 +62,8 @@ describe('S2 Busy Day — the default fixture IS the busy day', () => {
     renderAt('/today', <Today />, 'today');
     expect(await screen.findByText('Operating queue')).toBeInTheDocument();
     // KPI cards, scoped by label (bare numbers match times elsewhere)
-    expect(screen.getByText('Your priorities').parentElement).toHaveTextContent('8'); // 8 executive-owned open items
-    expect(screen.getByText('Delegatable').parentElement).toHaveTextContent('4');
+    expect(screen.queryByText('Weekly metrics review')).not.toBeInTheDocument();
+    expect(screen.getByText('Delegatable', {selector:'div'}).parentElement).toHaveTextContent('0');
     expect(screen.getByText('Approvals waiting').parentElement).toHaveTextContent('3');
   });
 });
@@ -175,11 +176,11 @@ describe('S6 Connector Degraded — reconnect warning', () => {
 });
 
 describe('S7 Cron Running — event lands in rail + ledger while on Today', () => {
-  it('a cron completion event appears in the rail activity ledger', async () => {
+  it('a transient event does not invent a run ledger entry', async () => {
     renderAt('/today', <Today />, 'today');
     await screen.findByText('Operating queue');
     mock.__emit('cron.completed', 'ally', 'Cron fired: Weekly metrics digest');
-    expect(await screen.findByText('Cron fired: Weekly metrics digest', undefined, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText('Cron fired: Weekly metrics digest')).not.toBeInTheDocument();
   });
 });
 

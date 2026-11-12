@@ -129,8 +129,8 @@ describe('front-screen visibility of delegated results', () => {
         <Today />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('Delivered in the last 24h')).toBeInTheDocument();
-    expect(screen.getByText('Expense anomaly digest')).toBeInTheDocument();
+    expect(await screen.findByText('Delivered in the last 24 hours')).toBeInTheDocument();
+    expect((await screen.findAllByText('Expense anomaly digest')).length).toBeGreaterThan(0);
   });
 
   it('AppShell flags degraded slices next to the LIVE badge', async () => {

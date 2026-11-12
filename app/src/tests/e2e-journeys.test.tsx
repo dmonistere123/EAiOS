@@ -53,9 +53,11 @@ describe('Journey 1 — Morning review', () => {
     // scan priorities
     expect(await screen.findByText('Operating queue')).toBeInTheDocument();
     // delegate one recommendation
-    await user.click((await screen.findAllByRole('button', { name: 'Delegate' }))[0]);
+    await user.click(await screen.findByRole('button', { name: '＋ New delegated task' }));
     const dialog = await screen.findByRole('dialog');
-    await user.click(within(dialog).getByRole('button', { name: 'Confirm delegation' }));
+    await user.type(within(dialog).getByLabelText('Title'), 'Prepare my briefing');
+    await user.selectOptions(within(dialog).getByLabelText('Assign to'), 'ally');
+    await user.click(within(dialog).getByRole('button', { name: /Create & delegate/ }));
     // open oldest approval via the rail
     expect((await screen.findAllByText('Awaiting Approval')).length).toBeGreaterThan(0);
     await user.click(await screen.findByRole('link', { name: /Approvals/ }));

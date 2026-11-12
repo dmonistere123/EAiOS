@@ -43,6 +43,7 @@ export async function backupPersistentData(options, backupDir) {
     [join(options.hermesHome, 'state.db'), 'hermes-state.db'],
     [join(options.hermesHome, 'kanban.db'), 'hermes-kanban.db'],
     [join(options.hermesHome, 'eaios', 'human-delegation.db'), 'human-delegation.db'],
+    [join(options.hermesHome, 'eaios', 'today-state.db'), 'today-state.db'],
     [join(knowledgeDir(options), 'knowledge.db'), 'knowledge.db'],
     [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
     [join(options.dataRoot, 'social-data', 'social.db'), 'social.db'],
@@ -51,6 +52,8 @@ export async function backupPersistentData(options, backupDir) {
     const db = new DatabaseSync(source, { readOnly: true });
     try { await backup(db, join(backupDir, name)); chmodSync(join(backupDir, name), 0o600); } finally { db.close(); }
   }
+  const calendarFile=join(options.hermesHome,'eaios','today-calendars.json');
+  if(existsSync(calendarFile)){copyFileSync(calendarFile,join(backupDir,'today-calendars.json'));chmodSync(join(backupDir,'today-calendars.json'),0o600);}
   const accountsFile=join(options.dataRoot,'social-data','accounts.json');
   if(existsSync(accountsFile)) { copyFileSync(accountsFile,join(backupDir,'social-accounts.json')); chmodSync(join(backupDir,'social-accounts.json'),0o600); }
   for (const name of ['modules.local.json', 'settings.local.json', 'dismissed.json', 'notify-state.json']) {

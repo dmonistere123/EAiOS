@@ -213,7 +213,7 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.16 edition contents
+## v0.1.17 edition contents
 
 Both editions include the expandable EAiOS, The App Stack, and Settings navigation,
 and the orbital Staff page with the AI assistant first and the human assistant
@@ -226,16 +226,24 @@ and its data endpoint. Both editions include the approval executor-routing repai
 Existing module selection files are preserved during updates; installing a new
 release does not convert Core to Full or change saved ticker preferences.
 
+Today now shows pending approvals, unfinished delegations, and recent run/results
+activity. Reviewed results remain in the delivery history for 24 hours. Saved
+unassigned tasks remain accessible separately. Delegatable uses the latest saved
+Executive Insights recommendations; viewing Today never generates recommendations.
+Outlook agendas use verified connected accounts through Composio, with per-account
+error states and selection switches. See [Today data sources](TODAY-DATA-SOURCES.md)
+for optional per-box calendar selection.
+
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.16/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.17/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.16/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.16
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.17/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.17
 ```
 
 Existing installations should use Settings → App Settings → Check for updates → Install update

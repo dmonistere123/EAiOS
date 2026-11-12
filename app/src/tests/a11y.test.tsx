@@ -109,7 +109,7 @@ describe('§14.4 drawers manage focus', () => {
     const user = userEvent.setup();
     renderAt('/today', <Today />, 'today');
     await screen.findByText('Operating queue');
-    await user.click((await screen.findAllByRole('button', { name: 'Delegate' }))[0]);
+    await user.click(await screen.findByRole('button', { name: '＋ New delegated task' }));
     const dialog = await screen.findByRole('dialog');
     // focus moved into the dialog (close button autofocus)
     expect(dialog.contains(document.activeElement)).toBe(true);
@@ -142,9 +142,9 @@ describe('§14.4 resizable panels — keyboard alternative', () => {
 });
 
 describe('§14.4 table semantics', () => {
-  it('Today queue and Approvals tables use real header cells', async () => {
+  it('Today queue has a named region and semantic list', async () => {
     renderAt('/today', <Today />, 'today');
     await screen.findByText('Operating queue');
-    expect(within(screen.getByRole('table')).getAllByRole('columnheader').length).toBeGreaterThanOrEqual(4);
+    expect(within(screen.getByRole('region', {name:'Operating queue'})).getByRole('list')).toBeInTheDocument();
   });
 });

@@ -37,10 +37,10 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
       if(human){
         await refreshWork();
         if(res.id)setCreatedTask(res.id);
-        else {setCreatedWithoutId(true);setError('Task created, but its reference was not returned. Reopen it from Today instead of creating it again.');}
+        else {setCreatedWithoutId(true);setError('Task created, but its reference was not returned. Reopen it from Today → Saved tasks instead of creating it again.');}
         return;
       }
-      toast('ok', agentId ? `Task created and delegated to ${agentName(s, agentId)}.` : 'Task created — it’s in your queue to delegate when ready.');
+      toast('ok', agentId ? `Task created and delegated to ${agentName(s, agentId)}.` : 'Task created — open Today → Saved tasks to delegate when ready.');
       await refreshWork();
       onClose();
     } else {
@@ -51,7 +51,7 @@ export function NewDelegationDrawer({ onClose }: { onClose: () => void }) {
   return (
     <Drawer title="New delegated task" onClose={onClose}>
       <p className="text-sm text-ink-dim">
-        Create a task on the fly. Assign it now and the agent picks it up automatically; leave it unassigned and it waits in your queue as a potential delegation.
+        Create a task on the fly. Assign it now and the agent picks it up automatically; leave it unassigned and find it under Today → Saved tasks when you are ready.
       </p>
       {createdTask?<HumanDelegationForm workItemId={createdTask}/>:<div className="mt-4 space-y-4">
         <label className="block text-sm"><input type="checkbox" disabled={busy} checked={human} onChange={e=>setHuman(e.target.checked)}/> Prepare for a human assistant (creates an unassigned task)</label>
