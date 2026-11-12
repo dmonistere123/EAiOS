@@ -1,6 +1,6 @@
 /** Review state replaces blanket backlog dismissal. Pending obligations cannot be hidden. */
 import {beforeAll,beforeEach,afterEach,expect,it,vi} from 'vitest';
-import {render,screen,fireEvent,within,waitFor} from '@testing-library/react';
+import {render,screen,fireEvent,within} from '@testing-library/react';
 import {MemoryRouter} from 'react-router-dom';
 import Today from '../pages/Today';
 import {today,hermes} from '../adapters';
@@ -13,27 +13,18 @@ function Rail(){const sections=useRailDeclaration();return <aside>{sections?.map
 const show=()=>render(<MemoryRouter><Today/><Rail/></MemoryRouter>);
 beforeAll(()=>startRuntime());
 beforeEach(async()=>{
- activity={runs:[{id:'r',jobId:'j',title:'Daily brief ran',profile:'Ally',status:'completed',at}],links:{},reviewed:[],report:null,warnings:[]};
+ activity={runs:[{id:'r',jobId:'j',title:'Daily brief ran',profile:'Ally',status:'failed',at}],links:{},reviewed:[],report:null,warnings:[]};
  vi.spyOn(today,'activity').mockImplementation(async()=>structuredClone(activity));
  vi.spyOn(today,'meetings').mockResolvedValue({fetchedAt:at,calendars:[]});
  vi.spyOn(today,'review').mockImplementation(async key=>{activity.reviewed.push(key);return [...activity.reviewed];});
  (hermes as unknown as {__loadFixture(p:unknown):void}).__loadFixture({work:[{id:'w',title:'Delivered brief',priority:'medium',ownerType:'agent',state:'complete',createdAt:at,updatedAt:at,result:'The completed output'},{id:'d',title:'Open delegation',priority:'medium',ownerType:'agent',state:'in_progress',createdAt:at,updatedAt:at}],approvals:[]});await refreshAll();
 });
 afterEach(()=>vi.restoreAllMocks());
-it('persists a review across remounts while retaining the delivered result',async()=>{
- const first=show();const queue=screen.getByRole('region',{name:'Operating queue'});
- fireEvent.click(await within(queue).findByRole('button',{name:'Review Delivered brief'}));
- fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button',{name:'Mark reviewed'}));
- await waitFor(()=>expect(today.review).toHaveBeenCalledWith(`work:w:${at}`));
- await waitFor(()=>expect(within(queue).queryByText('Delivered brief')).not.toBeInTheDocument());
- expect(within(screen.getByRole('region',{name:'Delivered in the last 24 hours'})).getByText('Delivered brief')).toBeInTheDocument();first.unmount();show();
- await screen.findByText('Reviewed');expect(within(screen.getByRole('region',{name:'Operating queue'})).queryByText('Delivered brief')).not.toBeInTheDocument();
+it('shows recent unfinished work and omits deliveries and the finished section',async()=>{
+ show();await screen.findByRole('button',{name:'Review Open delegation'});expect(screen.queryByText('Delivered brief')).not.toBeInTheDocument();expect(screen.queryByRole('region',{name:'Delivered in the last 24 hours'})).not.toBeInTheDocument();expect(screen.queryByRole('button',{name:/Delivered/})).not.toBeInTheDocument();
 });
-it('keeps unfinished delegations visible and offers no mark-reviewed action',async()=>{
- show();fireEvent.click(await screen.findByRole('button',{name:'Review Open delegation'}));expect(within(screen.getByRole('dialog')).queryByRole('button',{name:'Mark reviewed'})).not.toBeInTheDocument();expect(today.review).not.toHaveBeenCalled();
-});
-it('leaves a result in the queue when saving its review fails',async()=>{
- vi.mocked(today.review).mockRejectedValue(new Error('offline'));show();fireEvent.click(await screen.findByRole('button',{name:'Review Daily brief ran'}));fireEvent.click(within(screen.getByRole('dialog')).getByRole('button',{name:'Mark reviewed'}));await waitFor(()=>expect(today.review).toHaveBeenCalled());expect(screen.getByRole('button',{name:'Review Daily brief ran'})).toBeInTheDocument();
+it('shows old approvals only in their source module, not Today or its rail',async()=>{
+ (hermes as unknown as {__loadFixture(p:unknown):void}).__loadFixture({work:[],approvals:[{id:'old',workItemId:'w',status:'pending',submittedAt:'2020-01-01',targetObject:'Old approval',targetSystem:'outlook',risk:'low',evidence:[],actionType:'send',requestedByAgentId:'ally'}]});await refreshAll();show();await screen.findByRole('button',{name:'Review Daily brief ran'});expect(screen.queryByText('Old approval')).not.toBeInTheDocument();expect(screen.getByText('Approvals waiting').parentElement).toHaveTextContent('0');
 });
 it('filters the full-day agenda and next meeting by the selected accounts',async()=>{
  const later=new Date(Date.now()+3600000).toISOString(),end=new Date(Date.now()+7200000).toISOString();

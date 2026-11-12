@@ -243,15 +243,16 @@ function parseEnvelope(body?: string | null): ApprovalEnvelope | null {
 }
 
 function mapTask(t: KanbanTask): WorkItem {
+  const assignee = t.assignee && !['none','unassigned','null'].includes(t.assignee.trim().toLowerCase()) ? t.assignee : undefined;
   return {
     id: t.id,
     title: t.title,
     summary: t.body && !parseEnvelope(t.body) ? t.body : undefined,
     priority: prioLabel(t.priority),
-    ownerType: t.assignee ? 'agent' : 'executive',
-    ownerId: t.assignee ?? undefined,
+    ownerType: assignee ? 'agent' : 'executive',
+    ownerId: assignee,
     state: kanbanState[t.status] ?? 'new',
-    delegationCandidate: !t.assignee && ['ready', 'triage'].includes(t.status),
+    delegationCandidate: !assignee && ['ready', 'triage'].includes(t.status),
     createdAt: epochToIso(t.created_at) ?? new Date().toISOString(),
     updatedAt: epochToIso(t.completed_at ?? t.started_at ?? t.created_at) ?? new Date().toISOString(),
     result: t.result ?? undefined,
@@ -298,6 +299,8 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
   return {
     id: t.id,
     workItemId: t.id,
+    archived: t.status === 'archived',
+    updatedAt: [epochToIso(t.created_at),epochToIso(t.started_at ?? undefined),epochToIso(t.completed_at ?? undefined),env.decidedAt].filter((at): at is string => typeof at === 'string' && Number.isFinite(Date.parse(at))).sort((a,b)=>Date.parse(b)-Date.parse(a))[0],
     reviewVersion: t.body ?? undefined,
     requestedByAgentId: env.requestedBy ?? t.assignee ?? 'default',
     executorProfileId: env.executorProfile,

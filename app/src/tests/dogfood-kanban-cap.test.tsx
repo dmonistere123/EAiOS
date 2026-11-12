@@ -76,6 +76,17 @@ describe('kanban board read path (48K cap regression)', () => {
     expect(cliCalls).toHaveLength(0);
   });
 
+  it('preserves archive and decision-time metadata and normalizes placeholder owners', async()=>{
+    const decidedAt=new Date().toISOString();
+    vi.stubGlobal('fetch',vi.fn(async()=>({ok:true,json:async()=>({tasks:[
+      {id:'placeholder',title:'Saved task',assignee:'unassigned',status:'ready',created_at:1788000000},
+      {id:'archived',title:'Old approved action',status:'archived',created_at:1788000000,body:JSON.stringify({eaios:'approval',decision:'approved',decidedAt,actionType:'execute',targetSystem:'eaios-local',risk:'low'})}
+    ]})})));
+    const live=await loadLive();
+    expect((await live.listWorkItems())[0]).toMatchObject({ownerType:'executive',ownerId:undefined,delegationCandidate:true});
+    expect((await live.listApprovals())[0]).toMatchObject({archived:true,updatedAt:decidedAt});
+  });
+
   it('truncated cli.exec payload → mock fallback + VISIBLE degradation (never silent)', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })));
     const live = await loadLive();
@@ -123,14 +134,16 @@ describe('front-screen visibility of delegated results', () => {
     startRuntime();
   });
 
-  it('Today shows work delivered in the last 24h (mock parity: Expense anomaly digest)', async () => {
+  it('Today excludes finished work even if completed within the last 24 hours', async () => {
     render(
       <MemoryRouter>
         <Today />
       </MemoryRouter>,
     );
-    expect(await screen.findByText('Delivered in the last 24 hours')).toBeInTheDocument();
-    expect((await screen.findAllByText('Expense anomaly digest')).length).toBeGreaterThan(0);
+    await refreshWork();
+    await screen.findByText('Operating queue');
+    expect(screen.queryByText('Delivered in the last 24 hours')).not.toBeInTheDocument();
+    expect(screen.queryByText('Expense anomaly digest')).not.toBeInTheDocument();
   });
 
   it('AppShell flags degraded slices next to the LIVE badge', async () => {

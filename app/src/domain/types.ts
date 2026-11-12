@@ -89,6 +89,10 @@ export interface EvidenceRef {
 }
 
 export interface Approval {
+  /** Archived records remain historical; never treat them as queued work. */
+  archived?: boolean;
+  /** Latest recorded creation, execution or decision time. */
+  updatedAt?: string;
   humanDelegation?: {id:string};
   mailReply?: {senderEmail:string;recipientEmail:string;sourceConnectionId?:string;sourceMessageId?:string;senderConnectionId?:string;body?:string};
   /** Exact reviewed envelope for optimistic concurrency, never an execution token. */
