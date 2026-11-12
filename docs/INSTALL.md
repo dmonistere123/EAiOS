@@ -213,7 +213,12 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.15 edition contents
+## v0.1.16 edition contents
+
+Both editions include the expandable EAiOS, The App Stack, and Settings navigation,
+and the orbital Staff page with the AI assistant first and the human assistant
+beneath it as a delegation backstop. The HI Assistant entry opens existing contact
+and delegation tools; it does not create a separate human login.
 
 Full includes the ticker dashboard, footer, and watchlist settings. Stock movers
 and selected Bitcoin widgets open expanded. Core excludes all ticker surfaces
@@ -224,13 +229,14 @@ release does not convert Core to Full or change saved ticker preferences.
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.15/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.16/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.15/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.15
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.16/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.16
 ```
 
-Existing installations should use Settings → Check for updates → Install update.
+Existing installations should use Settings → App Settings → Check for updates → Install update
+after the matching GitHub Release is published.
