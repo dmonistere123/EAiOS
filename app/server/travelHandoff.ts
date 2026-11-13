@@ -25,7 +25,7 @@ export function itineraryText(t:TravelTrip,instructions:string):string {
       b.confirmationNumber?`Existing confirmation: ${b.confirmationNumber} — do not book twice`:'',
     ].filter(Boolean).join('\n')),
     `BOOKING INSTRUCTIONS\n${instructions||'Book the selected options. Ask the executive before making substitutions or exceeding the budget.'}`,
-    'Record confirmation references, final costs and outcome notes in your checklist. Submit for executive sign-off when every item is complete. No booking is made by EAiOS.',
+    'Record confirmation references, final costs and outcome notes in your checklist. Submit for executive sign-off when every item is complete. No booking is made by 2EP.',
   ].join('\n\n');
 }
 export function tripChecklist(t:TravelTrip):HumanChecklistItem[] {

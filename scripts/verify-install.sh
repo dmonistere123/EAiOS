@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EAiOS post-install verification.
+# 2EP post-install verification.
 # Safe to run by hand: scripts/verify-install.sh
 set -euo pipefail
 
@@ -92,18 +92,18 @@ else
   fail "knowledge sidecar /health unreachable"
 fi
 
-# EAiOS prod server :5200
+# 2EP prod server :5200
 if curl -fsS http://127.0.0.1:5200/ >/dev/null 2>&1; then
-  ok "EAiOS prod server / (127.0.0.1:5200)"
+  ok "2EP prod server / (127.0.0.1:5200)"
 else
-  fail "EAiOS prod server :5200 unreachable"
+  fail "2EP prod server :5200 unreachable"
 fi
 
-# EAiOS prod server :5173
+# 2EP prod server :5173
 if curl -fsS http://127.0.0.1:5173/ >/dev/null 2>&1; then
-  ok "EAiOS front-door server / (127.0.0.1:5173)"
+  ok "2EP front-door server / (127.0.0.1:5173)"
 else
-  fail "EAiOS front-door server :5173 unreachable"
+  fail "2EP front-door server :5173 unreachable"
 fi
 
 # Hermes gateway WS (check TCP accept with the dev token)
@@ -132,9 +132,9 @@ fi
 # ---------------------------------------------------------------------------
 echo "==> config files"
 if [[ -f "$HOME/.hermes/.eaios-dev-token" ]]; then
-  ok "EAiOS dev token file exists"
+  ok "2EP dev token file exists"
 else
-  fail "EAiOS dev token file missing"
+  fail "2EP dev token file missing"
 fi
 
 if [[ -f "$EAIOS_ROOT/app/.env.local" ]]; then

@@ -31,7 +31,7 @@ export function TelegramHistory({ conversation, onClose }: { conversation: Assis
   return <section className="flex min-h-0 flex-1 flex-col gap-3" aria-label="Telegram conversation history">
     <header className="flex items-center justify-between gap-3">
       <div><span className="text-xs font-semibold text-signal">Telegram · Read-only</span><h2 className="text-lg font-semibold">{conversation.title}</h2></div>
-      <button className="text-xs text-signal" onClick={onClose}>Back to EAiOS chat</button>
+      <button className="text-xs text-signal" onClick={onClose}>Back to 2EP chat</button>
     </header>
     <p className="text-xs text-ink-dim">Telegram messages for this day, in chronological order. Refreshes automatically; reading it sends no messages. Reply in Telegram for now.</p>
     {error && <p role="status" className="text-xs text-warn">{error}</p>}

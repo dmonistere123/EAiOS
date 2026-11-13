@@ -7,7 +7,7 @@ export default function AssistantTask() {
   const [task,setTask]=useState<AssistantTaskView>(),[error,setError]=useState('');
   useEffect(()=>{window.history.replaceState(null,'',window.location.pathname);void assistantTask.load(token).then(setTask).catch(e=>setError(e.message));},[token]);
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
-    <header><p className="text-xs uppercase tracking-widest text-warn">EAiOS · Private assistant workspace</p><h1 className="mt-3 text-2xl font-semibold">{task?.title||'Your assigned work'}</h1></header>
+    <header><p className="text-xs uppercase tracking-widest text-warn">2EP · Private assistant workspace</p><h1 className="mt-3 text-2xl font-semibold">{task?.title||'Your assigned work'}</h1></header>
     {import.meta.env.VITE_TRAVEL_HANDOFF==='1'&&<p className="rounded-lg border border-warn/30 p-3 text-sm text-warn">Staging · sample delegation. Changes stay in staging.</p>}
     {error&&<p role="alert" className="text-risk">{error}</p>}
     {task&&<section className="rounded-xl border border-edge bg-canvas-raised p-5"><p className="text-sm text-ink-dim">Assigned to {task.assistant} · {task.status.replaceAll('_',' ')}</p><p className="mt-3 whitespace-pre-wrap text-sm">{task.instructions}</p>

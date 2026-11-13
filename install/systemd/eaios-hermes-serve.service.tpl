@@ -1,9 +1,9 @@
-# hermes serve for EAiOS live mode (Phase 8.2) — the dashboard WS/JSON-RPC
+# hermes serve for 2EP live mode (Phase 8.2) — the dashboard WS/JSON-RPC
 # surface on 127.0.0.1:9119. The wrapper script owns token loading (reads
 # ~/.hermes/.eaios-dev-token, never inlines it). Rendered from
 # install/systemd/eaios-hermes-serve.service.tpl — do not hand-edit.
 [Unit]
-Description=Hermes serve (EAiOS live-mode gateway)
+Description=Hermes serve (2EP live-mode gateway)
 After=network-online.target
 Wants=network-online.target
 

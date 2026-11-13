@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# EAiOS one-command installer for a fresh CEO box (Ubuntu/Debian first).
+# 2EP one-command installer for a fresh CEO box (Ubuntu/Debian first).
 #
 # What it does:
 #   1. Checks OS and installs system prerequisites (build-essential, xz-utils, python3).
 #   2. Ensures Node.js >= 24 is installed (via NodeSource or binary tarball).
 #   3. Ensures Hermes Agent (CLI) is installed.
 #   4. Optionally installs Hermes Desktop (Electron app for the GUI agent).
-#   5. Clones or updates the EAiOS repo.
+#   5. Clones or updates the 2EP repo.
 #   6. Installs app npm dependencies and builds the production bundle.
 #   7. Creates the Python sidecar venv and installs knowledge + podcast deps.
 #   8. Creates ~/.hermes/.eaios-dev-token and app/.env.local on first run.
@@ -27,7 +27,7 @@
 #   EAIOS_REPO_URL       Git URL to clone (required when curl-piped; optional
 #                        when the script is already inside the repo).
 #   EAIOS_BRANCH         Branch to checkout (default: master).
-#   EAIOS_ROOT           Where to clone/install EAiOS (default: $HOME/eaios).
+#   EAIOS_ROOT           Where to clone/install 2EP (default: $HOME/eaios).
 #   NODE_MIN_VERSION     Minimum Node major version (default: 24).
 #   HERMES_INSTALL_URL   Hermes installer URL (default: official Nous script).
 #   SKIP_NODE            Set to 1 to skip Node installation check.
@@ -143,7 +143,8 @@ else
   [[ -z "${EAIOS_REPO_URL:-}" ]] && fail "EAIOS_REPO_URL is required when curl-piped."
 fi
 
-log_info "EAiOS installer starting"
+log_info "2EP by Allygnment installer starting"
+log_info "Enhanced Executive Performance — An Executive AI Operating System"
 log_info "Target root: $EAIOS_ROOT"
 log_info "Branch:      $EAIOS_BRANCH"
 
@@ -250,7 +251,7 @@ if [[ "$SKIP_HERMES" != "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Clone or update EAiOS repo
+# 3. Clone or update 2EP repo
 # ---------------------------------------------------------------------------
 if [[ "$LOCAL_MODE" == "1" ]]; then
   log_info "Local mode - $EAIOS_ROOT"
@@ -261,7 +262,7 @@ elif [[ -d "$EAIOS_ROOT/.git" ]]; then
 else
   git clone --branch "$EAIOS_BRANCH" "$EAIOS_REPO_URL" "$EAIOS_ROOT"; cd "$EAIOS_ROOT"
 fi
-log_success "EAiOS repo ready at $EAIOS_ROOT"
+log_success "2EP repo ready at $EAIOS_ROOT"
 node "$EAIOS_ROOT/scripts/configure-edition.mjs" "${EAIOS_DATA_ROOT:-$EAIOS_ROOT}" "${EAIOS_EDITION:-full}"
 
 # ---------------------------------------------------------------------------
@@ -327,10 +328,10 @@ else
   log_info "Creating $ENV_LOCAL with all provider key placeholders"
 
   cat > "$ENV_LOCAL" << ENVEOF
-# EAiOS runtime environment
+# 2EP runtime environment
 # Fill in live provider keys below. This file is gitignored.
 #
-# ===== REQUIRED (must be set for EAiOS to operate) =====
+# ===== REQUIRED (must be set for 2EP to operate) =====
 # Hermes integration - required
 VITE_HERMES_LIVE=1
 VITE_HERMES_TOKEN=$DEV_TOKEN
@@ -383,7 +384,7 @@ if [[ -f "$SIDECAR_ENV" ]]; then
   log_info "Keeping existing $SIDECAR_ENV"
 else
   cat > "$SIDECAR_ENV" << SIDEOF
-# EAiOS sidecar environment
+# 2EP sidecar environment
 # Fill in provider keys below. Changes require restart:
 #   systemctl --user restart eaios-knowledge-sidecar
 
@@ -450,7 +451,7 @@ log_info "Running verification"
 # ---------------------------------------------------------------------------
 # 13. Summary
 # ---------------------------------------------------------------------------
-log_success "EAiOS installation complete"
+log_success "2EP installation complete"
 echo ""
 echo "Services:"
 echo "  eaios-hermes-serve      :9119  (Hermes gateway)"

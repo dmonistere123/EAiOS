@@ -520,8 +520,8 @@ class MockHermesAdapter implements HermesAdapter {
       job.finishedAt = new Date().toISOString();
       job.sources = [
         { name: 'Hermes home', path: '~/.hermes' },
-        { name: 'EAiOS application', path: '~/eaios' },
-        { name: 'EAiOS data', path: '~/eaios-data' },
+        { name: '2EP application', path: '~/eaios' },
+        { name: '2EP data', path: '~/eaios-data' },
         { name: 'User systemd services', path: '~/.config/systemd/user' },
       ];
       job.updatedAt = job.finishedAt;
@@ -540,7 +540,7 @@ class MockHermesAdapter implements HermesAdapter {
   async checkForUpdates(): Promise<ReleaseUpdateInfo> {
     await delay(80);
     this.releaseUpdateInfo = { ...this.releaseUpdateInfo, status: 'available', lastCheckedAt: new Date().toISOString(), lastSuccessfulCheckAt: new Date().toISOString(),
-      release: { id: 1, tag: 'v0.2.0', version: '0.2.0', name: 'EAiOS 0.2.0', notes: 'Example release notes in demo mode.', url: 'https://github.com/dmonistere123/EAiOS/releases/tag/v0.2.0' }, error: null };
+      release: { id: 1, tag: 'v0.2.0', version: '0.2.0', name: '2EP 0.2.0', notes: 'Example release notes in demo mode.', url: 'https://github.com/dmonistere123/EAiOS/releases/tag/v0.2.0' }, error: null };
     return this.getReleaseUpdateInfo();
   }
   async installReleaseUpdate(releaseId: number): Promise<AuditResult> {
@@ -815,7 +815,7 @@ class MockHermesAdapter implements HermesAdapter {
 
   private sessionIndex: Record<string, AssistantSessionRef[]> = {
     ally: [
-      { id: 'sess-ally-2', title: 'EAiOS — My Assistant', preview: "Morning. I'm Ally — chief of staff…", startedAt: new Date(Date.now() - 3600_000).toISOString(), messageCount: 3, source: 'desktop' },
+      { id: 'sess-ally-2', title: '2EP — My Assistant', preview: "Morning. I'm Ally — chief of staff…", startedAt: new Date(Date.now() - 3600_000).toISOString(), messageCount: 3, source: 'desktop' },
       { id: 'sess-ally-1', title: 'Morning review', preview: 'What needs my attention before the board call?', startedAt: new Date(Date.now() - 20 * 3600_000).toISOString(), messageCount: 12, source: 'telegram' },
     ],
     scout: [
@@ -849,7 +849,7 @@ class MockHermesAdapter implements HermesAdapter {
   /** Bot Chat contract: user rows are Ally's deliveries, assistant rows are the agent. */
   private channelChats: Record<string, ChatMessage[]> = {
     quill: [
-      { id: 'cq-1', role: 'you', text: 'Quill — please draft the September customer newsletter. Angle: the EAiOS beta. Nothing sends without executive approval.', at: new Date(Date.now() - 9 * 3600_000).toISOString() },
+      { id: 'cq-1', role: 'you', text: 'Quill — please draft the September customer newsletter. Angle: the 2EP beta. Nothing sends without executive approval.', at: new Date(Date.now() - 9 * 3600_000).toISOString() },
       { id: 'cq-2', role: 'ally', text: 'Draft is up (work item w-05) — 400 words, and the Mailchimp send is parked in Approvals.', at: new Date(Date.now() - 9 * 3600_000 + 120_000).toISOString() },
     ],
   };

@@ -27,7 +27,7 @@ export function LiveVoice({conversation,history,disabled,onStart,onAccepted}:{co
   binding.current=latest.current.conversation ?? null;latest.current.onStart();
   const seen=new Set<string>();let queue=Promise.resolve();
   const live=new VoiceLiveSession({
-   onReady:()=>{if(generation.current===epoch){setState('listening');live.instruct('You are Ally, the voice assistant in EAiOS. Refer to the application as EAiOS. Outbound communications require the executive to approve in the EAiOS Approvals module. Spoken agreement does not bypass that approval workflow.');}},
+   onReady:()=>{if(generation.current===epoch){setState('listening');live.instruct('You are Ally, the voice assistant in 2EP. Refer to the application as 2EP. Outbound communications require the executive to approve in the 2EP Approvals module. Spoken agreement does not bypass that approval workflow.');}},
    onClosed:()=>{if(generation.current===epoch){session.current=null;generation.current++;setState('off');setMuted(false);}},
    onError:(message,fatal)=>{if(generation.current===epoch){setError(message);if(fatal)stop();}},
    onSpeakingChange:speaking=>{if(generation.current===epoch)setState(speaking?'speaking':'listening');},
@@ -39,7 +39,7 @@ export function LiveVoice({conversation,history,disabled,onStart,onAccepted}:{co
     if(/^(stop voice|end voice|stop voice mode|end voice mode)[.!]?$/i.test(prompt)){stop();return;}
     queue=queue.then(async()=>{
      if(generation.current!==epoch)return;
-     setState('working');live.think(id,'EAiOS is handling your request.');
+     setState('working');live.think(id,'2EP is handling your request.');
      let row:RequestView;
      try {
       // Same durable request and approval path as the text composer. Never execute tools here.
@@ -54,7 +54,7 @@ export function LiveVoice({conversation,history,disabled,onStart,onAccepted}:{co
       if(conversationId && !binding.current)binding.current={id:conversationId,title:prompt.slice(0,80),profile:row.profile};
       if(conversationId)latest.current.onAccepted(row);
       if(terminal(row)) {
-       live.speak(id,row.response || (row.error?'EAiOS could not complete the request. Please check the chat.':'The request stopped without a final answer. Please check the chat.'));
+       live.speak(id,row.response || (row.error?'2EP could not complete the request. Please check the chat.':'The request stopped without a final answer. Please check the chat.'));
        setState('listening');return;
       }
       if(Date.now()>deadline){setError('This request is still running. Follow its progress in the chat.');live.speak(id,'This is taking longer. You can follow the request in the chat.');return;}

@@ -117,7 +117,7 @@ describe('Journey 4 — Ground a request', () => {
     // mock indexes to ready
     expect(await screen.findByText('https://allygnment.com/board-notes', undefined, { timeout: 4000 })).toBeInTheDocument();
     // ask Ally; the mock reply cites eaios://chunk/k-01-0
-    await user.click(screen.getByRole('button', { name: 'EAiOS' }));
+    await user.click(screen.getByRole('button', { name: '2EP' }));
     await user.click(screen.getByRole('link', { name: /AI Assistant/ }));
     await user.type(await screen.findByLabelText('Message Ally'), 'what does the board deck say about margins?');
     await user.click(screen.getByRole('button', { name: 'Send' }));

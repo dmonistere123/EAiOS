@@ -39,7 +39,7 @@ export function reconcileReleaseArtifact(ctx: Context): boolean {
   }
   if (!finishedAt || !Number.isFinite(Date.parse(finishedAt))) return false;
   const notes = readRegular(join(ctx.eaiosRoot, 'docs', `RELEASE-NOTES-v${build.version}.md`)).content;
-  const content = `# EAiOS v${build.version} — Installed update\n\nInstalled successfully: ${new Date(finishedAt).toISOString()}\n\nRelease revision: ${build.gitSha}\n\nThis report is saved locally for reference. Customer agents, instructions, skills, credentials, and conversations remain in their existing locations.\n\n---\n\n${notes}`;
+  const content = `# 2EP by Allygnment v${build.version} — Installed update\n\nInstalled successfully: ${new Date(finishedAt).toISOString()}\n\nRelease revision: ${build.gitSha}\n\nThis report is saved locally for reference. Customer agents, instructions, skills, credentials, and conversations remain in their existing locations.\n\n---\n\n${notes}`;
   mkdirSync(folder(ctx), { recursive: true, mode: 0o700 });
   // Exclusive creation: two dashboard processes cannot overwrite each other's report.
   try { writeFileSync(join(folder(ctx), `${id}.md`), content, { flag: 'wx', mode: 0o600 }); }
@@ -51,7 +51,7 @@ export function releaseArtifact(ctx: Context, id: string) {
   if (!idPattern.test(id)) return null;
   try {
     const { content, stat } = readRegular(join(folder(ctx), `${id}.md`));
-    return { content, stat, filename: `EAiOS-v${id.split('-')[1]}-Whats-New.md` };
+    return { content, stat, filename: `${content.startsWith('# 2EP by Allygnment ')?'2EP':'EAiOS'}-v${id.split('-')[1]}-Whats-New.md` };
   } catch { return null; }
 }
 
@@ -62,8 +62,8 @@ export function listReleaseArtifacts(ctx: Context) {
     if (file !== `${id}.md`) return [];
     const rec = releaseArtifact(ctx, id);
     return rec ? [{ id, taskId: '', taskTitle: 'Installed application update', name: rec.filename,
-      mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(rec.content), uploadedBy: 'EAiOS Installer',
-      agentId: 'EAiOS Installer', taskStatus: 'done', createdAt: rec.stat.birthtime.toISOString(),
+      mimeType: 'text/markdown', sizeBytes: Buffer.byteLength(rec.content), uploadedBy: '2EP Installer',
+      agentId: '2EP Installer', taskStatus: 'done', createdAt: rec.stat.birthtime.toISOString(),
       previewAvailable: true, downloadUrl: `/api/artifacts/${id}/raw` }] : [];
   }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

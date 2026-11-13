@@ -17,6 +17,7 @@ import { useRailDeclaration } from '../state/rail';
 import { RelativeTime, RiskBadge, TimeUntil, ToastHost } from '../components/ui';
 import { ConciergeWidget } from '../components/ConciergeWidget';
 import { EXECUTIVE_NAME } from '../config';
+import { BrandLockup } from '../components/Brand';
 
 const LIMITS = { left: { min: 208, max: 360, def: 264 }, right: { min: 280, max: 440, def: 340 } };
 const STORE_KEY = 'eaios.panes.v1';
@@ -246,11 +247,10 @@ export default function AppShell() {
 
   return (
     <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-canvas text-ink" style={{ '--ticker-height': !modules?.includes('ticker') ? '0px' : tickerHidden ? '24px' : '40px' } as CSSProperties}>
-      {/* top strip */}
-      <header className="flex h-12 shrink-0 items-center gap-4 border-b border-edge px-4">
-        <div className="flex items-center gap-2">
-          <span className="text-base font-bold tracking-tight text-signal">EAiOS</span>
-          <span className="hidden text-xs text-ink-faint md:inline">Executive AI Operating System</span>
+      {/* Signature product header; tools reflow below the identity on mobile. */}
+      <header className="product-header">
+        <BrandLockup />
+        <div className="product-header-status">
           <span
             className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
               s.gateway === 'live'
@@ -272,7 +272,7 @@ export default function AppShell() {
             </span>
           )}
         </div>
-        <div className="mx-auto w-full max-w-md">
+        <div className="product-header-search">
           <input
             type="search"
             placeholder="Search work, agents, artifacts…"
@@ -280,13 +280,15 @@ export default function AppShell() {
             className="w-full rounded-lg border border-edge bg-canvas-raised px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint focus:border-signal/50"
           />
         </div>
-        <button className="relative rounded-lg p-2 hover:bg-canvas-overlay" aria-label="Notifications">
-          <span aria-hidden>🔔</span>
-          {pending > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-warn" aria-label={`${pending} pending approvals`} />}
-        </button>
-        <div className="flex items-center gap-2 rounded-lg border border-edge bg-canvas-raised px-3 py-1.5">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal/20 text-xs font-semibold text-signal">{EXECUTIVE_NAME.slice(0, 2).toUpperCase()}</span>
-          <span className="hidden text-xs text-ink-dim lg:inline">{EXECUTIVE_NAME} — Executive</span>
+        <div className="product-header-actions">
+          <button className="relative rounded-lg p-2 hover:bg-canvas-overlay" aria-label="Notifications">
+            <span aria-hidden>🔔</span>
+            {pending > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-warn" aria-label={`${pending} pending approvals`} />}
+          </button>
+          <div className="flex items-center gap-2 rounded-lg border border-edge bg-canvas-raised px-3 py-1.5">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-signal/20 text-xs font-semibold text-signal">{EXECUTIVE_NAME.slice(0, 2).toUpperCase()}</span>
+            <span className="hidden text-xs text-ink-dim lg:inline">{EXECUTIVE_NAME} — Executive</span>
+          </div>
         </div>
       </header>
 

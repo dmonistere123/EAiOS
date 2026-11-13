@@ -47,7 +47,7 @@ if git rev-parse "$VERSION" >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "==> Releasing EAiOS $VERSION"
+echo "==> Releasing 2EP by Allygnment $VERSION"
 
 # Keep the lockfile consistent and validate before publishing a release.
 cd "$REPO_ROOT/app"
@@ -65,7 +65,7 @@ npm run build
 cd "$REPO_ROOT"
 git add app/package.json app/package-lock.json release-manifest.json
 if ! git diff --cached --quiet; then git commit -m "release: $VERSION"; fi
-git tag -a "$VERSION" -m "EAiOS $VERSION"
+git tag -a "$VERSION" -m "2EP by Allygnment $VERSION"
 git push --atomic origin "$BRANCH" "$VERSION"
 
 echo "==> Tagged $VERSION. Publish this tag as a stable GitHub Release so weekly checks can discover it."

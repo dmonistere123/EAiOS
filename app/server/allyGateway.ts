@@ -1,6 +1,6 @@
 /// <reference types="node" />
 /**
- * allyGateway.ts — direct WS-RPC bridge from EAiOS to the Hermes gateway
+ * allyGateway.ts — direct WS-RPC bridge from 2EP to the Hermes gateway
  * for the My Assistant chat lane. The gateway's default profile already knows
  * it's Ally (proven: "I'm Ally, chief of staff to Don Monistere…").
  *
@@ -341,7 +341,7 @@ export async function allyChatStream(
   let complete = false;
   try {
     await client.connect(5_000);
-    const createParams: Record<string, unknown> = { title: 'EAiOS — My Assistant' };
+    const createParams: Record<string, unknown> = { title: '2EP — My Assistant' };
     if (profile) createParams.profile = profile;
     const created = await client.call('session.create', createParams) as { session_id?: string };
     sessionId = created.session_id;

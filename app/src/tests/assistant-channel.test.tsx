@@ -83,7 +83,7 @@ describe('contextual rail (W2, D-B2)', () => {
     renderAt('/assistant');
     expect((await screen.findAllByText('Conversations — Ally')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Operational Watchtower')).not.toBeInTheDocument();
-    // D-B2: every source appears — the telegram session, not just EAiOS ones
+    // D-B2: every source appears — the telegram session, not just 2EP ones
     expect(await screen.findByRole('button', { name: /Morning review/ })).toBeInTheDocument();
   });
 
@@ -253,6 +253,6 @@ describe('live sessions + channel (stubbed RPC)', () => {
     });
     const res = await live.startNewAssistantChat('quill');
     expect(res.ok).toBe(true);
-    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — quill', profile: 'quill' } });
+    expect(calls[0]).toEqual({ method: 'session.create', params: { title: '2EP — quill', profile: 'quill' } });
   });
 });

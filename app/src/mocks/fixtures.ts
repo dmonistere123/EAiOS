@@ -190,7 +190,7 @@ export const dailySpendReport: DailySpendReport = {
       ];
     }
     if (back === 0) {
-      day.topSessions = [{ sessionId: 'sess-eaios', title: 'Continue EAiOS handoff', model: 'kimi-k3', costUsd: 0.31, inputTokens: 82_000, outputTokens: 6_000 }];
+      day.topSessions = [{ sessionId: 'sess-eaios', title: 'Continue 2EP handoff', model: 'kimi-k3', costUsd: 0.31, inputTokens: 82_000, outputTokens: 6_000 }];
     }
     return day;
   }),

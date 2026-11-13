@@ -281,7 +281,7 @@ export default function Schedule() {
 
   const act = async (w: WorkItem, action: WorkItemAction) => {
     setBusyAction(`${w.id}:${action}`);
-    const note = action === 'defer' ? 'Deferred by executive from EAiOS' : action === 'reclaim' ? 'Reclaimed from EAiOS (stale run)' : action === 'delete' ? 'Deleted by executive from EAiOS' : undefined;
+    const note = action === 'defer' ? 'Deferred by executive from 2EP' : action === 'reclaim' ? 'Reclaimed from 2EP (stale run)' : action === 'delete' ? 'Deleted by executive from 2EP' : undefined;
     const res = await hermes.setWorkItemState(w.id, action, note);
     setBusyAction(null);
     setConfirmStop(null);

@@ -133,7 +133,7 @@ export class AssistantRequests {
           const snapshot = await client.call('session.activate', { session_id: c.session_id, omit_messages: true }, 15000) as Activation;
           if (snapshot.running !== false || snapshot.auto_continue || snapshot.pending_approval || snapshot.pending_clarify) throw new Error('This conversation is busy or awaiting input. No follow-up was sent.');
         } else {
-          c = await client.call('session.create', { title: `EAiOS request ${id}`, ...(r.profile ? { profile: r.profile } : {}) }, 15000) as Activation;
+          c = await client.call('session.create', { title: `2EP request ${id}`, ...(r.profile ? { profile: r.profile } : {}) }, 15000) as Activation;
         }
         c.stored_session_id = c.stored_session_id ?? c.session_key;
         if (!c.session_id || !c.stored_session_id) throw new Error('Hermes did not return durable session identity');

@@ -30,7 +30,7 @@ export function MarketMovers() {
       {expanded && <button type="button" className="text-signal" onClick={() => setAttempt(value => value + 1)}>Retry movers</button>}
       <a className="text-signal" href="https://www.tradingview.com/markets/stocks-usa/market-movers-active/" target="_blank" rel="noopener noreferrer">Open movers on TradingView ↗</a>
     </div>
-    <p role="status" className="mb-3 text-xs text-ink-dim">Embedded quotes may be unavailable. EAiOS cannot verify whether TradingView loaded prices. If the widget is blank, retry or open TradingView.</p>
+    <p role="status" className="mb-3 text-xs text-ink-dim">Embedded quotes may be unavailable. 2EP cannot verify whether TradingView loaded prices. If the widget is blank, retry or open TradingView.</p>
     <div ref={host} className={!expanded || failed ? 'hidden' : 'h-[520px] min-w-0'} aria-label="TradingView Active, Gainers and Losers" />
     {failed && <p role="status" className="text-sm text-warn">Stock movers could not load. No market data is confirmed.</p>}
     <p className="mt-3 text-xs text-ink-dim">Active, Gainers and Losers appear inside the official TradingView widget with its attribution. Data may be delayed; blank or unavailable widgets do not confirm prices. Quotes are not copied into the scrolling strip.</p>

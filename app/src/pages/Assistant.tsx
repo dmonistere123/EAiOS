@@ -41,7 +41,7 @@ function SessionTranscriptDrawer({ session, profile, agentName: speakerName, onC
     <Drawer title={session.title} onClose={onClose} width={480}>
       <p className="mb-3 flex items-center gap-2 text-[11px] text-ink-faint">
         <span className="rounded-full border border-edge px-2 py-0.5 font-medium uppercase tracking-wider">read-only</span>
-        <span className="capitalize">{session.source === 'web' ? 'EAiOS' : session.source}</span> · {session.messageCount} messages · {AGENT_NAME} is the only agent you chat with
+        <span className="capitalize">{session.source === 'web' ? '2EP' : session.source}</span> · {session.messageCount} messages · {AGENT_NAME} is the only agent you chat with
       </p>
       {messages === null ? (
         <p className="text-xs text-ink-faint">Loading transcript…</p>
@@ -294,7 +294,7 @@ export default function Assistant() {
                   {sess.source !== 'telegram' && <div className="mt-1 text-xs font-medium text-ink-dim">{new Date(sess.startedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>}
                   {sess.preview && <div className="mt-0.5 truncate text-[11px] text-ink-faint">{sess.preview}</div>}
                   <div className="mt-0.5 flex items-center justify-between text-[11px] text-ink-faint">
-                    <span className="capitalize">{sess.source === 'web' ? 'EAiOS' : sess.source}</span>
+                    <span className="capitalize">{sess.source === 'web' ? '2EP' : sess.source}</span>
                     <span>{sess.messageCount} msg</span>
                   </div>
                 </button>

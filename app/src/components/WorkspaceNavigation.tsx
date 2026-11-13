@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { BRAND } from '../brand';
 
 export const NAV_GROUPS = [
-  { id: 'executive', label: 'EAiOS', icon: '◈', items: [
+  { id: 'executive', label: BRAND.name, icon: '◈', items: [
     { to: '/today', label: 'Today', icon: '☀', module: 'today' },
     { to: '/staff', label: 'Staff', icon: '⛁', module: 'staff' },
     { to: '/assistant', label: 'AI Assistant', icon: '◈', module: 'assistant' },

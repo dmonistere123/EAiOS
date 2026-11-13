@@ -206,7 +206,7 @@ test('an interrupted update records failure and releases its lock', async t => {
   const deadline = Date.now() + 5000;
   while (!existsSync(marker) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
   assert.ok(existsSync(marker), 'fixture reached dependency installation');
-  const concurrent = f.run(); assert.notEqual(concurrent.status, 0); assert.match(concurrent.stderr, /Another EAiOS update/);
+  const concurrent = f.run(); assert.notEqual(concurrent.status, 0); assert.match(concurrent.stderr, /Another 2EP update/);
   child.kill('SIGTERM'); await finished;
   assert.ok(f.rows()[0].finished_at); assert.match(f.rows()[0].error_message, /Terminated/);
   assert.equal(f.run().status, 0, 'lock released after termination');

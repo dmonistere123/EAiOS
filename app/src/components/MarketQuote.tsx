@@ -21,7 +21,7 @@ export function MarketQuote({ symbol }: { symbol: string }) {
       <button type="button" className="text-signal" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? `Hide ${symbol} widget` : `Show ${symbol} widget`}</button>
       {expanded && <button type="button" className="text-signal" onClick={() => setAttempt(value => value + 1)}>Retry {symbol}</button>}
     </div>
-    <p role="status" className="mb-2 text-xs text-ink-dim">Embedded quote may be unavailable. If blank, retry or open TradingView; EAiOS cannot confirm a price.</p>
+    <p role="status" className="mb-2 text-xs text-ink-dim">Embedded quote may be unavailable. If blank, retry or open TradingView; 2EP cannot confirm a price.</p>
     <div ref={host} className={!expanded || failed ? 'hidden' : 'min-h-20'} aria-label={`TradingView quote for ${symbol}`} />
     {failed && <p className="text-sm text-warn">Market widget could not load. No quote is available here.</p>}
     <a className="text-xs text-signal" href={`https://www.tradingview.com/symbols/${symbol.replace(':', '-')}/`} target="_blank" rel="noopener noreferrer">Track {symbol} on TradingView ↗</a>

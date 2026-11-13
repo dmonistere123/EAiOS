@@ -565,8 +565,8 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   /**
-   * Delete a staff agent and its Hermes Desktop profile. The EAiOS server
-   * owns the operation so it can also clear EAiOS-local references (e.g.
+   * Delete a staff agent and its Hermes Desktop profile. The 2EP server
+   * owns the operation so it can also clear 2EP-local references (e.g.
    * allyProfile). This is a WRITE — failures return honest errors, no mock
    * fallback.
    */
@@ -738,7 +738,7 @@ class LiveHermesAdapter implements HermesAdapter {
           await this.kanban<unknown>(['unblock', workItemId]);
           break;
         case 'complete':
-          await this.kanban<unknown>(['complete', workItemId, '--result', note ?? 'Completed by executive from EAiOS']);
+          await this.kanban<unknown>(['complete', workItemId, '--result', note ?? 'Completed by executive from 2EP']);
           break;
         case 'stop':
         case 'delete':
@@ -748,7 +748,7 @@ class LiveHermesAdapter implements HermesAdapter {
           await this.kanban<unknown>(['schedule', workItemId, ...(note ? [note] : [])]);
           break;
         case 'reclaim':
-          await this.kanban<unknown>(['reclaim', workItemId, '--reason', note ?? 'Reclaimed from EAiOS (stale run)']);
+          await this.kanban<unknown>(['reclaim', workItemId, '--reason', note ?? 'Reclaimed from 2EP (stale run)']);
           break;
       }
       this.invalidateTasks();
@@ -1093,7 +1093,7 @@ class LiveHermesAdapter implements HermesAdapter {
    * it — so the listing is the UNION: RPC names first (platform-gated,
    * disabled-filtered), then index-only names (newly created). Caveat:
    * index-only entries skip the RPC's platform/disabled filtering —
-   * acceptable here (no disable feature in EAiOS, F2; box is linux).
+   * acceptable here (no disable feature in 2EP, F2; box is linux).
    */
   async listSkills(): Promise<Skill[]> {
     try {
@@ -1390,7 +1390,7 @@ class LiveHermesAdapter implements HermesAdapter {
       const res = await fetch(`/api/usage?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`);
       if (!res.ok) throw new Error(`usage index ${res.status}`);
       const summary = mapUsageResponse((await res.json()) as UsageIndexResponse);
-      // EAiOS-owned budget rides alongside (F15) — optional enrichment,
+      // 2EP-owned budget rides alongside (F15) — optional enrichment,
       // exactly like the skills-index pattern: missing = no budget set.
       try {
         const s = await fetch('/api/eaios-settings');
@@ -1407,7 +1407,7 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
-  /** Writes go to the EAiOS settings store; failure = error, never mock-pretend. */
+  /** Writes go to the 2EP settings store; failure = error, never mock-pretend. */
   async setUsageBudget(budgetUsd: number | null): Promise<AuditResult> {
     try {
       const res = await fetch('/api/eaios-settings', {
@@ -1485,7 +1485,7 @@ class LiveHermesAdapter implements HermesAdapter {
     return body.media;
   }
 
-  /** Start a backup of Hermes + EAiOS to the chosen media path. Returns a job id to poll. */
+  /** Start a backup of Hermes + 2EP to the chosen media path. Returns a job id to poll. */
   async startBackup(target: string): Promise<{ jobId: string; status: string }> {
     const res = await fetch('/api/backup', {
       method: 'POST',
@@ -1600,7 +1600,7 @@ class LiveHermesAdapter implements HermesAdapter {
       }
     }
     const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-      title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
+      title: `2EP — ${agentId === 'default' ? 'My Assistant' : agentId}`,
       ...profileParams,
     });
     lane.sid = c.session_id;
@@ -1905,7 +1905,7 @@ class LiveHermesAdapter implements HermesAdapter {
     }
     try {
       const c = await this.rpc.call<{ session_id: string; stored_session_id?: string }>('session.create', {
-        title: `EAiOS — ${agentId === 'default' ? 'My Assistant' : agentId}`,
+        title: `2EP — ${agentId === 'default' ? 'My Assistant' : agentId}`,
         ...this.assistantProfileParams(agentId),
       });
       if (!c.session_id) throw new Error('create returned no session id');

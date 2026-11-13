@@ -23,11 +23,15 @@ it('recovers old Settings installer success and never duplicates or overwrites r
   receipt('succeeded', 'b'.repeat(40)); expect(reconcileReleaseArtifact(ctx)).toBe(false);
   receipt(); expect(reconcileReleaseArtifact({ ...ctx, buildVersion: { ...ctx.buildVersion, releaseChannel: 'dev' } })).toBe(false);
   expect(reconcileReleaseArtifact(ctx)).toBe(true);
-  const [row] = listReleaseArtifacts(ctx); expect(row.name).toBe('EAiOS-v0.1.7-Whats-New.md');
+  const [row] = listReleaseArtifacts(ctx); expect(row.name).toBe('2EP-v0.1.7-Whats-New.md');
   expect(releaseArtifact(ctx, row.id)?.content).toContain('Approval fixes.');
   const path = join(root, 'eaios', 'release-notes', `${row.id}.md`);
   writeFileSync(path, 'Kept report'); expect(reconcileReleaseArtifact(ctx)).toBe(true);
   expect(readFileSync(path, 'utf8')).toBe('Kept report'); expect(listReleaseArtifacts(ctx)).toHaveLength(1);
+  writeFileSync(path, '# EAiOS v0.1.7 — Installed update\n\nHistorical report.');
+  expect(reconcileReleaseArtifact(ctx)).toBe(true);
+  expect(releaseArtifact(ctx, row.id)?.filename).toBe('EAiOS-v0.1.7-Whats-New.md');
+  expect(releaseArtifact(ctx, row.id)?.content).toContain('Historical report.');
 });
 it('uses the real CLI SQLite success journal without changing customer data; ignores rollback', () => {
   const { root, ctx } = fixture(); const db = new DatabaseSync(join(root, 'state.db'));

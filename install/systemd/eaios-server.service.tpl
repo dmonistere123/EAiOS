@@ -1,8 +1,8 @@
-# EAiOS production server (Phase 8.2) — serves the built app + all APIs on
+# 2EP production server (Phase 8.2) — serves the built app + all APIs on
 # 127.0.0.1:5200. Rendered from install/systemd/eaios-server.service.tpl by
 # scripts/install-systemd-user.sh — do not hand-edit the rendered copy.
 [Unit]
-Description=EAiOS executive dashboard server (prod)
+Description=2EP executive dashboard server (prod)
 After=network-online.target
 Wants=network-online.target
 

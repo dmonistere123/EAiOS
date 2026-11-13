@@ -67,7 +67,7 @@ for cmd in git node npm uv flock; do command -v "$cmd" >/dev/null || fail "$cmd 
 cd "$EAIOS_ROOT"
 # flock leaves no stale lock after an interrupted process.
 exec 9>"$(git rev-parse --git-path eaios-update.lock)"
-flock -n 9 || fail 'Another EAiOS update is running'
+flock -n 9 || fail 'Another 2EP update is running'
 [[ -z "$(git status --porcelain)" ]] || fail 'Commit or stash local changes (including untracked files) before updating'
 
 OLD_SHA="$(git rev-parse HEAD)"
@@ -138,4 +138,4 @@ if [[ "$APPLY_SCHEDULED_WORK_POLICY" == 1 ]]; then
   python3 "$EAIOS_ROOT/scripts/update-scheduled-work-policy.py" --hermes-home "${HERMES_HOME:-$HOME/.hermes}" --seed-missing --apply
 fi
 SUCCESS=1
-echo "EAiOS $ACTION complete: $OLD_VERSION @ $OLD_SHA -> $(version) @ $(git rev-parse HEAD)"
+echo "2EP $ACTION complete: $OLD_VERSION @ $OLD_SHA -> $(version) @ $(git rev-parse HEAD)"

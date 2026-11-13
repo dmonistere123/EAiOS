@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly EAiOS release check
+Description=Weekly 2EP release check
 
 [Timer]
 OnCalendar=weekly

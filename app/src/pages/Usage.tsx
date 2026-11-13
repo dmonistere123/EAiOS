@@ -116,12 +116,12 @@ function DailySpendCard({ days, thresholdUsd, freshnessAt, onThresholdSaved }: {
         </div>
       )}
 
-      <p className="mt-3 text-xs text-ink-faint">EAiOS rate-card estimate — fresh input + output tokens at public model rates, cache reads excluded (validated within ~5% of provider billing). Over-threshold days also trigger the 6:30am Telegram watchdog.</p>
+      <p className="mt-3 text-xs text-ink-faint">2EP rate-card estimate — fresh input + output tokens at public model rates, cache reads excluded (validated within ~5% of provider billing). Over-threshold days also trigger the 6:30am Telegram watchdog.</p>
     </Card>
   );
 }
 
-/** Monthly budget KPI with inline editor (F15 — EAiOS-owned settings store). */
+/** Monthly budget KPI with inline editor (F15 — 2EP-owned settings store). */
 function BudgetCard({ budgetUsd }: { budgetUsd?: number }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');

@@ -1,5 +1,5 @@
 [Unit]
-Description=Check published EAiOS releases (never installs)
+Description=Check published 2EP releases (never installs)
 After=network-online.target
 Wants=network-online.target
 

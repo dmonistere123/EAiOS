@@ -23,16 +23,16 @@ describe('ConciergeWidget (F26)', () => {
     expect(container.querySelector('[data-brain-hub]')).not.toBeNull();
 
     await user.click(fab);
-    expect(screen.getByRole('region', { name: 'EAiOS navigation concierge' })).toBeInTheDocument();
-    expect(screen.getByText(/Ask where to find a page or how to use EAiOS/)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '2EP navigation concierge' })).toBeInTheDocument();
+    expect(screen.getByText(/Ask where to find a page or how to use 2EP/)).toBeInTheDocument();
     // concierge lane starts empty → example prompt chips show (after hydration)
     expect(await screen.findByRole('button', { name: 'How do approvals work?' })).toBeInTheDocument();
-    expect(screen.getByText("EAiOS Guide")).toBeInTheDocument();
+    expect(screen.getByText("2EP Guide")).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Minimize concierge' }));
-    expect(screen.queryByRole('region', { name: 'EAiOS navigation concierge' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: '2EP navigation concierge' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Expand the navigation concierge' }));
-    expect(screen.getByRole('region', { name: 'EAiOS navigation concierge' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '2EP navigation concierge' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Close concierge' }));
     expect(screen.getByRole('button', { name: 'Open the navigation concierge' })).toBeInTheDocument();

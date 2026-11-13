@@ -96,7 +96,7 @@ describe('writeSkill', () => {
     expect(text).toContain('name: board-memos');
     expect(text).toContain('description: "Draft board memos from notes and metrics."');
     expect(text).toContain('version: 0.1.0');
-    expect(text).toContain('author: EAiOS executive, Hermes Agent');
+    expect(text).toContain('author: 2EP executive, Hermes Agent');
     expect(text).toContain('## When to Use');
   });
 

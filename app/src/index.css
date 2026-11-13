@@ -34,6 +34,42 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 2EP signature identity, using the existing executive workspace palette. */
+.product-header { display:grid; grid-template-columns:auto auto minmax(120px,1fr) auto; align-items:center; gap:20px; flex-shrink:0; padding:18px 24px; border-bottom:1px solid var(--color-edge); }
+.product-brand { min-width:0; }
+.product-brand-line { display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; }
+.product-wordmark { font-size:40px; line-height:1; font-weight:650; letter-spacing:-1.5px; color:var(--color-signal); }
+.product-attribution { font-size:14px; color:var(--color-ink); white-space:nowrap; }
+.product-purpose { margin-top:8px; font-size:12px; font-style:italic; color:var(--color-ink); }
+.product-descriptor { margin-top:2px; font-size:11px; font-style:italic; color:var(--color-ink-dim); }
+.product-header-status { display:flex; flex-wrap:wrap; gap:8px; max-width:220px; overflow-wrap:anywhere; }
+.product-header-search { width:100%; max-width:448px; min-width:0; justify-self:center; }
+.product-header-actions { display:flex; gap:12px; align-items:center; justify-self:end; }
+.product-statement { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px; border:1px solid #27546b; border-radius:12px; background:linear-gradient(110deg,#122e40,var(--color-canvas-raised) 75%); }
+.product-eyebrow { color:var(--color-signal); font-size:11px; text-transform:uppercase; letter-spacing:1.65px; }
+.product-statement h2 { margin-top:9px; font-size:20px; font-weight:550; line-height:1.4; }
+.product-statement .product-descriptor { margin-top:10px; font-size:12px; font-style:normal; }
+.product-statement-mark { flex-shrink:0; font-size:58px; font-weight:600; letter-spacing:-2px; line-height:1; color:#426e82; }
+@media(max-width:1023px) {
+  .product-header { grid-template-columns:minmax(0,1fr) auto; gap:12px 20px; padding:16px 20px; }
+  .product-header-status { grid-column:1; grid-row:2; max-width:none; }
+  .product-header-actions { grid-column:2; grid-row:1; }
+  .product-header-search { grid-column:2; grid-row:2; max-width:300px; }
+}
+@media(max-width:639px) {
+  .product-header { padding:14px 12px; gap:10px; }
+  .product-wordmark { font-size:34px; }
+  .product-brand-line { gap:8px; }
+  .product-attribution { font-size:12px; }
+  .product-header-actions { gap:2px; }
+  .product-header-actions > div { padding:6px; }
+  .product-header-status { grid-column:1/-1; grid-row:2; }
+  .product-header-search { grid-column:1/-1; grid-row:3; max-width:none; }
+  .product-statement { padding:18px; }
+  .product-statement h2 { font-size:18px; }
+  .product-statement-mark { display:none; }
+}
+
 /* Pane drag handles must never trigger text selection (spec §3.3) */
 .eaios-dragging,
 .eaios-dragging * {

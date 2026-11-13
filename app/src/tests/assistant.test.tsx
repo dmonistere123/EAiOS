@@ -74,7 +74,7 @@ describe('live assistant session lifecycle', () => {
     // guide-test lane still uses WS RPC for history (unlike default lane which is bridge-only)
     const history = await live.getAssistantHistory('guide-test');
     expect(calls[0].method).toBe('session.create');
-    expect(calls[0].params.title).toBe('EAiOS — guide-test');
+    expect(calls[0].params.title).toBe('2EP — guide-test');
     expect(localStorage.getItem('eaios.assistant.storedSessionId.guide-test')).toBe('stored-1');
     expect(history.map((m) => m.role)).toEqual(['you', 'ally']); // tool rows dropped
     expect(history[1].text).toBe('hello');
@@ -130,7 +130,7 @@ describe('live assistant session lifecycle', () => {
     });
     const res = await live.sendAssistantMessage('hello quill', { agentId: 'quill' });
     expect(res.ok).toBe(true);
-    expect(calls[0]).toEqual({ method: 'session.create', params: { title: 'EAiOS — quill', profile: 'quill' } });
+    expect(calls[0]).toEqual({ method: 'session.create', params: { title: '2EP — quill', profile: 'quill' } });
     expect(localStorage.getItem('eaios.assistant.storedSessionId.quill')).toBe('stored-quill');
     expect(calls[1]).toEqual({ method: 'prompt.submit', params: { session_id: 'rt-quill', text: 'hello quill' } });
   });

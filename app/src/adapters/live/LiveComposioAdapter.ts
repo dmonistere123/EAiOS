@@ -195,7 +195,7 @@ class LiveComposioAdapter implements ComposioAdapter {
           method: 'POST',
           body: JSON.stringify({
             toolkit: { slug: appKey },
-            auth_config: { type: 'use_composio_managed_auth', name: `EAiOS — ${app?.name ?? appKey}` },
+            auth_config: { type: 'use_composio_managed_auth', name: `2EP — ${app?.name ?? appKey}` },
           }),
         });
         configId = created.auth_config?.id ?? created.auth_config?.nanoid;

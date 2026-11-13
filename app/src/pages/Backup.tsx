@@ -1,4 +1,4 @@
-/** Backup — archive Hermes + EAiOS to removable media (USB). Ollama models excluded. */
+/** Backup — archive Hermes + 2EP to removable media (USB). Ollama models excluded. */
 import { useEffect, useState } from 'react';
 import { Card, SectionTitle, StateBadge } from '../components/ui';
 import { hermes } from '../adapters';
@@ -80,15 +80,15 @@ export default function Backup() {
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Backup</h1>
-        <p className="mt-1 text-sm text-ink-dim">Archive Hermes and EAiOS to removable media. Ollama model weights are not included.</p>
+        <p className="mt-1 text-sm text-ink-dim">Archive Hermes and 2EP to removable media. Ollama model weights are not included.</p>
       </header>
 
       <Card className="p-5">
         <SectionTitle right={<StateBadge label="offline-safe" tone="ok" />}>What gets backed up</SectionTitle>
         <ul className="space-y-2 text-sm text-ink-dim">
           <li className="flex items-start gap-2"><span className="text-ok">✓</span> Hermes home directory (~/.hermes) — profiles, skills, state, kanban, memories</li>
-          <li className="flex items-start gap-2"><span className="text-ok">✓</span> EAiOS application directory (~/eaios) — repo, playbooks, code</li>
-          <li className="flex items-start gap-2"><span className="text-ok">✓</span> EAiOS data — settings, dismissed items, update log</li>
+          <li className="flex items-start gap-2"><span className="text-ok">✓</span> 2EP application directory (~/eaios) — repo, playbooks, code</li>
+          <li className="flex items-start gap-2"><span className="text-ok">✓</span> 2EP data — settings, dismissed items, update log</li>
           <li className="flex items-start gap-2"><span className="text-ok">✓</span> User systemd services — Ollama, eaios-hermes-serve, eaios-server, etc.</li>
           <li className="flex items-start gap-2"><span className="text-risk">✗</span> Ollama LLM models — excluded to keep the archive portable</li>
         </ul>

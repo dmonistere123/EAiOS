@@ -304,7 +304,7 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
     const res = await hermes.deleteAgent(agent.id);
     setDeleteBusy(false);
     if (res.ok) {
-      toast('ok', `${agent.name} deleted from EAiOS and Hermes Desktop.`);
+      toast('ok', `${agent.name} deleted from 2EP and Hermes Desktop.`);
       await refreshAgents();
       onClose();
     } else {
@@ -426,7 +426,7 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
               <>
                 <div className="text-xs font-medium text-risk">Delete agent</div>
                 <p className="mt-1 text-[11px] text-ink-dim">
-                  This removes <strong>{agent.name}</strong> from EAiOS and deletes its Hermes Desktop profile. Cannot be undone.
+                  This removes <strong>{agent.name}</strong> from 2EP and deletes its Hermes Desktop profile. Cannot be undone.
                 </p>
                 <button
                   onClick={() => setConfirmDelete(true)}
@@ -439,7 +439,7 @@ function AgentPropertiesDrawer({ agent, onClose }: { agent: Agent; onClose: () =
               <>
                 <div className="text-xs font-medium text-risk">Are you sure?</div>
                 <p className="mt-1 text-[11px] text-ink-dim">
-                  Confirm to permanently delete the <code className="font-mono">{agent.id}</code> profile from EAiOS and Hermes Desktop.
+                  Confirm to permanently delete the <code className="font-mono">{agent.id}</code> profile from 2EP and Hermes Desktop.
                 </p>
                 <div className="mt-2 flex gap-2">
                   <button

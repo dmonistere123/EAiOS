@@ -144,7 +144,7 @@ export function buildSkillMarkdown(input: SkillInput): string {
     `name: ${input.name}\n` +
     `description: ${esc(input.description)}\n` +
     `version: 0.1.0\n` +
-    `author: EAiOS executive, Hermes Agent\n` +
+    `author: 2EP executive, Hermes Agent\n` +
     `license: MIT\n` +
     `platforms: [linux, macos, windows]\n` +
     `metadata:\n` +

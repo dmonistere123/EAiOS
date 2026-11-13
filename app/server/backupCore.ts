@@ -1,12 +1,12 @@
 /**
- * Backup core — archives the Hermes home, EAiOS repo, and EAiOS data root to a
+ * Backup core — archives the Hermes home, 2EP repo, and 2EP data root to a
  * tar.gz on removable media. Runs as an async job: startBackupJob() returns
  * immediately and the tar runs in the background; listJobs() reports progress
  * (archive size growth) and completion.
  *
  * Ollama LLM model weights are NEVER included (task requirement). The Hermes
  * agent runtime, node runtime, LSP servers, node_modules, build output, and
- * the sidecar venv are excluded because the EAiOS/Hermes installers recreate
+ * the sidecar venv are excluded because the 2EP/Hermes installers recreate
  * them; they would multiply archive size for zero restore value. The Hermes
  * browser profile IS included — it holds logged-in sessions that are painful
  * to restore by hand.
@@ -210,7 +210,7 @@ function parseByteString(s: string): number | undefined {
 }
 
 /**
- * Resolve the backup plan: deduplicated source list (EAiOS repo and data root
+ * Resolve the backup plan: deduplicated source list (2EP repo and data root
  * are the same directory on this box) plus tar exclude patterns. Patterns
  * without '/' match any path component (GNU tar semantics); patterns with '/'
  * match a leading directory of an archive member.
@@ -224,8 +224,8 @@ export function getBackupPlan(roots: BackupRoots): BackupPlan {
     seen.add(r);
     sources.push({ name, path });
   };
-  add('EAiOS application', roots.eaiosRoot);
-  add('EAiOS data', roots.eaiosDataRoot);
+  add('2EP application', roots.eaiosRoot);
+  add('2EP data', roots.eaiosDataRoot);
   add('User systemd services', roots.systemdUser);
 
   const hh = basename(roots.hermesHome);

@@ -1,9 +1,9 @@
-# EAiOS production server — Tailscale/front-door instance on 127.0.0.1:5173.
+# 2EP production server — Tailscale/front-door instance on 127.0.0.1:5173.
 # Same prod.ts as eaios-server.service (:5200), second port so an external
 # reverse proxy can front PROD. Rendered from
 # install/systemd/eaios-server-5173.service.tpl — do not hand-edit.
 [Unit]
-Description=EAiOS executive dashboard server (prod, front door :5173)
+Description=2EP executive dashboard server (prod, front door :5173)
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0

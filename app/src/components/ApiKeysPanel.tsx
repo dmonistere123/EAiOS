@@ -64,7 +64,7 @@ export function ApiKeysPanel() {
     {preview && <p className="mt-3 text-xs text-warn">Isolated test preview: saved keys stay in this preview, separate from production.</p>}
     <p className="my-3 text-xs text-ink-dim">{section === 'social' ? 'OpenRouter writes posts; OpenAI creates images. These are the same shared keys used by Assistant & tools, not separate copies. Enter them once; Social Media uses saved changes immediately.' : API_KEY_SCOPES[scope].help}</p>
     {section === 'social' && <div className="mb-3 flex flex-wrap gap-4 text-xs text-signal"><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get an OpenRouter key ↗</a><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">Get an OpenAI key ↗</a><a href="/social">Return to Social Media →</a></div>}
-    {!live ? <p className="text-sm text-warn">Key editing is unavailable in the mock preview. Use the connected EAiOS application.</p> : <>
+    {!live ? <p className="text-sm text-warn">Key editing is unavailable in the mock preview. Use the connected 2EP application.</p> : <>
       {error && <div role="alert" className="mb-3 text-sm text-warn">{error} <button onClick={reloadStatus} className="underline">Reload key settings</button></div>}
       {!data && !error && <p className="text-sm text-ink-dim">Loading key status…</p>}
       {data && data.scope === scope && <div className="grid gap-3 md:grid-cols-2">{data.keys.filter(row => section !== 'social' || ['OPENROUTER_API_KEY', 'OPENAI_API_KEY'].includes(row.key)).map(row => <KeyRow social={section === 'social'} key={`${section}-${row.key}`} row={row} scope={scope} version={data.version} onSaved={reloadAfterSave} disabled={!!error} />)}</div>}

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { adapterMode, humanDelegation, today } from '../adapters';
 import { EXECUTIVE_NAME } from '../config';
+import { BrandStatement } from '../components/Brand';
 import { useRuntime, refreshWork, refreshApprovals } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import { Card, Drawer, EmptyState, KpiCard, SectionTitle, StateBadge, RelativeTime } from '../components/ui';
@@ -71,6 +72,7 @@ export default function Today() {
   }
   return <div className="space-y-6 pb-6">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-signal">Your executive operating system</p><h1 className="mt-1 text-2xl font-semibold">Today</h1><p className="mt-1 text-sm text-ink-dim">{new Date(now).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})} · {EXECUTIVE_NAME}, here’s what needs your attention.</p></div><div className="flex flex-wrap gap-2"><button onClick={()=>setSavedWork(true)} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim">Saved tasks</button><button className="rounded-lg border border-edge px-3 py-2 text-xs" onClick={()=>{setNow(Date.now());setRefresh(n=>n+1);void Promise.allSettled([refreshWork(),refreshApprovals()]);}}>Refresh</button><button onClick={()=>setNewDelegation(true)} className="rounded-lg border border-signal/40 px-3 py-2 text-xs font-medium text-signal">＋ New delegated task</button></div></header>
+    <BrandStatement />
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <KpiCard label="Priorities" value={ready?`${queue.length}${incomplete?'+':''}`:'—'} hint={incomplete?'Partial view · check sources':'Unique items to track'}/>
       <KpiCard label="Delegatable" value={activity?recommendations.length:'—'} hint="From Executive Insights" tone="ok"/>

@@ -141,7 +141,7 @@ export function ConciergeWidget() {
 
   return (
     <section
-      aria-label="EAiOS navigation concierge"
+      aria-label="2EP navigation concierge"
       style={{ bottom: 'calc(var(--ticker-height, 0px) + 24px)' }} className="eaios-concierge-panel fixed bottom-6 right-6 z-30 flex h-[30rem] max-h-[calc(100vh-4rem)] w-96 max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-xl border border-edge bg-canvas-raised shadow-2xl"
     >
       {loadError && <div role="alert" className="px-4 py-2 text-xs text-warn">{loadError} <button onClick={() => { setReady(false); setRetry(n => n + 1); }} className="underline">Retry</button></div>}
@@ -149,7 +149,7 @@ export function ConciergeWidget() {
         <BrainGlyph className="h-6 w-6 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-ink">Concierge</div>
-          <div className="truncate text-[11px] text-ink-faint">EAiOS Guide</div>
+          <div className="truncate text-[11px] text-ink-faint">2EP Guide</div>
         </div>
         <button
           onClick={() => void newChat()}
@@ -171,7 +171,7 @@ export function ConciergeWidget() {
       {(sending || streaming !== null) && hermes.cancelConcierge && <button type="button" onClick={() => hermes.cancelConcierge?.()} className="px-4 py-2 text-xs text-warn">Cancel reply</button>}
       <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
         <div className="rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-ink-dim">
-          Ask where to find a page or how to use EAiOS. I can explain the steps; I cannot see your screen or perform actions.
+          Ask where to find a page or how to use 2EP. I can explain the steps; I cannot see your screen or perform actions.
         </div>
         {ready && thread.length === 0 && (
           <div className="flex flex-wrap gap-1.5">
