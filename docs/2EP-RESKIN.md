@@ -6,7 +6,7 @@ The executive application now uses the approved Signature header identity:
 - *Enhanced Executive Performance*
 - *An Executive AI Operating System*
 
-The shared header, Today brand statement, executive navigation group, browser title and favicon carry this identity. The existing navy/cyan palette, expandable navigation, orbital Staff page, Ally identity, operational rail and module selection remain in place. Header tools reflow at tablet/mobile widths.
+The shared header, Today brand statement, executive navigation group, browser title and favicon carry this identity. The existing navy/cyan palette, expandable navigation, orbital Staff page, Ally identity, operational rail and module selection remain in place. The two supporting lines sit to the right of “2EP by Allygnment,” separated by a subtle divider, to keep the desktop header compact. Header tools reflow at tablet/mobile widths.
 
 Application help, voice copy, new conversation titles, new assistant-workspace labels and installer-facing messages use 2EP. The repository-owned concierge and new-agent instruction templates have naming changes only; no live agent instructions are rewritten. Existing release reports retain their historical download names and contents. Newly generated reports use 2EP.
 

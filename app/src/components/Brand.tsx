@@ -3,8 +3,10 @@ import { BRAND } from '../brand';
 export function BrandLockup() {
   return <div className="product-brand">
     <div className="product-brand-line"><span className="product-wordmark">{BRAND.name}</span><span className="product-attribution">{BRAND.attribution}</span></div>
-    <p className="product-purpose">{BRAND.purpose}</p>
-    <p className="product-descriptor">{BRAND.descriptor}</p>
+    <div className="product-brand-copy">
+      <p className="product-purpose">{BRAND.purpose}</p>
+      <p className="product-descriptor">{BRAND.descriptor}</p>
+    </div>
   </div>;
 }
 
