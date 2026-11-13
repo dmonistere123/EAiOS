@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../../config';
 import type { TravelPlace, TravelShortlist } from '../../domain/travelGuide';
 import type { TravelPlanInput, TravelAction } from '../../domain/travelPlan';
 /**
@@ -122,7 +123,7 @@ class MockHermesAdapter implements HermesAdapter {
       approvalsWaiting: this.approvals.filter((a) => a.status === 'pending').length,
       nextMeetingAt: fx.calendarEvents.find((e) => e.source === 'executive')?.startsAt,
       nextMeetingLabel: fx.calendarEvents.find((e) => e.source === 'executive')?.title,
-      headline: 'Ally is drafting the investor update; 3 items need your decision.',
+      headline: `${AGENT_NAME} is drafting the investor update; 3 items need your decision.`,
     };
   }
 
@@ -483,7 +484,7 @@ class MockHermesAdapter implements HermesAdapter {
   async setAllyProfile(profile: string | null): Promise<AuditResult> {
     await delay(150);
     this.allyProfile = profile;
-    this.emit('config.changed', undefined, profile === null ? 'Ally profile reset to default' : `Ally profile set to ${profile}`);
+    this.emit('config.changed', undefined, profile === null ? `${AGENT_NAME} profile reset to default` : `${AGENT_NAME} profile set to ${profile}`);
     return audit();
   }
 
@@ -750,7 +751,7 @@ class MockHermesAdapter implements HermesAdapter {
   // the navigation widget); the default lane keeps the seeded greeting and
   // its singleton-persistence semantics across tests in a file.
   private assistantThreads = new Map<string, ChatMessage[]>([
-    ['default', [{ id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() }]],
+    ['default', [{ id: 'm-1', role: 'ally', text: `Morning. I'm ${AGENT_NAME} — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.`, at: new Date().toISOString() }]],
   ]);
   private assistantHandlers = new Map<string, Set<(e: AssistantEvent) => void>>();
 
@@ -787,7 +788,7 @@ class MockHermesAdapter implements HermesAdapter {
       : '';
     const fullText = text + attachmentNote;
     thread.push({ id: `m-${Date.now()}-u`, role: 'you', text: fullText, at: new Date().toISOString() });
-    const reply = `On it — "${text.slice(0, 60)}"${opts.attachments?.length ? ` with ${opts.attachments.length} attachment${opts.attachments.length === 1 ? '' : 's'}` : ''}. (Mock reply: live mode streams Ally's real answer through the gateway; external actions would route through Approvals.) Grounded in your knowledge base: eaios://chunk/k-01-0`;
+    const reply = `On it — "${text.slice(0, 60)}"${opts.attachments?.length ? ` with ${opts.attachments.length} attachment${opts.attachments.length === 1 ? '' : 's'}` : ''}. (Mock reply: live mode streams ${AGENT_NAME}'s real answer through the gateway; external actions would route through Approvals.) Grounded in your knowledge base: eaios://chunk/k-01-0`;
     const handlers = this.assistantLaneHandlers(agentId);
     const emit = (e: AssistantEvent) => handlers.forEach((h) => h(e));
     setTimeout(() => {
@@ -810,12 +811,12 @@ class MockHermesAdapter implements HermesAdapter {
 
   // ----- mock assistant sessions + channels (W1, D-B1/D-B2) -----
   private freshGreeting(): ChatMessage {
-    return { id: 'm-1', role: 'ally', text: "Morning. I'm Ally — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.", at: new Date().toISOString() };
+    return { id: 'm-1', role: 'ally', text: `Morning. I'm ${AGENT_NAME} — chief of staff. Ask me to draft something, dig into a number, or schedule work across the team.`, at: new Date().toISOString() };
   }
 
   private sessionIndex: Record<string, AssistantSessionRef[]> = {
     ally: [
-      { id: 'sess-ally-2', title: '2EP — My Assistant', preview: "Morning. I'm Ally — chief of staff…", startedAt: new Date(Date.now() - 3600_000).toISOString(), messageCount: 3, source: 'desktop' },
+      { id: 'sess-ally-2', title: '2EP — My Assistant', preview: `Morning. I'm ${AGENT_NAME} — chief of staff…`, startedAt: new Date(Date.now() - 3600_000).toISOString(), messageCount: 3, source: 'desktop' },
       { id: 'sess-ally-1', title: 'Morning review', preview: 'What needs my attention before the board call?', startedAt: new Date(Date.now() - 20 * 3600_000).toISOString(), messageCount: 12, source: 'telegram' },
     ],
     scout: [
@@ -934,7 +935,7 @@ class MockHermesAdapter implements HermesAdapter {
       const name = id.replace(/^soul-/, '');
       const content = this.soulContents.get(id) ?? `# ${name} — Operating Identity\n\nMock SOUL.md for ${name} — persona, rules, priorities. Edits persist (version-checked).\n`;
       return {
-        ref: { id, name: name === 'ally' || name === 'default' ? 'SOUL.md (Ally — default profile)' : `SOUL.md (${name})`, path: name === 'ally' || name === 'default' ? '~/.hermes/SOUL.md' : `~/.hermes/profiles/${name}/SOUL.md` },
+        ref: { id, name: name === 'ally' || name === 'default' ? `SOUL.md (${AGENT_NAME} — default profile)` : `SOUL.md (${name})`, path: name === 'ally' || name === 'default' ? '~/.hermes/SOUL.md' : `~/.hermes/profiles/${name}/SOUL.md` },
         content,
         version: String(content.length),
       };
@@ -942,7 +943,7 @@ class MockHermesAdapter implements HermesAdapter {
     const refs = await this.listEditableEnvironmentFiles();
     const ref = refs.find((r) => r.id === id)!;
     const content = id === 'env-01'
-      ? '# Ally — Operating Identity\n\nYou are Ally, chief of staff to the executive.\n\n## Voice\nCrisp, warm, direct. Summary first, detail on request.\n\n## Priorities\n1. Protect the executive’s time\n2. Never send externally without approval\n'
+      ? `# ${AGENT_NAME} — Operating Identity\n\nYou are ${AGENT_NAME}, chief of staff to the executive.\n\n## Voice\nCrisp, warm, direct. Summary first, detail on request.\n\n## Priorities\n1. Protect the executive’s time\n2. Never send externally without approval\n`
       : 'OPERATING RULES\n\n1. External writes require approval.\n2. Escalate critical-risk items immediately.\n3. Weekly metrics digest ships Friday 16:00.\n';
     return { ref, content, version: String(content.length) };
   }

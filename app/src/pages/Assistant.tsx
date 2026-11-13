@@ -145,7 +145,7 @@ export default function Assistant() {
             if (active && revision === eventRevision && last?.role === 'ally' && last.text === e.text) setThread(rows);
           }).catch(() => { /* the delivered reply remains visible */ });
         } else {
-          setChatError('Ally returned no text. Please try again or check Conversations.');
+          setChatError(`${AGENT_NAME} returned no text. Please try again or check Conversations.`);
         }
       } else if (e.kind === 'error') {
         setStreaming(null);
@@ -488,7 +488,7 @@ export default function Assistant() {
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
                     <span className="eaios-typing-dot" />
-                    <span className="ml-2 text-xs text-ink-dim">{progress || 'Waiting for Ally…'}</span>
+                    <span className="ml-2 text-xs text-ink-dim">{progress || `Waiting for ${AGENT_NAME}…`}</span>
                   </div>
                 )}
               </div>

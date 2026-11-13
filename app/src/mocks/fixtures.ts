@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../config';
 /**
  * Deterministic mock fixtures (spec §13). Timestamps are relative to load time
  * so the demo always looks alive. Scenario S2 "Busy Day" is the default.
@@ -23,7 +24,7 @@ const plus = (m: number) => new Date(now + m * 60_000).toISOString();
 export const agents: Agent[] = [
   {
     id: 'ally',
-    name: 'Ally',
+    name: AGENT_NAME,
     role: 'Chief of Staff / Orchestrator',
     model: { provider: 'kimi-coding', model: 'kimi-k3' },
     availableModels: [
@@ -91,7 +92,7 @@ export const agents: Agent[] = [
 export const workItems: WorkItem[] = [
   { id: 'w-01', title: 'Review Q3 board deck narrative', summary: 'Final pass before Friday', priority: 'critical', ownerType: 'executive', state: 'ready', dueAt: plus(60 * 26), createdAt: min(60 * 20), updatedAt: min(30) },
   { id: 'w-02', title: 'Approve partnership announcement', summary: 'PR is drafted; legal signed off', priority: 'high', ownerType: 'executive', state: 'waiting_approval', dueAt: plus(60 * 6), createdAt: min(60 * 30), updatedAt: min(45) },
-  { id: 'w-03', title: 'Prepare investor update email', summary: 'Ally drafting with Quill', priority: 'high', ownerType: 'agent', ownerId: 'ally', state: 'in_progress', dueAt: plus(60 * 20), createdAt: min(60 * 5), updatedAt: min(4) },
+  { id: 'w-03', title: 'Prepare investor update email', summary: `${AGENT_NAME} drafting with Quill`, priority: 'high', ownerType: 'agent', ownerId: 'ally', state: 'in_progress', dueAt: plus(60 * 20), createdAt: min(60 * 5), updatedAt: min(4) },
   { id: 'w-04', title: 'Weekly metrics review', priority: 'medium', ownerType: 'executive', state: 'ready', delegationCandidate: true, dueAt: plus(60 * 30), createdAt: min(60 * 26), updatedAt: min(120) },
   { id: 'w-05', title: 'Customer newsletter — September', priority: 'medium', ownerType: 'agent', ownerId: 'quill', state: 'waiting_approval', delegationCandidate: true, createdAt: min(60 * 8), updatedAt: min(12) },
   { id: 'w-06', title: 'Competitor pricing sweep', priority: 'medium', ownerType: 'executive', state: 'new', delegationCandidate: true, createdAt: min(60 * 3), updatedAt: min(60 * 3) },
@@ -123,7 +124,7 @@ export const approvals: Approval[] = [
 ];
 
 export const cronJobs: CronJob[] = [
-  { id: 'c-01', name: 'Morning briefing → Ally\'s Portal', scheduleExpression: '0 7 * * *', nextRunAt: plus(60 * 19), ownerAgentId: 'ally', approvalPolicy: 'pre_approved', lastResult: 'success', enabled: true, prompt: 'Check Gmail for overnight emails, summarize key messages from executives and team leads, pull calendar events for today, and deliver a morning digest to the Ally Portal Telegram group.' },
+  { id: 'c-01', name: `Morning briefing → ${AGENT_NAME}'s Portal`, scheduleExpression: '0 7 * * *', nextRunAt: plus(60 * 19), ownerAgentId: 'ally', approvalPolicy: 'pre_approved', lastResult: 'success', enabled: true, prompt: `Check Gmail for overnight emails, summarize key messages from executives and team leads, pull calendar events for today, and deliver a morning digest to the ${AGENT_NAME} Portal Telegram group.` },
   { id: 'c-02', name: 'Competitor news digest', scheduleExpression: '*/4h', nextRunAt: plus(75), ownerAgentId: 'scout', approvalPolicy: 'approval_on_result', lastResult: 'success', enabled: true, prompt: 'Scan news feeds and industry blogs for mentions of our top 5 competitors (Threaded Fasteners, AutoBolt, etc.). Summarize notable announcements, pricing changes, and new product launches. Flag anything that needs a response.' },
   { id: 'c-03', name: 'Expense anomaly scan', scheduleExpression: '0 18 * * 5', nextRunAt: plus(60 * 52), ownerAgentId: 'ledger', approvalPolicy: 'always_approve', lastResult: 'success', enabled: true, prompt: 'Review the week\'s expense reports and credit card transactions. Flag any entries outside normal patterns — duplicate charges, unusual merchant categories, amounts over $500 without prior approval. Produce a digest for the finance review.' },
   { id: 'c-04', name: 'Uptime watchdog — allygnment.com', scheduleExpression: '*/15m', nextRunAt: plus(9), ownerAgentId: 'sentinel', approvalPolicy: 'pre_approved', lastResult: 'failed', enabled: true, prompt: 'Ping allygnment.com and key subdomains (app.allygnment.com, api.allygnment.com) every 15 minutes. If any endpoint returns non-200 or takes longer than 5 seconds, escalate to Don via Telegram with response time and HTTP status code.' },

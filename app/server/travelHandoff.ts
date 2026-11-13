@@ -1,3 +1,4 @@
+import { assistantName } from './identity.ts';
 import { issueAssistantAccess } from './humanCompletion.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
@@ -12,9 +13,9 @@ import type { HumanChecklistItem } from '../src/domain/humanDelegation.ts';
 export function bookingTitle(b:TravelBooking):string {
   return b.title || (b.kind==='flight'?`${b.airline} ${b.flightNumber} · ${b.origin} → ${b.destination}`:b.kind==='hotel'?b.hotelName:b.kind==='car'?`${b.company} ${b.carType}`:b.restaurantName);
 }
-export function itineraryText(t:TravelTrip,instructions:string):string {
+export function itineraryText(t:TravelTrip,instructions:string,name=assistantName()):string {
   return [`ITINERARY — BOOKING REQUEST (NOT A RESERVATION)`,t.name,`${t.destination} · ${t.startsAt} to ${t.endsAt}`,
-    `Reason for travel: ${t.purpose||'Not specified'}`,`Arrival airport: ${t.destinationPlace?.name||'Not specified'}`,`Stay location: ${t.destination}`,`Dining location: ${t.diningLocation||t.destination}`,`Trip brief: ${t.tripNotes||'Not specified'}`,`Airline requirement: ${t.airlinePolicy==='only'?'Only the stated airlines':'Preference; alternatives allowed'}`,`Planning conversation\n${(t.conversation??[]).map(m=>`${m.role==='user'?'Executive':'Ally'}: ${m.text}`).join('\n')}`,
+    `Reason for travel: ${t.purpose||'Not specified'}`,`Arrival airport: ${t.destinationPlace?.name||'Not specified'}`,`Stay location: ${t.destination}`,`Dining location: ${t.diningLocation||t.destination}`,`Trip brief: ${t.tripNotes||'Not specified'}`,`Airline requirement: ${t.airlinePolicy==='only'?'Only the stated airlines':'Preference; alternatives allowed'}`,`Planning conversation\n${(t.conversation??[]).map(m=>`${m.role==='user'?'Executive':name}: ${m.text}`).join('\n')}`,
     `Prepared: ${new Date().toISOString()}`,`Budget: ${t.budgetUsd===undefined?'Not specified':'USD '+t.budgetUsd}`,
     `Preferences: airlines ${t.preferredAirlines||'any'}; hotels ${t.preferredHotels||'any'}; dining ${t.diningPreferences||'not specified'}`,
     `Rental car requested: ${t.needsCar?'yes':'no'}`,
@@ -38,7 +39,7 @@ export function tripChecklist(t:TravelTrip):HumanChecklistItem[] {
 export async function prepareTravelHandoff(ctx:KeyContext,tripId:string,input:Record<string,unknown>,identity:MailboxIdentity) {
   const trip=await getTrip(tripId,ctx.dataRoot??ctx.eaiosRoot);
   if(!trip)throw new TravelApiError(404,'Trip not found.');
-  if(trip.planningQuestion)throw new TravelApiError(409,'Resolve Ally’s trip question before handing off: '+trip.planningQuestion);
+  if(trip.planningQuestion)throw new TravelApiError(409,`Resolve ${assistantName(ctx)}’s trip question before handing off: `+trip.planningQuestion);
   if(typeof input.contactId!=='string'||typeof input.instructions!=='string'||input.instructions.length>8000)throw new TravelApiError(400,'Choose an assistant and valid instructions.');
   if(!trip.bookings.some(b=>b.status!=='cancelled'))throw new TravelApiError(400,'Select at least one itinerary item first.');
   if(trip.bookings.some(b=>['submitting','unknown'].includes(b.status)))throw new TravelApiError(409,'Resolve the existing provider booking outcome before delegating this trip.');
@@ -55,7 +56,7 @@ export async function prepareTravelHandoff(ctx:KeyContext,tripId:string,input:Re
     const already=db.prepare('SELECT id FROM task_attachments WHERE task_id=?').get(taskId);
     if(already)artifactId='att-'+already.id;
     else {
-      const text=itineraryText(trip,input.instructions),file=join(folder,randomUUID()+'.txt');
+      const text=itineraryText(trip,input.instructions,assistantName(ctx)),file=join(folder,randomUUID()+'.txt');
       writeFileSync(file,text,{mode:0o600,flag:'wx'});
       try {
         db.prepare("INSERT INTO tasks(id,title,body,status,created_at) VALUES(?,?,?,'blocked',?)").run(taskId,'Book travel: '+trip.name,'Human booking request. Selected itinerary saved as an attachment. No AI execution.',Date.now()/1000);

@@ -28,11 +28,11 @@ The installer:
 2. Ensures Node.js >= 24 is installed.
 3. Ensures Hermes Agent is installed.
 4. Clones or uses the EAiOS repo.
-5. Runs `npm ci` and `npm run build`.
+5. Installs app dependencies with `npm ci`.
 6. Sets up the sidecar Python venv (`sidecar/.venv`) with knowledge + podcast dependencies from `sidecar/requirements.txt`.
 7. Generates a dev token and creates `app/.env.local` from the template.
 8. Creates `sidecar/.env` from `sidecar/.env.example` for optional Podcast TTS/provider keys.
-9. Renders and installs systemd user units.
+9. Builds the app after the box’s identity and live settings exist, then renders and installs systemd user units.
 10. Starts services and runs verification probes.
 
 ## Agent name
@@ -40,20 +40,24 @@ The installer:
 During install you will be prompted:
 
 ```
-Name your orchestration agent [Ally]:
+Orchestrator name [Ally]:
 ```
 
-Whatever you enter becomes the display name throughout the 2EP UI (chat header, placeholders, travel assistant, cron prompts, etc.). It is written to `app/.env.local` as `VITE_AGENT_NAME`.
+Your choice becomes the assistant display name throughout 2EP, including Executive Insights, Today, Travel, voice, chat and new itinerary labels. The installer saves it as `VITE_AGENT_NAME` in the private `app/.env.local`. Core and Full use the same identity configuration; rerunning the installer preserves an existing file byte for byte. Names with spaces, apostrophes and accents are supported.
 
 The installer uses the existing default Hermes profile as the orchestrator. It does not create specialist profiles. New agents are created only later through an explicit Staff → Add agent action.
 
 Per-box identity and delivery values live in the gitignored `app/.env.local`, never in application source:
 
 ```dotenv
-VITE_AGENT_NAME=Pepper
-VITE_EXECUTIVE_NAME=Austin
+VITE_AGENT_NAME="Pepper"
+VITE_EXECUTIVE_NAME="Austin"
 VITE_TELEGRAM_HOME_DELIVERY=telegram:-1001234567890
 ```
+
+At startup, the browser reads `/api/identity` from its own server before loading pages and adapters. The server reads the active release’s private env file (including the updater’s preserved symlink), then the persistent data root if needed, then environment-only configuration. Only assistant/executive display names are returned, never credentials. Changing the saved display name takes effect after a page reload; no frontend rebuild is needed. If identity cannot be loaded, the UI uses “AI Assistant,” not another machine’s bundled name.
+
+This changes display names and newly generated app messages. It does not rewrite saved conversations/reports, change internal profile IDs, or edit the assistant’s SOUL/persona instructions.
 
 The Telegram destination is optional. If it is absent, scheduled Telegram delivery stays disabled rather than falling back to another box's recipient.
 

@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../config';
 import { useOutletContext } from 'react-router-dom';
 import { TickerSettings } from '../components/TickerSettings';
 import { HumanAssistantPanel } from '../components/HumanAssistantPanel';
@@ -186,7 +187,7 @@ function AllyProfileSelector() {
     const res = await hermes.setAllyProfile(profile || null);
     setSaving(false);
     if (res.ok) {
-      toast('ok', `Ally profile saved to ${profile ? profiles.find((p) => p.id === profile)?.name ?? profile : 'Default'}.`);
+      toast('ok', `${AGENT_NAME} profile saved to ${profile ? profiles.find((p) => p.id === profile)?.name ?? profile : 'Default'}.`);
     } else {
       toast('error', res.error?.safeMessage ?? 'Profile save failed.');
     }
@@ -194,7 +195,7 @@ function AllyProfileSelector() {
 
   return (
     <Card className="p-5">
-      <SectionTitle right={<StateBadge label="live" tone="ok" />}>Ally chat model profile</SectionTitle>
+      <SectionTitle right={<StateBadge label="live" tone="ok" />}>{AGENT_NAME} chat model profile</SectionTitle>
       <label className="block text-xs text-ink-dim" htmlFor="ally-profile">Profile for the My Assistant chat lane</label>
       <select
         id="ally-profile"

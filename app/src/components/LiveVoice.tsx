@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../config';
 import { useEffect, useRef, useState } from 'react';
 import { hermes } from '../adapters';
 import type { AssistantConversation, RequestView } from '../domain/assistantRequest';
@@ -27,7 +28,7 @@ export function LiveVoice({conversation,history,disabled,onStart,onAccepted}:{co
   binding.current=latest.current.conversation ?? null;latest.current.onStart();
   const seen=new Set<string>();let queue=Promise.resolve();
   const live=new VoiceLiveSession({
-   onReady:()=>{if(generation.current===epoch){setState('listening');live.instruct('You are Ally, the voice assistant in 2EP. Refer to the application as 2EP. Outbound communications require the executive to approve in the 2EP Approvals module. Spoken agreement does not bypass that approval workflow.');}},
+   onReady:()=>{if(generation.current===epoch){setState('listening');live.instruct(`You are ${AGENT_NAME}, the voice assistant in 2EP. Refer to the application as 2EP. Outbound communications require the executive to approve in the 2EP Approvals module. Spoken agreement does not bypass that approval workflow.`);}},
    onClosed:()=>{if(generation.current===epoch){session.current=null;generation.current++;setState('off');setMuted(false);}},
    onError:(message,fatal)=>{if(generation.current===epoch){setError(message);if(fatal)stop();}},
    onSpeakingChange:speaking=>{if(generation.current===epoch)setState(speaking?'speaking':'listening');},
@@ -79,11 +80,11 @@ export function LiveVoice({conversation,history,disabled,onStart,onAccepted}:{co
    {state==='off'?<button type="button" disabled={disabled} onClick={()=>void start()} className="rounded-lg bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:opacity-50">Start voice mode</button>:<>
     <button type="button" onClick={stop} className="rounded-lg border border-risk px-3 py-2 text-sm">End voice mode</button>
     <button type="button" onClick={()=>{session.current?.setMuted(!muted);setMuted(!muted);}} className="text-sm text-signal">{muted?'Unmute microphone':'Mute microphone'}</button>
-    <span role="status" className="text-xs text-ink-dim">{muted?'Microphone muted':state==='connecting'?'Connecting…':state==='working'?'Working on your request…':state==='speaking'?'Ally is speaking':'Listening — you can speak naturally'}</span>
+    <span role="status" className="text-xs text-ink-dim">{muted?'Microphone muted':state==='connecting'?'Connecting…':state==='working'?'Working on your request…':state==='speaking'?`${AGENT_NAME} is speaking`:'Listening — you can speak naturally'}</span>
    </>}
   </div>
   {state==='off'&&<p className="mt-2 text-xs text-ink-dim">Uses your Hermes live voice settings. Spoken work requests use the same approvals as typed requests.</p>}
   {error&&<p role="alert" className="mt-2 text-xs text-risk">{error}</p>}
-  {captions.length>0&&<details className="mt-2 text-xs text-ink-dim"><summary>Live captions</summary><div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap">{captions.map((c,i)=><span key={i}>{i===0||captions[i-1].speaker!==c.speaker?`\n${c.speaker==='user'?'You':'Ally'}: `:''}{c.text}</span>)}</div><p>Work requests and answers are saved in the chat. These live captions last until the next voice session.</p></details>}
+  {captions.length>0&&<details className="mt-2 text-xs text-ink-dim"><summary>Live captions</summary><div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap">{captions.map((c,i)=><span key={i}>{i===0||captions[i-1].speaker!==c.speaker?`\n${c.speaker==='user'?'You':`${AGENT_NAME}`}: `:''}{c.text}</span>)}</div><p>Work requests and answers are saved in the chat. These live captions last until the next voice session.</p></details>}
  </div>;
 }

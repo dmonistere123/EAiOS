@@ -8,6 +8,7 @@ export default defineConfig({
   envDir: false,
   envPrefix: [],
   define: {
+    'import.meta.env.VITE_AGENT_NAME': JSON.stringify(process.env.EAIOS_MOCK_AGENT_NAME || 'Ally'),
     'import.meta.env.VITE_HERMES_LIVE': JSON.stringify('0'),
     'import.meta.env.VITE_HERMES_TOKEN': JSON.stringify(''),
   },

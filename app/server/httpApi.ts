@@ -1,3 +1,4 @@
+import { assistantName, boxIdentity } from './identity.ts';
 import { converseTravel } from './travelConversation.ts';
 import { completionApprovals, decideCompletion, updateChecklist, requestHumanCompletion, issueAssistantAccess, revokeAssistantAccess } from './humanCompletion.ts';
 import { prepareTravelHandoff } from './travelHandoff.ts';
@@ -173,6 +174,11 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
   const settingsFile = join(dataRoot, 'settings.local.json');
 
   try {
+    if (path === '/api/identity') {
+      res.setHeader('cache-control', 'no-store');
+      json(res, req.method === 'GET' ? 200 : 405, JSON.stringify(req.method === 'GET' ? boxIdentity(ctx) : { error: 'Method not supported.' }));
+      return true;
+    }
     if (path.startsWith('/api/today/')) {
       res.setHeader('cache-control','no-store');
       try {
@@ -836,7 +842,7 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
     const conversationMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/conversation$/);
     if(conversationMatch && req.method==='POST') {
       try {requireSameOriginJson(req);json(res,200,JSON.stringify(await converseTravel(conversationMatch[1],await readJsonBody(req,12000),ctx.dataRoot??ctx.eaiosRoot)));}
-      catch(error){json(res,error instanceof TravelApiError?error.status:503,JSON.stringify({error:error instanceof TravelApiError?error.message:'Ally is temporarily unavailable. Please retry.'}));}
+      catch(error){json(res,error instanceof TravelApiError?error.status:503,JSON.stringify({error:error instanceof TravelApiError?error.message:`${assistantName()} is temporarily unavailable. Please retry.`}));}
       return true;
     }
     const detailsMatch = path.match(/^\/api\/travel\/trips\/([^/]+)\/details$/);

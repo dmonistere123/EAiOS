@@ -266,15 +266,12 @@ log_success "2EP repo ready at $EAIOS_ROOT"
 node "$EAIOS_ROOT/scripts/configure-edition.mjs" "${EAIOS_DATA_ROOT:-$EAIOS_ROOT}" "${EAIOS_EDITION:-full}"
 
 # ---------------------------------------------------------------------------
-# 4. App npm dependencies + build
+# 4. App npm dependencies
 # ---------------------------------------------------------------------------
 log_info "Installing app dependencies"
 cd "$EAIOS_ROOT/app"
 [[ -f package-lock.json ]] && npm ci || npm install
 [[ "$SKIP_TESTS" == "0" ]] && log_info "Running tests" && npm test
-log_info "Building production bundle"
-npm run build
-log_success "App built"
 
 # ---------------------------------------------------------------------------
 # 5. Knowledge sidecar venv
@@ -325,6 +322,9 @@ else
   EAIOS_TELEGRAM_HOME_CHAT_ID="${EAIOS_TELEGRAM_HOME_CHAT_ID:-}"
   [[ -z "$EAIOS_TELEGRAM_HOME_CHAT_ID" || "$EAIOS_TELEGRAM_HOME_CHAT_ID" =~ ^-?[0-9]+$ ]] || fail "Telegram home chat id must be numeric"
   EAIOS_TELEGRAM_HOME_DELIVERY="${EAIOS_TELEGRAM_HOME_CHAT_ID:+telegram:$EAIOS_TELEGRAM_HOME_CHAT_ID}"
+  # Quote display names for dotenv and shell readers; never turn a name into config/code.
+  AGENT_NAME_ENV="$(node "$EAIOS_ROOT/scripts/identity-env.mjs" "$EAIOS_AGENT_NAME")" || fail "Invalid assistant display name"
+  EXECUTIVE_NAME_ENV="$(node "$EAIOS_ROOT/scripts/identity-env.mjs" "$EAIOS_EXECUTIVE_NAME")" || fail "Invalid executive display name"
   log_info "Creating $ENV_LOCAL with all provider key placeholders"
 
   cat > "$ENV_LOCAL" << ENVEOF
@@ -335,8 +335,8 @@ else
 # Hermes integration - required
 VITE_HERMES_LIVE=1
 VITE_HERMES_TOKEN=$DEV_TOKEN
-VITE_AGENT_NAME=$EAIOS_AGENT_NAME
-VITE_EXECUTIVE_NAME=$EAIOS_EXECUTIVE_NAME
+VITE_AGENT_NAME=$AGENT_NAME_ENV
+VITE_EXECUTIVE_NAME=$EXECUTIVE_NAME_ENV
 VITE_TELEGRAM_HOME_DELIVERY=$EAIOS_TELEGRAM_HOME_DELIVERY
 
 # Composio connector key - required for Connections/Composio integrations
@@ -397,6 +397,11 @@ SIDEOF
   chmod 600 "$SIDECAR_ENV"
   log_success "$SIDECAR_ENV created"
 fi
+
+# Build only after the chosen identity and live-mode settings exist.
+log_info "Building production bundle with this box’s configuration"
+(cd "$EAIOS_ROOT/app" && npm run build)
+log_success "App built"
 
 # New homes receive current defaults; existing homes require explicit opt-in.
 if [[ "$FRESH_HERMES_HOME" == 1 || "$APPLY_SCHEDULED_WORK_POLICY" == 1 ]]; then

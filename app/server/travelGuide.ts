@@ -1,3 +1,4 @@
+import { assistantName } from './identity.ts';
 import { researchTravel } from './travelResearch.ts';
 import {duffel, duffelTestMode} from './duffel.ts';
 import {TravelApiError, getTrip, searchTravel} from './travel.ts';
@@ -17,7 +18,7 @@ export async function travelRecommendations(id:string,root:string,requested?:str
   const trip=await getTrip(id,root);
   if(!trip)throw new TravelApiError(404,'Trip not found.');
   if(!trip.originPlace || !trip.destinationPlace)throw new TravelApiError(400,'Choose departure and destination cities to find options.');
-  if(trip.planningQuestion)throw new TravelApiError(409,'Answer Ally’s question before searching: '+trip.planningQuestion);
+  if(trip.planningQuestion)throw new TravelApiError(409,`Answer ${assistantName()}’s question before searching: `+trip.planningQuestion);
   const searches=[
     {kind:'flight' as const,origin:trip.originPlace.code,destination:trip.destinationPlace.code,departureDate:trip.startsAt.slice(0,10),returnDate:trip.endsAt.slice(0,10)},
     {kind:'hotel' as const,destination:trip.destination,latitude:trip.destinationPlace.latitude,longitude:trip.destinationPlace.longitude,checkIn:trip.startsAt.slice(0,10),checkOut:trip.endsAt.slice(0,10)},
@@ -33,7 +34,7 @@ export async function travelRecommendations(id:string,root:string,requested?:str
       const rows=await searchTravel(params,root);
       const preference=params.kind==='flight'?trip.preferredAirlines:params.kind==='hotel'?trip.preferredHotels:trip.diningPreferences;
       const options=shortlist(rows,preference,trip.budgetUsd,params.kind==='hotel'||params.kind==='restaurant'?10:3,params.kind==='flight'&&trip.airlinePolicy==='only');
-      if(params.kind==='flight'&&preference?.trim()&&!options.some(o=>o.reason.startsWith('Matches')))return {kind:params.kind,options,notice:trip.airlinePolicy==='only'?`No ${preference.trim()} offers were returned for this search. Other airlines are hidden. This does not prove the airline has no flights; ask Ally to change dates or allow alternatives.`:`No ${preference.trim()} offers were returned. These are alternatives from the provider, not matches to your airline preference.`};
+      if(params.kind==='flight'&&preference?.trim()&&!options.some(o=>o.reason.startsWith('Matches')))return {kind:params.kind,options,notice:trip.airlinePolicy==='only'?`No ${preference.trim()} offers were returned for this search. Other airlines are hidden. This does not prove the airline has no flights; ask ${assistantName()} to change dates or allow alternatives.`:`No ${preference.trim()} offers were returned. These are alternatives from the provider, not matches to your airline preference.`};
       return {kind:params.kind,options,notice:params.kind==='car' ? `${trip.carPreferences?.useTestLocation ? 'Duffel test-location examples; these cars are not at your trip destination. ' : ''}Pay-at-counter rates only. ${options.length === 0 ? (duffelTestMode() ? 'No rates returned here in test mode. You can explicitly select the Duffel test location in your preferences.' : 'No matching rates returned. Try other dates or times.') : 'Review supplier deposit, licence and cancellation conditions before booking.'}` : options.length<3 ? `Only ${options.length} matching option${options.length===1?'':'s'} returned. Try other dates if you want more choices.` : undefined};
     } catch(error) {
       return {kind:params.kind,options:[],notice:error instanceof Error ? error.message : 'Search is unavailable. Try again.'};

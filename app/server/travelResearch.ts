@@ -1,3 +1,4 @@
+import { assistantName } from './identity.ts';
 import { appKey, keyContext, savedKey } from './apiKeys.ts';
 import { cacheOffer,TravelApiError } from './travel.ts';
 import type { TravelTrip } from '../src/domain/types.ts';
@@ -25,10 +26,10 @@ export function parseResearch(response:Record<string,any>,trip:TravelTrip):Trave
     const summary=typeof o.summary==='string'?o.summary.slice(0,800):'Review the source before selecting.';
     const row:TravelSearchResult={id:'web-'+createHash('sha256').update(JSON.stringify([trip.id,kind,url,o.name.trim().toLowerCase()])).digest('hex').slice(0,24),kind:kind as 'hotel'|'restaurant',title:o.name.trim(),subtitle:summary,provider:'external',externalUrl:url,
       meta:kind==='hotel'?{hotelName:o.name.trim(),address,roomType:'Confirm with assistant',checkIn:trip.startsAt,checkOut:trip.endsAt,details:summary+'\nSource: '+url}:{restaurantName:o.name.trim(),address,reservationAt:trip.startsAt.slice(0,10)+'T19:00:00',partySize:'1',details:summary+'\nSuggested first-evening dinner, one person; confirm preferred date/time and party size with your assistant.\nSource: '+url}};
-    group.options.push({...row,reason:'Ally web research · source linked · availability unverified'});
+    group.options.push({...row,reason:`${assistantName()} web research · source linked · availability unverified`});
   }
   if(!result.some(g=>g.options.length))throw new TravelApiError(502,'No suggestions with verifiable source links were returned. Try again or add a source manually.');
-  for(const group of result)if(group.options.length<10)group.notice=`${group.options.length} sourced matches found. You can ask Ally to broaden the preferences or area. ${group.notice}`;
+  for(const group of result)if(group.options.length<10)group.notice=`${group.options.length} sourced matches found. You can ask ${assistantName()} to broaden the preferences or area. ${group.notice}`;
   return result;
 }
 /** Resolve model choices against retrieved evidence, rather than letting it invent property URLs. */

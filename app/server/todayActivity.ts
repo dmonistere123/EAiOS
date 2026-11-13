@@ -1,3 +1,4 @@
+import { assistantName } from './identity.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,7 +26,7 @@ export function reviewActivity(home:string,key:unknown,now=Date.now()) {
 }
 export function todayActivity(ctx:ApiContext,now=Date.now()):TodayActivity {
   const warnings:string[]=[], runs:RecentScheduleRun[]=[], links:Record<string,string[]>={};
-  const roots=[{name:'Ally',path:ctx.hermesHome}];
+  const roots=[{name:assistantName(ctx),path:ctx.hermesHome}];
   try{for(const e of readdirSync(join(ctx.hermesHome,'profiles'),{withFileTypes:true}))if(e.isDirectory()&&/^[\w-]+$/.test(e.name))roots.push({name:e.name,path:join(ctx.hermesHome,'profiles',e.name)});}catch{/* Single profile */}
   const seen=new Set<string>();
   for(const root of roots) {

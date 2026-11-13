@@ -1,3 +1,4 @@
+import { assistantName } from './identity.ts';
 /// <reference types="node" />
 /**
  * allyGateway.ts — direct WS-RPC bridge from 2EP to the Hermes gateway
@@ -358,10 +359,10 @@ export async function allyChatStream(
         callbacks.onDelta?.(payload.text);
       } else if (type === 'message.complete') {
         if (typeof payload.text === 'string' && payload.text.trim()) responseText = payload.text;
-        if (payload.status && payload.status !== 'complete') failure = 'Ally could not finish this response.';
+        if (payload.status && payload.status !== 'complete') failure = `${assistantName()} could not finish this response.`;
         complete = true;
       } else if (type === 'turn.error' || type === 'error') {
-        failure = String(payload.message ?? params.message ?? 'Ally could not finish this response.');
+        failure = String(payload.message ?? params.message ?? `${assistantName()} could not finish this response.`);
         complete = true;
       } else if (type === 'tool.start' || type === 'tool.complete') {
         const name = typeof payload.name === 'string' ? payload.name.replace(/_/g, ' ').slice(0, 80) : 'a tool';
@@ -376,12 +377,12 @@ export async function allyChatStream(
     const deadline = Date.now() + timeoutMs;
     await client.call('prompt.submit', { session_id: sessionId, text: fullText }, timeoutMs);
     while (!complete && Date.now() < deadline) {
-      if (!client.isConnected) throw new Error('The connection to Ally was interrupted. Check Conversations for a saved reply before retrying.');
+      if (!client.isConnected) throw new Error(`The connection to ${assistantName()} was interrupted. Check Conversations for a saved reply before retrying.`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    if (!complete) throw new Error('Ally is taking longer than expected. Check Conversations for a saved reply before retrying.');
+    if (!complete) throw new Error(`${assistantName()} is taking longer than expected. Check Conversations for a saved reply before retrying.`);
     if (failure) throw new Error(failure);
-    if (!responseText.trim()) throw new Error('Ally returned no text. Please try again or check Conversations.');
+    if (!responseText.trim()) throw new Error(`${assistantName()} returned no text. Please try again or check Conversations.`);
     callbacks.onComplete?.({ text: responseText, finishReason: 'complete', sessionId });
   } catch (error) {
     callbacks.onError?.(error instanceof Error ? error.message : String(error));

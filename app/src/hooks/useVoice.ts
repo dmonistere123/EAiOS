@@ -1,3 +1,4 @@
+import { AGENT_NAME } from '../config';
 /**
  * Browser Web Speech API wrapper for EAiOS voice I/O.
  * Provides speech-to-text (STT) input and text-to-speech (TTS) playback.
@@ -85,7 +86,7 @@ export function useVoice(onTranscript: (text: string) => void, onDraft?: (text: 
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = (event) => {
       setSpeaking(false);
-      if (event.error !== 'canceled' && event.error !== 'interrupted') setError('Read aloud is unavailable. You can still read Ally’s reply above.');
+      if (event.error !== 'canceled' && event.error !== 'interrupted') setError(`Read aloud is unavailable. You can still read ${AGENT_NAME}’s reply above.`);
     };
     utteranceRef.current = utterance;
     synth.speak(utterance);

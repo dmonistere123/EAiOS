@@ -410,7 +410,7 @@ function mapProfile(p: HermesProfile, activeProfileNames: Set<string>): Agent {
   const active = activeProfileNames.has(p.name);
   return {
     id: p.name,
-    name: p.display_name || (isAlly ? AGENT_NAME : p.name.charAt(0).toUpperCase() + p.name.slice(1)),
+    name: isAlly ? AGENT_NAME : p.display_name || p.name.charAt(0).toUpperCase() + p.name.slice(1),
     role: p.description || (isAlly ? 'Chief of Staff / Orchestrator' : 'Specialist agent'),
     reportsToAgentId: isAlly ? undefined : 'default',
     model: { provider: p.provider ?? 'unknown', model: p.model ?? 'unknown' },
