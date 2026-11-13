@@ -1,4 +1,4 @@
-# EAiOS Installer
+# 2EP by Allygnment Installer
 
 One-command setup for a fresh CEO box.
 
@@ -43,7 +43,7 @@ During install you will be prompted:
 Name your orchestration agent [Ally]:
 ```
 
-Whatever you enter becomes the display name throughout the EAiOS UI (chat header, placeholders, travel assistant, cron prompts, etc.). It is written to `app/.env.local` as `VITE_AGENT_NAME`.
+Whatever you enter becomes the display name throughout the 2EP UI (chat header, placeholders, travel assistant, cron prompts, etc.). It is written to `app/.env.local` as `VITE_AGENT_NAME`.
 
 The installer uses the existing default Hermes profile as the orchestrator. It does not create specialist profiles. New agents are created only later through an explicit Staff → Add agent action.
 
@@ -213,9 +213,15 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.21 edition contents
+## v0.1.22 edition contents
 
-Both editions include the expandable EAiOS, The App Stack, and Settings navigation,
+Both editions use **2EP by Allygnment**, with **Enhanced Executive Performance**
+and **An Executive AI Operating System** beside the logo in a compact header.
+The browser title, icon, help labels and installer messages use the new identity.
+Existing installations keep their paths, services, credentials and saved settings.
+
+
+Both editions include the expandable 2EP, The App Stack, and Settings navigation,
 and the orbital Staff page with the AI assistant first and the human assistant
 beneath it as a delegation backstop. The HI Assistant entry opens existing contact
 and delegation tools, with open delegation details beneath the summary card; it
@@ -236,13 +242,13 @@ See [Today data sources](TODAY-DATA-SOURCES.md) for per-box calendar selection.
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.21/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.22/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.21/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.21
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.22/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.22
 ```
 
 Existing installations should use Settings → App Settings → Check for updates → Install update

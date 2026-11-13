@@ -14,13 +14,13 @@ Application help, voice copy, new conversation titles, new assistant-workspace l
 
 This is a presentation change, with no migration. Existing `eaios` API routes, environment variable names, local-storage keys, service filenames, installation/data directories, approval envelope fields, database tables and GitHub repository URLs stay unchanged. Existing module choices and Core exclusions stay unchanged. Both installer editions build the shared application sources.
 
-Installer banners, service descriptions, verification output and updater/release messages are updated in source. The published Core bootstrap remains pinned to the current released tag until the next release is published; it must be repinned as part of that release. This branch does not claim to publish a new installer.
+Installer banners, service descriptions, verification output and updater/release messages are updated in source. The v0.1.22 release pins the Core bootstrap to v0.1.22. Both editions include the compact header and expandable navigation for new machines.
 
 ## Preview and release boundary
 
 Worktree: `eaios-2ep-reskin`, branch: `codex/2ep-reskin`, based on the existing DCR staging branch. Start the isolated full-app preview with `cd app && npm run dev:mock -- --port 5278`, then open `http://127.0.0.1:5278/today`. Preview uses sample data and disabled backend endpoints.
 
-The branding commit can be cherry-picked independently of the preceding DCR staging work. Promoting this change must not implicitly ship DCR. Production assets, services, private agent homes and live databases were not modified during development. Publishing and production activation remain separate release operations.
+The v0.1.22 release is based on v0.1.21 with only the branding commits cherry-picked; DCR is excluded. Production activation preserves the SER9 personal feature set and private runtime data. The original v0.1.21 application remains available for rollback.
 
 ## Verification
 
