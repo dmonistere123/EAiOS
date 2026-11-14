@@ -128,7 +128,7 @@ def hand(draw,x,y):
     draw.line(pts([(x+49,y+38),(x+58,y+52),(x+59,y+67)]),fill='#B38366',width=SCALE)
 
 
-def render_frame(t, scenes):
+def render_frame(t, scenes, show_hand=False):
     s=next((s for s in scenes if s['start']<=t<s['end']),scenes[-1]); local=t-s['start']
     im=Image.new('RGB',(W*SCALE,H*SCALE),PAPER); d=ImageDraw.Draw(im)
     for x in range(24,W,30):
@@ -160,7 +160,7 @@ def render_frame(t, scenes):
             reveal=round(width*progress)
             im.paste(layer.crop((0,0,reveal,height)),(x*SCALE,y*SCALE))
             if progress<1:tip=(x+reveal/SCALE,y+item['size']*.8)
-    if tip and tip[0]<W-115 and tip[1]<H-150:hand(d,*tip)
+    if show_hand and tip and tip[0]<W-115 and tip[1]<H-150:hand(d,*tip)
     d.line(pts([(43,641),(1238,641)]),fill='#DCE4DE',width=SCALE)
     d.text((44*SCALE,664*SCALE),'STOP SCALING HEROICS',font=font(16,True),fill=MUTED)
     d.text((1095*SCALE,663*SCALE),f'{scenes.index(s)+1:02} / {len(scenes):02}',font=font(18,True),fill=TEAL)
@@ -169,7 +169,7 @@ def render_frame(t, scenes):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--audio',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--stills',action='store_true');args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--audio',type=Path,required=True);p.add_argument('--out',type=Path,required=True);p.add_argument('--stills',action='store_true');p.add_argument('--show-hand',action='store_true',help='Opt into the illustrated marker hand (off by default)');args=p.parse_args()
     if not args.audio.is_file():p.error('Source audio does not exist')
     probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_entries','format=duration:stream=codec_type','-of','json',str(args.audio)]))
     if not any(s.get('codec_type')=='audio' for s in probe['streams']):p.error('Source has no audio stream')
@@ -177,15 +177,15 @@ def main():
     args.out.mkdir(parents=True,exist_ok=True); scenes=storyboard()
     (args.out/'storyboard.json').write_text(json.dumps([{k:v for k,v in s.items() if k!='items'} for s in scenes],indent=2))
     for i,s in enumerate(scenes):
-        render_frame(min(s['end']-.3,s['start']+18),scenes).save(args.out/f'scene-{i+1}.jpg',quality=92)
-    render_frame(5.5,scenes).save(args.out/'poster.jpg',quality=94)
+        render_frame(min(s['end']-.3,s['start']+18),scenes,args.show_hand).save(args.out/f'scene-{i+1}.jpg',quality=92)
+    render_frame(5.5,scenes,args.show_hand).save(args.out/'poster.jpg',quality=94)
     if args.stills:return
     pending=args.out/'rendering.mp4'
     command=['ffmpeg','-hide_banner','-loglevel','error','-y','-f','rawvideo','-pix_fmt','rgb24','-s',f'{W}x{H}','-r',str(FPS),'-i','pipe:0','-i',str(args.audio),'-map','0:v:0','-map','1:a:0','-t',str(DURATION),'-c:v','libx264','-preset','fast','-crf','20','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-af',f'afade=t=out:st={DURATION-.18}:d=0.18','-movflags','+faststart',str(pending)]
     proc=subprocess.Popen(command,stdin=subprocess.PIPE)
     try:
         for frame in range(math.ceil(DURATION*FPS)):
-            proc.stdin.write(render_frame(frame/FPS,scenes).tobytes())
+            proc.stdin.write(render_frame(frame/FPS,scenes,args.show_hand).tobytes())
             if frame%(FPS*10)==0:print(f'Rendered {frame//FPS}s / {DURATION}s',flush=True)
     finally:proc.stdin.close()
     if proc.wait():raise RuntimeError('FFmpeg render failed')

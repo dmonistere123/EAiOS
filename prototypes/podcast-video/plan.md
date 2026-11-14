@@ -20,8 +20,9 @@ employee still valued.
 | 75.9–84.55 | Appreciate the person; repair the system |
 
 Visual direction: warm white paper, navy ink, teal emphasis, muted coral for
-failures, amber highlights. Progressive line drawing with an illustrated marker
-hand. Large labels, generous whitespace, optional transcript captions. Retain
+failures, amber highlights. Progressive line drawing without a visible hand,
+following executive feedback on draft 01. Large labels, generous whitespace,
+optional transcript captions. Retain
 the source's qualifications around the Knight Capital example.
 
 The Hermes Manim skill informed planning. Its runtime is unavailable here, so

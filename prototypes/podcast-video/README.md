@@ -22,6 +22,8 @@ unrelated recording does not generate a new storyboard. Original narration is
 preserved with a 180ms audio fade at the excerpt's end. No speech is synthesized.
 
 `--stills` produces scene thumbnails and a poster without rendering the video.
+The drawing hand is off by default, following executive feedback. `--show-hand`
+opts into the original hand treatment. Line and text reveals retain their timing.
 The review page uses `captions.vtt`, prepared from local timestamped transcription
 and checked against the podcast's existing transcript. Caption preparation is
 currently a separate editorial step. Keep recordings, transcriptions, generated
