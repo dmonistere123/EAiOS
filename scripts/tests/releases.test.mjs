@@ -146,6 +146,18 @@ test('active delegated or podcast work blocks activation', t => {
   assert.throws(() => assertIdle(opts), /active/);
 });
 
+test('active promo rendering blocks updates until the job is finished', t => {
+  const dir = temp(t), opts = { hermesHome: join(dir, 'hermes'), dataRoot: join(dir, 'data') };
+  mkdirSync(join(opts.dataRoot, 'podcast-promos'), {recursive:true});
+  const db = new DatabaseSync(join(opts.dataRoot, 'podcast-promos', 'jobs.db'));
+  db.exec("CREATE TABLE jobs (status); INSERT INTO jobs VALUES ('queued');");
+  assert.throws(() => assertIdle(opts), /active/);
+  db.exec("UPDATE jobs SET status='running'");
+  assert.throws(() => assertIdle(opts), /active/);
+  db.exec("UPDATE jobs SET status='ready'");
+  assert.doesNotThrow(() => assertIdle(opts));db.close();
+});
+
 test('installation enables a weekly timer without enabling or starting the check service directly', async t => {
   const dir = temp(t), root = join(dir, 'code'), home = join(dir, 'home'), bin = join(dir, 'bin');
   cpSync(join(scripts, 'install-systemd-user.sh'), join(root, 'scripts/install-systemd-user.sh'));

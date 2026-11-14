@@ -1,3 +1,4 @@
+export {podcastPromo} from './podcastPromo';
 import {liveTravel} from './live/LiveTravelAdapter';
 /**
  * Adapter entry — the ONLY adapter import pages/state are allowed to use.
@@ -32,7 +33,7 @@ export const composio = liveComposio;
 // Live mode: sidecar-backed, self-detects a down sidecar → mock fallback.
 export const knowledge = useLive ? liveKnowledge : mockKnowledge;
 // Live mode: podcast sidecar (OpenRouter LLM + Edge TTS) on /podcasts-api.
-export const podcasts = useLive ? livePodcasts : import.meta.env.VITE_PODCAST_PROMO_PREVIEW === '1' ? podcastPromoPreview : mockPodcasts;
+export const podcasts = useLive ? livePodcasts : (import.meta.env.VITE_PODCAST_PROMO_PREVIEW === '1' || import.meta.env.VITE_PODCAST_PROMO_LIVE === '1') ? podcastPromoPreview : mockPodcasts;
 export { live, mockComposio };
 export { apiKeys } from './apiKeys';
 export { social } from './social';

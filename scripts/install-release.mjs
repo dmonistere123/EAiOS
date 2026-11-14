@@ -26,11 +26,12 @@ export function assertIdle(options) {
   for (const [path, sql] of [
     [join(options.hermesHome, 'kanban.db'), "SELECT COUNT(*) AS count FROM tasks WHERE status='running'"],
     [join(knowledgeDir(options), 'knowledge.db'), "SELECT COUNT(*) AS count FROM podcasts WHERE status IN ('pending','processing','queued','running')"],
+    [join(options.dataRoot, 'podcast-promos', 'jobs.db'), "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('queued','running')"],
   ]) {
     if (!existsSync(path)) continue;
     const db = new DatabaseSync(path, { readOnly: true });
     try {
-      const table = sql.includes('FROM tasks') ? 'tasks' : 'podcasts';
+      const table = sql.includes('FROM tasks') ? 'tasks' : sql.includes('FROM jobs') ? 'jobs' : 'podcasts';
       if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table) && db.prepare(sql).get().count > 0) {
         throw new Error('Work or podcast generation is active. Wait for it to finish before installing.');
       }
@@ -47,6 +48,7 @@ export async function backupPersistentData(options, backupDir) {
     [join(knowledgeDir(options), 'knowledge.db'), 'knowledge.db'],
     [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
     [join(options.dataRoot, 'social-data', 'social.db'), 'social.db'],
+    [join(options.dataRoot, 'podcast-promos', 'jobs.db'), 'podcast-promos.db'],
   ]) {
     if (!existsSync(source)) continue;
     const db = new DatabaseSync(source, { readOnly: true });

@@ -156,7 +156,7 @@ need_cmd git; need_cmd curl
 
 if is_ubuntu_or_debian; then
   PREREQ_PKGS=""
-  for pkg in build-essential xz-utils python3 ffmpeg; do
+  for pkg in build-essential xz-utils python3 ffmpeg fonts-dejavu-core; do
     ! dpkg -s "$pkg" >/dev/null 2>&1 && PREREQ_PKGS="$PREREQ_PKGS $pkg"
   done
   if [[ -n "$PREREQ_PKGS" ]]; then

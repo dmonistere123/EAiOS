@@ -7,6 +7,7 @@ import { Card, Drawer, EmptyState, RelativeTime, SectionTitle, StateBadge } from
 import { toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import { PodcastPromoPreview } from '../components/PodcastPromoPreview';
+import { PodcastPromo } from '../components/PodcastPromo';
 
 const statusTone = { queued: 'warn', running: 'signal', blocked: 'warn', delivered: 'ok', ready: 'ok', failed: 'risk' } as const;
 
@@ -455,6 +456,7 @@ export default function Podcasts() {
                 </button>
               </div>
               {import.meta.env.VITE_PODCAST_PROMO_PREVIEW === '1' && <PodcastPromoPreview key={selected.id} available={selected.id === 'p-promo-preview'} pauseAudio={() => audioRef.current?.pause()} />}
+              {import.meta.env.VITE_PODCAST_PROMO_PREVIEW !== '1' && (import.meta.env.VITE_HERMES_LIVE === '1' || import.meta.env.VITE_PODCAST_PROMO_LIVE === '1') && <PodcastPromo key={selected.id} podcastId={selected.id} pauseAudio={() => audioRef.current?.pause()} />}
             </>
           )}
 

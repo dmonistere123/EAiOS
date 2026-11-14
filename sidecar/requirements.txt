@@ -25,3 +25,7 @@ python-dotenv
 
 # Browser automation used by Podcastfy for URL-based content
 playwright
+
+# Local podcast promo video alignment and rendering (no video generation API).
+faster-whisper==1.2.1
+Pillow>=11,<14

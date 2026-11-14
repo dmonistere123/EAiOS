@@ -1,3 +1,4 @@
+import {handlePodcastPromo,startPodcastPromos} from './podcastPromo.ts';
 import { createAssistantServer } from './assistantServer.ts';
 import { handleTickerRequest } from './ticker.ts';
 import { moduleConfig,optionalModuleForPath } from './modules.ts';
@@ -241,6 +242,7 @@ export function createEaiosServer(config: ProdConfig) {
       if(optional&&!moduleConfig(apiCtx.dataRoot??apiCtx.eaiosRoot).enabled.includes(optional)){res.statusCode=403;res.setHeader('content-type','application/json');res.end(JSON.stringify({error:'This optional module is not enabled on this box.'}));return;}
       if (await handleTickerRequest(req,res)) return;
       if (await handleLiveVoice(req, res, `http://${config.hermesWsHost}:${config.hermesWsPort}`, config.hermesToken)) return;
+      if (await handlePodcastPromo(req,res,apiCtx,config.knowledgeUrl)) return;
       if (path.startsWith('/api/')) {
         if (path === '/api/ws') {
           // WS endpoint over plain HTTP — the upgrade handler owns this path.
@@ -338,6 +340,7 @@ if (isMain) {
   const config = loadConfig();
   assistantRequests(config.apiCtx.dataRoot ?? config.apiCtx.eaiosRoot, config.apiCtx.hermesHome);
   const server = createEaiosServer(config);
+  if(moduleConfig(config.apiCtx.dataRoot??config.apiCtx.eaiosRoot).enabled.includes('podcasts'))server.on('close',startPodcastPromos(config.apiCtx,config.knowledgeUrl));
   if(config.port===5173&&process.env.EAIOS_ASSISTANT_ORIGIN){
     const port=Number(process.env.EAIOS_ASSISTANT_PORT??5280);
     createAssistantServer(config.apiCtx.hermesHome,config.distDir,process.env.EAIOS_ASSISTANT_ORIGIN,port).listen(port,'127.0.0.1');

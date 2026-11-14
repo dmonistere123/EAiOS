@@ -30,3 +30,6 @@ social-data/
 
 # Persistent per-box module choices
 modules.local.json
+
+# Persistent per-box podcast video jobs and private media
+podcast-promos/
