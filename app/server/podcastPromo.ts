@@ -23,6 +23,16 @@ function cleanText(value: unknown, max: number, name: string) {
   if (typeof value !== 'string' || value.length > max) throw new PromoError(400, `Invalid ${name}.`);
   return [...value].filter(c=>c.charCodeAt(0)>=32||['\n','\r','\t'].includes(c)).join('').trim();
 }
+// Model-generated display copy may omit an optional subtitle or exceed its
+// visual budget. Normalize it without rejecting an otherwise usable storyboard.
+function sceneSubtitle(value: unknown): string {
+  if (value == null) return '';
+  const text = cleanText(value, 4000, 'scene subtitle').replace(/\s+/g, ' ');
+  if (text.length <= 90) return text;
+  const prefix = text.slice(0, 89);
+  const boundary = prefix.lastIndexOf(' ');
+  return prefix.slice(0, boundary >= 45 ? boundary : 89).trimEnd() + '…';
+}
 export function validatePromoPlan(raw: unknown, duration: number, alignment: Segment[], base?: PromoPlan, scope='Entire video'): PromoPlan {
   if (!raw || typeof raw !== 'object') throw Error('The assistant did not return a storyboard.');
   const r=raw as Record<string,unknown>;
@@ -40,7 +50,7 @@ export function validatePromoPlan(raw: unknown, duration: number, alignment: Seg
     const at=Number(s.at);
     if(!Number.isFinite(at)||at<0||at>=audioDuration-1||(index===0&&at!==0))throw Error('Scene timing is outside the excerpt.');
     if(!visuals.includes(String(s.visual))||!Array.isArray(s.labels)||s.labels.length<1||s.labels.length>4)throw Error('Unsupported scene layout.');
-    return {at,title:cleanText(s.title,54,'scene title'),subtitle:cleanText(s.subtitle,90,'scene subtitle'),visual:s.visual as PromoScene['visual'],labels:s.labels.map(l=>cleanText(l,60,'scene label'))};
+    return {at,title:cleanText(s.title,54,'scene title'),subtitle:sceneSubtitle(s.subtitle),visual:s.visual as PromoScene['visual'],labels:s.labels.map(l=>cleanText(l,60,'scene label'))};
   });
   if(scenes.some((s,i)=>i>0&&s.at-scenes[i-1].at<4))throw Error('Scenes need at least four seconds each.');
   if(base&&scope!=='Entire video') {
