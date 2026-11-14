@@ -13,6 +13,7 @@ import { liveKnowledge } from './live/LiveKnowledgeAdapter';
 import { knowledge as mockKnowledge } from './mock/MockKnowledgeAdapter';
 import { livePodcasts } from './live/LivePodcastAdapter';
 import { podcasts as mockPodcasts } from './mock/MockPodcastAdapter';
+import { podcastPromoPreview } from './mock/MockPodcastPromoAdapter';
 
 const useLive = import.meta.env.VITE_HERMES_LIVE === '1';
 
@@ -31,7 +32,7 @@ export const composio = liveComposio;
 // Live mode: sidecar-backed, self-detects a down sidecar → mock fallback.
 export const knowledge = useLive ? liveKnowledge : mockKnowledge;
 // Live mode: podcast sidecar (OpenRouter LLM + Edge TTS) on /podcasts-api.
-export const podcasts = useLive ? livePodcasts : mockPodcasts;
+export const podcasts = useLive ? livePodcasts : import.meta.env.VITE_PODCAST_PROMO_PREVIEW === '1' ? podcastPromoPreview : mockPodcasts;
 export { live, mockComposio };
 export { apiKeys } from './apiKeys';
 export { social } from './social';

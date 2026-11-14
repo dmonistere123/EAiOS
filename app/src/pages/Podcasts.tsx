@@ -6,6 +6,7 @@ import type { TtsProviderInfo } from '../adapters/interfaces';
 import { Card, Drawer, EmptyState, RelativeTime, SectionTitle, StateBadge } from '../components/ui';
 import { toast } from '../state/runtime';
 import { usePageRail } from '../state/rail';
+import { PodcastPromoPreview } from '../components/PodcastPromoPreview';
 
 const statusTone = { queued: 'warn', running: 'signal', blocked: 'warn', delivered: 'ok', ready: 'ok', failed: 'risk' } as const;
 
@@ -453,6 +454,7 @@ export default function Podcasts() {
                   View transcript
                 </button>
               </div>
+              {import.meta.env.VITE_PODCAST_PROMO_PREVIEW === '1' && <PodcastPromoPreview key={selected.id} available={selected.id === 'p-promo-preview'} pauseAudio={() => audioRef.current?.pause()} />}
             </>
           )}
 

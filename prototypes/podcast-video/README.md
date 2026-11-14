@@ -36,3 +36,30 @@ storyboards, assistant revisions, and artifact persistence remain future work.
 This prototype has no backend routes, writes no production data, and invokes no
 providers. For a product implementation, add background jobs, validated uploads,
 durable state, cancellation, and retry handling behind the Podcast adapter.
+
+## Combined Podcast page mockup
+
+With the media review server running on 5291, start the existing application in
+the dedicated isolated preview profile:
+
+```sh
+cd app
+npm ci
+npx vite --config vite.podcast-preview.config.ts
+```
+
+Open `http://127.0.0.1:5292/podcasts`. The profile uses mock adapters, disables
+live backend routes and env-file loading, and proxies only the local media
+preview. Provide `source.mp3` and `source-transcript.txt` in the private review
+directory for the sample episode's existing audio player and transcript.
+
+The promo appears underneath the existing audio controls. Before/After creation
+controls let reviewers inspect both states. The create button reveals the
+existing 85-second style sample, not a newly generated 90-second video. Revision
+requests appear locally in the prompt area with an explicit mockup status; no
+render or assistant call occurs. Episode generation is disabled in this profile.
+Assistant names use the existing app configuration, including custom names.
+
+This is a desktop layout review. The existing application shell's three-pane
+mobile layout still needs separate responsive work. The feature is gated behind
+`VITE_PODCAST_PROMO_PREVIEW=1`; regular production builds do not display it.
