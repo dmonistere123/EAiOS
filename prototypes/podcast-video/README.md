@@ -14,7 +14,7 @@ python3 prototypes/podcast-video/render.py \
   --audio /path/to/original-podcast.mp3 \
   --out .local/whiteboard/review
 cp prototypes/podcast-video/index.html .local/whiteboard/review/index.html
-python3 -m http.server 5291 --bind 127.0.0.1 --directory .local/whiteboard/review
+python3 prototypes/podcast-video/serve.py --directory .local/whiteboard/review
 ```
 
 The visual script is deliberately authored for this recording. Supplying an
