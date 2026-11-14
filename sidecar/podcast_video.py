@@ -112,7 +112,7 @@ def render_frame(t, scenes, show_hand=False):
             bounds=d.textbbox((0,0),text,font=f); width=bounds[2]+4; height=item['size']*SCALE+18
             layer=Image.new('RGB',(width,height),PAPER);ld=ImageDraw.Draw(layer);ld.text((0,0),text,font=f,fill=item['color'])
             reveal=round(width*progress)
-            im.paste(layer.crop((0,0,reveal,height)),(x*SCALE,y*SCALE))
+            im.paste(layer.crop((0,0,reveal,height)),(round(x*SCALE),round(y*SCALE)))
             if progress<1:tip=(x+reveal/SCALE,y+item['size']*.8)
     if show_hand and tip and tip[0]<W-115 and tip[1]<H-150:hand(d,*tip)
     d.line(pts([(43,641),(1238,641)]),fill='#DCE4DE',width=SCALE)

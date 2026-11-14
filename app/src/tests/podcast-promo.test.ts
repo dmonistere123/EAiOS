@@ -1,9 +1,9 @@
-import {describe,it,expect} from 'vitest';
+import {describe,it,expect,vi} from 'vitest';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {PromoStore,validatePromoPlan} from '../../server/podcastPromo';
+import {PromoStore,PromoRuntime,validatePromoPlan} from '../../server/podcastPromo';
 
 const alignment=Array.from({length:50},(_,i)=>({start:i*5,end:i*5+4.5,text:'Source speech',words:[]}));
 const plan=()=>({title:'Good systems',excerptStart:10,accent:'teal',showHand:false,reply:'Follow the original speech.',scenes:[0,20,40].map((at,i)=>({at,title:`Scene ${i}`,subtitle:'From the source',visual:'checklist',labels:['Accountable owner','Clear handoff']}))});
@@ -11,6 +11,7 @@ describe('podcast promo planning boundaries',()=>{
  it('keeps original audio, limits length, and defaults to no hand',()=>{const p=validatePromoPlan(plan(),250,alignment);expect(p.excerptStart).toBe(10);expect(p.audioDuration).toBeLessThanOrEqual(86);expect(p.duration).toBe(90);expect(p.showHand).toBe(false);});
  it('rejects out-of-range excerpts and unsupported executable layouts',()=>{expect(()=>validatePromoPlan({...plan(),excerptStart:500},250,alignment)).toThrow();const p=plan();p.scenes[0].visual='execute';expect(()=>validatePromoPlan(p,250,alignment)).toThrow();});
  it('rejects unbounded text and scene timing',()=>{const p=plan();p.scenes[1].at=100;expect(()=>validatePromoPlan(p,250,alignment)).toThrow();p.scenes[1].at=20;p.scenes[1].title='x'.repeat(80);expect(()=>validatePromoPlan(p,250,alignment)).toThrow();});
+ it('rejects short excerpts from the end of a longer recording',()=>{const raw=plan();raw.excerptStart=220;raw.scenes=raw.scenes.map((s,i)=>({...s,at:i*5}));expect(()=>validatePromoPlan(raw,250,alignment)).toThrow(/earlier excerptStart/);});
  it('fits overlong generated subtitles without discarding the storyboard',()=>{
   const raw=plan();raw.scenes[0].subtitle='A clear owner keeps the work moving and helps the whole team deliver a consistent experience for every customer.';
   const result=validatePromoPlan(raw,250,alignment);
@@ -34,4 +35,22 @@ describe('durable video jobs',()=>{
  it('cancellation wins against late worker completion',()=>use(s=>{const j=s.create('p-one',randomUUID(),'','Entire video');s.claim();s.patch(j.id,{status:'cancelled'},'running');expect(s.patch(j.id,{status:'ready'},'running')).toBeUndefined();expect(s.read(j.id)?.status).toBe('cancelled');}));
  it('keeps the old completed version while a new revision fails',()=>use(s=>{const j=s.create('p-one',randomUUID(),'','Entire video');s.claim();s.patch(j.id,{status:'ready',plan:validatePromoPlan(plan(),250,alignment)},'running');const r=s.create('p-one',randomUUID(),'Use less text','scene:1',j.id);s.claim();s.patch(r.id,{status:'failed'},'running');expect(s.read(j.id)?.status).toBe('ready');expect(s.list('p-one')).toHaveLength(2);}));
  it('rejects cross-episode bases and invalid paths',()=>use(s=>{const j=s.create('p-one',randomUUID(),'','Entire video');s.claim();s.patch(j.id,{status:'ready'},'running');expect(()=>s.create('p-other',randomUUID(),'Revise','Entire video',j.id)).toThrow();expect(()=>s.dir('../../keys')).toThrow();}));
+});
+
+describe('automatic storyboard correction',()=>{
+ it('replans a too-short excerpt and stops after three invalid responses',async()=>{
+  const root=mkdtempSync(join(tmpdir(),'promo-repair-test-'));
+  const runtime=new PromoRuntime({eaiosRoot:root,hermesHome:root},'http://unused');clearInterval(runtime.timer);runtime.token=()=> 'test-only';
+  const bad=plan();bad.excerptStart=220;bad.scenes=bad.scenes.map((s,i)=>({...s,at:i*5}));
+  const response=(value:unknown)=>Response.json({choices:[{message:{content:JSON.stringify(value)}}]});
+  const fetcher=vi.spyOn(globalThis,'fetch');
+  try{
+   const job=runtime.store.create('p-test',randomUUID(),'','Entire video');
+   fetcher.mockResolvedValueOnce(response(bad)).mockResolvedValueOnce(response(plan()));
+   const result=await runtime.plan(job,alignment,250,'A source transcript');expect(result.audioDuration).toBeGreaterThanOrEqual(75);expect(fetcher).toHaveBeenCalledTimes(2);
+   expect(String(fetcher.mock.calls[1][1]?.body)).toContain('earlier excerptStart');
+   fetcher.mockClear();fetcher.mockImplementation(async()=>response(bad));
+   await expect(runtime.plan(job,alignment,250,'A source transcript')).rejects.toThrow(/earlier excerptStart/);expect(fetcher).toHaveBeenCalledTimes(3);
+  }finally{fetcher.mockRestore();runtime.store.db.close();rmSync(root,{recursive:true,force:true});}
+ });
 });
