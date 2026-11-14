@@ -217,7 +217,7 @@ notes if you want to opt in. Custom instruction text is preserved and backed up.
 No existing cron prompts, delivery targets, credentials or account bindings are
 changed by this installation option.
 
-## v0.1.22 edition contents
+## v0.1.23 edition contents
 
 Both editions use **2EP by Allygnment**, with **Enhanced Executive Performance**
 and **An Executive AI Operating System** beside the logo in a compact header.
@@ -246,13 +246,13 @@ See [Today data sources](TODAY-DATA-SOURCES.md) for per-box calendar selection.
 For a fresh Core installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.22/install/install-core.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.23/install/install-core.sh | bash
 ```
 
 For a fresh Full installation pinned to this release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.22/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.22
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.23/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.23
 ```
 
 Existing installations should use Settings → App Settings → Check for updates → Install update
@@ -288,3 +288,13 @@ arrival airport are independent. Refine options in the trip conversation, or
 use Plan a similar trip to copy preferences into a new trip with new dates.
 Hotel and restaurant research returns up to ten sourced options per category;
 airline preferences can be preferred or required. See the [release notes](RELEASE-NOTES-v0.1.21.md).
+
+## v0.1.23 podcast promos and assistant identity
+
+This release includes the compact 2EP header, expandable navigation, orbital Staff,
+per-box assistant naming, and 90-second podcast promo videos with prompt-based revisions.
+DCR is not included in either edition: no DCR page, navigation entry, API, or scanner.
+Existing private DCR data is not deleted by updates. The executive's personal DCR pilot
+should stay on its personal release until explicitly migrated.
+
+See [v0.1.23 release notes](RELEASE-NOTES-v0.1.23.md) and [Podcast promo setup](PODCAST-PROMOS.md).
