@@ -1,6 +1,6 @@
 // @vitest-environment node
 import {it,expect} from 'vitest';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {moduleConfig,optionalModuleForPath,coreModules} from '../../server/modules';
@@ -8,9 +8,11 @@ it('keeps existing boxes full and loads persisted core addons',()=>{
  const root=mkdtempSync(join(tmpdir(),'eaios-modules-'));try{
   expect(moduleConfig(root).enabled).toContain('social');
   expect(moduleConfig(root).enabled).toContain('ticker');
+  expect(moduleConfig(root).enabled).toContain('erm');
   writeFileSync(join(root,'modules.local.json'),JSON.stringify({edition:'core',addons:['social']}));
   expect(moduleConfig(root).enabled).toEqual([...coreModules,'social']);
   expect(moduleConfig(root).enabled).not.toContain('ticker');
+  expect(moduleConfig(root).enabled).not.toContain('erm');
   expect(moduleConfig(root).enabled).not.toContain('podcasts');expect(moduleConfig(root).enabled).toContain('insights');
   writeFileSync(join(root,'modules.local.json'),'bad json');expect(()=>moduleConfig(root)).toThrow();
  }finally{rmSync(root,{recursive:true,force:true});}
@@ -20,4 +22,14 @@ it('identifies optional UI and API routes without blocking core skills or knowle
  for(const p of ['/podcasts','/podcasts-api/generate','/api/podcasts/1'])expect(optionalModuleForPath(p)).toBe('podcasts');
  for(const p of ['/ticker','/ticker/','/ticker-api/sports'])expect(optionalModuleForPath(p)).toBe('ticker');
  for(const p of ['/api/executive-insights','/api/skills','/knowledge-api/query'])expect(optionalModuleForPath(p)).toBeNull();
+});
+
+it('ships ERM to existing Full boxes without rewriting Core or addon choices',()=>{
+ const root=mkdtempSync(join(tmpdir(),'eaios-erm-edition-'));try{
+  for(const config of [{edition:'full',addons:[]},{edition:'full',addons:['social']},{edition:'full',addons:['erm']},{edition:'core',addons:['erm']}]){
+   const raw=JSON.stringify(config);writeFileSync(join(root,'modules.local.json'),raw);
+   expect(moduleConfig(root).enabled.filter(x=>x==='erm')).toHaveLength(1);
+   expect(readFileSync(join(root,'modules.local.json'),'utf8')).toBe(raw);
+  }
+ }finally{rmSync(root,{recursive:true,force:true});}
 });

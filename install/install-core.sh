@@ -9,6 +9,6 @@ fi
 # For curl-piped usage, fetch the installer from the same pinned release.
 installer_file="$(mktemp)"
 trap 'rm -f "$installer_file"' EXIT
-curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.23/install/install.sh -o "$installer_file"
-export EAIOS_BRANCH="${EAIOS_BRANCH:-v0.1.23}"
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.24/install/install.sh -o "$installer_file"
+export EAIOS_BRANCH="${EAIOS_BRANCH:-v0.1.24}"
 bash "$installer_file" --repo-url=https://github.com/dmonistere123/EAiOS.git "$@"

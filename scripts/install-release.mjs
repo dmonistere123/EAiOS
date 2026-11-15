@@ -27,13 +27,14 @@ export function assertIdle(options) {
     [join(options.hermesHome, 'kanban.db'), "SELECT COUNT(*) AS count FROM tasks WHERE status='running'"],
     [join(knowledgeDir(options), 'knowledge.db'), "SELECT COUNT(*) AS count FROM podcasts WHERE status IN ('pending','processing','queued','running')"],
     [join(options.dataRoot, 'podcast-promos', 'jobs.db'), "SELECT COUNT(*) AS count FROM jobs WHERE status IN ('queued','running')"],
+    [join(options.dataRoot, 'erm-data', 'erm.db'), "SELECT COUNT(*) AS count FROM erm_jobs WHERE state='running' AND lease_until > " + Date.now()],
   ]) {
     if (!existsSync(path)) continue;
     const db = new DatabaseSync(path, { readOnly: true });
     try {
-      const table = sql.includes('FROM tasks') ? 'tasks' : sql.includes('FROM jobs') ? 'jobs' : 'podcasts';
+      const table = sql.includes('FROM erm_jobs') ? 'erm_jobs' : sql.includes('FROM tasks') ? 'tasks' : sql.includes('FROM jobs') ? 'jobs' : 'podcasts';
       if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table) && db.prepare(sql).get().count > 0) {
-        throw new Error('Work or podcast generation is active. Wait for it to finish before installing.');
+        throw new Error('Work, podcast generation, or an ERM review is active. Wait for it to finish before installing.');
       }
     } finally { db.close(); }
   }

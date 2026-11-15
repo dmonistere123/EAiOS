@@ -298,3 +298,32 @@ Existing private DCR data is not deleted by updates. The executive's personal DC
 should stay on its personal release until explicitly migrated.
 
 See [v0.1.23 release notes](RELEASE-NOTES-v0.1.23.md) and [Podcast promo setup](PODCAST-PROMOS.md).
+
+## v0.1.24 ERM distribution
+
+Full includes ERM under The App Stack. Existing Full boxes (including legacy boxes
+without `modules.local.json`) gain ERM after installing this update. Core continues
+to exclude ERM unless it is explicitly selected as an addon. The updater preserves
+the module file and per-box assistant identity; it does not convert editions.
+The release includes ERM's API, UI, notes database support and online update backup.
+DCR remains outside the general distribution.
+
+Core installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.24/install/install-core.sh | bash
+```
+
+Full installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dmonistere123/EAiOS/v0.1.24/install/install.sh | bash -s -- --repo-url https://github.com/dmonistere123/EAiOS.git --branch v0.1.24
+```
+
+Existing machines use Settings → App Settings → Check for updates → Install update.
+See [ERM operation and provider setup](ERM-IMPLEMENTATION.md).
+
+The planned Bare Bones and Complete installers will build on Core and Full.
+"Complete" means all generally released modules; private pilots such as DCR stay
+separate until approved for general distribution. Reducing the current Core
+contents further is a future packaging decision, not part of this update.

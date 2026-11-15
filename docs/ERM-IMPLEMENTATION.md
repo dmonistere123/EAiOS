@@ -22,7 +22,7 @@ The rest of the application shell uses mock data and displays the Mock badge. ER
 
 ## Enabling later in an authorized installation
 
-Add `erm` to the existing `addons` array in `<EAIOS_DATA_ROOT>/modules.local.json`, preserving the edition and all other addon choices. For example: `{"edition":"full","addons":["erm"]}`. Full and Core installations do not enable ERM by default. Disabling the addon hides the route/API and retains records.
+Starting with v0.1.24, Full installations include ERM automatically, including existing Full boxes and legacy boxes without a module file. Core excludes ERM by default; an explicitly selected `erm` addon can enable it on Core. Updates preserve the existing module file byte for byte and never convert Core to Full. Edition changes retain customer records. This release policy supersedes the initial opt-in-only staging build.
 
 Production uses the existing server-side application AI configuration resolved by `conciergeConfig`, with no new dependency, model fallback, subscription or client-exposed key. Each review is one bounded tool-free JSON completion. The current configuration's model name is returned in status/results. Included notes are transmitted only when the user requests analysis. At most the newest 20 eligible notes fitting the 80,000-character input budget are included; the result shows coverage. No automatic email/calendar enrichment is implemented in this slice.
 

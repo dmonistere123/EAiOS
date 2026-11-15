@@ -200,3 +200,16 @@ test('release backup preserves optional ERM contacts and notes including WAL dat
     try {assert.equal(saved.prepare('SELECT body FROM erm_contacts').get().body,'full contact');assert.equal(saved.prepare('SELECT body FROM erm_notes').get().body,'lengthy private notes');}finally{saved.close();}
   }finally{db.close();}
 });
+
+test('ERM provider work defers updates but expired leases and queued work do not block recovery', t => {
+ const dir=temp(t),opts={dataRoot:join(dir,'data'),hermesHome:join(dir,'hermes')};
+ mkdirSync(join(opts.dataRoot,'erm-data'),{recursive:true});
+ const db=new DatabaseSync(join(opts.dataRoot,'erm-data','erm.db'));
+ try {
+  db.exec('CREATE TABLE erm_jobs(state TEXT,lease_until INTEGER)');
+  db.prepare('INSERT INTO erm_jobs VALUES(?,?)').run('running',Date.now()+120000);
+  assert.throws(()=>assertIdle(opts),/ERM review is active/);
+  db.exec('UPDATE erm_jobs SET lease_until=0');assert.doesNotThrow(()=>assertIdle(opts));
+  db.exec("UPDATE erm_jobs SET state='queued'");assert.doesNotThrow(()=>assertIdle(opts));
+ } finally {db.close();}
+});
