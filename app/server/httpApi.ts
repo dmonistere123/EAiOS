@@ -1,3 +1,4 @@
+import { handleErmApi } from './ermApi.ts';
 import { assistantName, boxIdentity } from './identity.ts';
 import { converseTravel } from './travelConversation.ts';
 import { completionApprovals, decideCompletion, updateChecklist, requestHumanCompletion, issueAssistantAccess, revokeAssistantAccess } from './humanCompletion.ts';
@@ -165,6 +166,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   return keyContext.run({ ...ctx, requestKeys: new Map() }, () => routeApiRequest(req, res, ctx));
 }
 async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: ApiContext): Promise<boolean> {
+  if (await handleErmApi(req,res,ctx)) return true;
   const url = new URL(req.url ?? '', 'http://localhost');
   const path = url.pathname;
   const skillsRoot = join(ctx.hermesHome, 'skills');

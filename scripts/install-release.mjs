@@ -48,6 +48,7 @@ export async function backupPersistentData(options, backupDir) {
     [join(knowledgeDir(options), 'knowledge.db'), 'knowledge.db'],
     [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
     [join(options.dataRoot, 'social-data', 'social.db'), 'social.db'],
+    [join(options.dataRoot, 'erm-data', 'erm.db'), 'erm.db'],
     [join(options.dataRoot, 'podcast-promos', 'jobs.db'), 'podcast-promos.db'],
   ]) {
     if (!existsSync(source)) continue;

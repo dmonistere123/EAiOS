@@ -15,7 +15,7 @@ it('groups the executive links in order and expands without navigating away', as
   expect(screen.getAllByRole('link').map(a => a.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Today','Staff','AI Assistant','HI Assistant','Approvals2','Schedule','Artifacts']);
   await user.click(screen.getByRole('button', {name:'The App Stack'}));
   expect(screen.queryByRole('link',{name:'Staff'})).not.toBeInTheDocument();
-  expect(screen.getAllByRole('link').map(a => a.getAttribute('href'))).toEqual(['/travel','/podcasts','/social','/ticker']);
+  expect(screen.getAllByRole('link').map(a => a.getAttribute('href'))).toEqual(['/erm','/travel','/podcasts','/social','/ticker']);
   expect(screen.getByLabelText('Current page')).toHaveTextContent('/staff');
   await user.click(screen.getByRole('button',{name:'Settings'}));
   expect(screen.getAllByRole('link').map(a=>a.getAttribute('href'))).toEqual(['/connections','/knowledge','/skills','/usage','/backup','/insights','/settings']);
@@ -28,6 +28,7 @@ it('reveals the bookmarked app group and hides uninstalled modules', () => {
   expect(screen.getByRole('button',{name:'The App Stack'})).toHaveAttribute('aria-expanded','true');
   expect(screen.getAllByRole('link')).toHaveLength(1);
   expect(screen.queryByRole('link',{name:'Ticker'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('link',{name:'ERM'})).not.toBeInTheDocument();
 });
 it('lets the keyboard open collapsed navigation', async () => {
   const expand=vi.fn();navigation('/staff',NAV_MODULES,true,expand);

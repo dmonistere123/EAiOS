@@ -1,3 +1,4 @@
+import ERM from '../pages/ERM';
 import Ticker from '../pages/Ticker';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AppShell from './AppShell';
@@ -31,6 +32,7 @@ export const router = createBrowserRouter([
       { path: 'connections', element: <Connections /> },
       { path: 'approvals', element: <Approvals /> },
       { path: 'schedule', element: <Schedule /> },
+      { path: 'erm', element: <ERM /> },
       { path: 'travel', element: <Travel /> },
       { path: 'knowledge', element: <Knowledge /> },
       { path: 'podcasts', element: <Podcasts /> },

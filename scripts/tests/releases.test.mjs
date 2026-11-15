@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { checkUpdates, getUpdateStatus, atomicJson, WEEK_MS } from '../check-updates.mjs';
-import { installRelease, runCommand, assertIdle } from '../install-release.mjs';
+import { installRelease, runCommand, assertIdle, backupPersistentData } from '../install-release.mjs';
 import { generateVersion } from '../generate-version.mjs';
 import { runMigrations } from '../run-migrations.mjs';
 
@@ -186,4 +186,17 @@ test('fresh installer configures the existing orchestrator without creating agen
   assert.match(installer, /VITE_TELEGRAM_HOME_DELIVERY=\$EAIOS_TELEGRAM_HOME_DELIVERY/);
   assert.doesNotMatch(installer, /profiles\.create|hermes\s+(?:profile|agent)\s+(?:create|add)/);
   assert.doesNotMatch(installer, /telegram:-1004268167166/);
+});
+
+
+test('release backup preserves optional ERM contacts and notes including WAL data', async t => {
+  const dir=temp(t),dataRoot=join(dir,'data'),hermesHome=join(dir,'hermes'),backupDir=join(dir,'backup');
+  mkdirSync(join(dataRoot,'erm-data'),{recursive:true});
+  const db=new DatabaseSync(join(dataRoot,'erm-data','erm.db'));
+  try {
+    db.exec("PRAGMA journal_mode=WAL; CREATE TABLE erm_contacts(id TEXT, body TEXT); CREATE TABLE erm_notes(id TEXT, body TEXT); INSERT INTO erm_contacts VALUES('customer','full contact'); INSERT INTO erm_notes VALUES('note','lengthy private notes');");
+    await backupPersistentData({dataRoot,hermesHome},backupDir);
+    const saved=new DatabaseSync(join(backupDir,'erm.db'),{readOnly:true});
+    try {assert.equal(saved.prepare('SELECT body FROM erm_contacts').get().body,'full contact');assert.equal(saved.prepare('SELECT body FROM erm_notes').get().body,'lengthy private notes');}finally{saved.close();}
+  }finally{db.close();}
 });

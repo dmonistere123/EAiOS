@@ -15,7 +15,8 @@
     "dev:travel": "node --env-file-if-exists=../.local/duffel-test.env ./node_modules/vite/bin/vite.js --config vite.travel.config.ts",
     "dev:social": "vite --config vite.social.config.ts",
     "build:handoff": "tsc -b && vite build --config vite.handoff.config.ts",
-    "stage:handoff": "node ../scripts/stage-travel-hi.mjs"
+    "stage:handoff": "node ../scripts/stage-travel-hi.mjs",
+    "dev:erm": "vite --config vite.erm.config.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

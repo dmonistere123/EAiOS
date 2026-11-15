@@ -33,3 +33,6 @@ modules.local.json
 
 # Persistent per-box podcast video jobs and private media
 podcast-promos/
+
+# Private optional customer relationship records
+erm-data/

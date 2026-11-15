@@ -87,3 +87,10 @@ Environment files edits supported agent instructions. Ally chat model profile co
 ## When something does not work
 
 Ask for the page, intended action, exact visible error/status and whether the user sees a live or mock indicator. Give only steps supported above. Never substitute demo/mock information for live results. Missing credentials, provider outages and permissions require the appropriate connection/configuration UI or administrator. Do not request secrets, claim a fix was applied, or run operational commands. If the guide lacks the answer, say so rather than inventing a feature.
+
+## Optional ERM customer workspace
+When the ERM add-on is enabled, `/erm` opens Executive Relationship Management.
+It stores customer contacts independently of Outlook, with manual entry and reviewed CSV/Outlook imports.
+Full contact details appear above the AI review; timestamped notes appear in the right rail and open in a wide reader.
+Customer reviews and questions use only notes explicitly included for that customer, with links to quoted sources.
+Recommendations are suggestions, never completed actions. ERM does not send messages or scan mail/calendar in this first release.
