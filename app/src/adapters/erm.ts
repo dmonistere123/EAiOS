@@ -1,9 +1,9 @@
 import type { ErmContact,ErmContactInput,ErmNote,ErmNoteInput,ErmPage,ErmStatus,ErmJob,ErmCsvMapping,ErmImportPreview,ErmImportReceipt,ErmAccount } from '../domain/erm';
 const enabled=import.meta.env.VITE_HERMES_LIVE==='1'||import.meta.env.VITE_ERM_LIVE==='1';
 async function api<T>(path:string,method='GET',body?:unknown,signal?:AbortSignal):Promise<T>{
- if(!enabled)throw new Error('Start the isolated ERM preview to save contacts and notes.');
+ if(!enabled)throw new Error('Start the isolated E-CRM preview to save contacts and notes.');
  const r=await fetch('/api/erm/'+path,{method,signal,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
- const data=await r.json();if(!r.ok)throw new Error(data.error??'ERM request failed.');return data;
+ const data=await r.json();if(!r.ok)throw new Error(data.error??'E-CRM request failed.');return data;
 }
 export const erm={
  status:()=>api<ErmStatus>('status'),

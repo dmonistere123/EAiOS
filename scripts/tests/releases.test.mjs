@@ -208,7 +208,7 @@ test('ERM provider work defers updates but expired leases and queued work do not
  try {
   db.exec('CREATE TABLE erm_jobs(state TEXT,lease_until INTEGER)');
   db.prepare('INSERT INTO erm_jobs VALUES(?,?)').run('running',Date.now()+120000);
-  assert.throws(()=>assertIdle(opts),/ERM review is active/);
+  assert.throws(()=>assertIdle(opts),/E-CRM review is active/);
   db.exec('UPDATE erm_jobs SET lease_until=0');assert.doesNotThrow(()=>assertIdle(opts));
   db.exec("UPDATE erm_jobs SET state='queued'");assert.doesNotThrow(()=>assertIdle(opts));
  } finally {db.close();}

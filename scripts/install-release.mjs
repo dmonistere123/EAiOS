@@ -34,7 +34,7 @@ export function assertIdle(options) {
     try {
       const table = sql.includes('FROM erm_jobs') ? 'erm_jobs' : sql.includes('FROM tasks') ? 'tasks' : sql.includes('FROM jobs') ? 'jobs' : 'podcasts';
       if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table) && db.prepare(sql).get().count > 0) {
-        throw new Error('Work, podcast generation, or an ERM review is active. Wait for it to finish before installing.');
+        throw new Error('Work, podcast generation, or an E-CRM review is active. Wait for it to finish before installing.');
       }
     } finally { db.close(); }
   }

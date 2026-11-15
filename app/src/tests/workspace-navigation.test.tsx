@@ -28,7 +28,7 @@ it('reveals the bookmarked app group and hides uninstalled modules', () => {
   expect(screen.getByRole('button',{name:'The App Stack'})).toHaveAttribute('aria-expanded','true');
   expect(screen.getAllByRole('link')).toHaveLength(1);
   expect(screen.queryByRole('link',{name:'Ticker'})).not.toBeInTheDocument();
-  expect(screen.queryByRole('link',{name:'ERM'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('link',{name:'E-CRM'})).not.toBeInTheDocument();
 });
 it('lets the keyboard open collapsed navigation', async () => {
   const expand=vi.fn();navigation('/staff',NAV_MODULES,true,expand);

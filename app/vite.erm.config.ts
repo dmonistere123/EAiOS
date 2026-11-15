@@ -17,7 +17,7 @@ export default defineConfig({envDir:false,envPrefix:[],define:{
 },plugins:[react(),tailwindcss(),{name:'isolated-erm',configureServer(server){
  server.middlewares.use((req,res,next)=>{void(async()=>{
   if(await handleErmApi(req,res,{eaiosRoot:root,hermesHome,dataRoot},true))return;
-  if(/^\/(api|composio-api|knowledge-api|podcasts-api)(\/|$)/.test(req.url??'')){res.statusCode=503;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:'Other backends are disabled in isolated ERM staging.'}));return;}
+  if(/^\/(api|composio-api|knowledge-api|podcasts-api)(\/|$)/.test(req.url??'')){res.statusCode=503;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:'Other backends are disabled in isolated E-CRM staging.'}));return;}
   next();
  })().catch(next);});
 }}],server:{host:'127.0.0.1',port:5298,strictPort:true}});

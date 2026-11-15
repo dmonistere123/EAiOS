@@ -327,3 +327,11 @@ The planned Bare Bones and Complete installers will build on Core and Full.
 "Complete" means all generally released modules; private pilots such as DCR stay
 separate until approved for general distribution. Reducing the current Core
 contents further is a future packaging decision, not part of this update.
+
+## v0.1.25 E-CRM name
+
+ERM is now displayed as **E-CRM — Enhanced CRM**. This is a cosmetic rename;
+existing `/erm` links, the `erm` module setting and contact/note storage remain compatible.
+Full includes E-CRM and Core keeps it optional. DCR remains a private pilot.
+Use the v0.1.24 installer commands above with `v0.1.25` in each URL and branch
+argument, or install v0.1.25 through Settings → App Settings on existing machines.

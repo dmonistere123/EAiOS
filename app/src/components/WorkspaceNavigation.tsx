@@ -13,7 +13,7 @@ export const NAV_GROUPS = [
     { to: '/artifacts', label: 'Artifacts', icon: '▤', module: 'artifacts' },
   ] },
   { id: 'apps', label: 'The App Stack', icon: '▧', items: [
-    { to: '/erm', label: 'ERM', icon: '◉', module: 'erm' },
+    { to: '/erm', label: 'E-CRM', icon: '◉', module: 'erm' },
     { to: '/travel', label: 'Travel', icon: '✈', module: 'travel' },
     { to: '/podcasts', label: 'Podcasts', icon: '❚❚', module: 'podcasts' },
     { to: '/social', label: 'Social Media', icon: '↗', module: 'social' },

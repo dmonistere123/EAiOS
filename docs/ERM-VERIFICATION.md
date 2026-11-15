@@ -30,3 +30,7 @@ No live Outlook import or live model invocation was made. Provider calls use syn
 - Live Outlook contact import has not been exercised; account contact-read permission remains a prerequisite.
 
 - Final public-release regression after the provider fix: 734 passed, 1 skipped; lint completed with warnings and no errors; TypeScript and production build passed.
+
+## v0.1.25 cosmetic rename
+
+The customer workspace is displayed as E-CRM — Enhanced CRM. Routes, module IDs and stored data retain their existing identifiers. Public application regression: 734 passed, 1 skipped; lint, TypeScript and build passed. Installer suite: 38 passed initially; its renamed-message assertion was corrected and that remaining test passed on rerun. Personal candidate build and 6 focused UI/navigation tests passed. No new provider calls were needed for this label-only change.

@@ -19,10 +19,10 @@ export async function handleErmApi(req:IncomingMessage,res:ServerResponse,ctx:Ap
   res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
   const send=(status:number,value:unknown)=>{res.statusCode=status;res.end(JSON.stringify(value));};
   try{
-    if(req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'] as string))throw new ErmError(403,'origin','Use ERM from this application.');
-    if(req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw new ErmError(403,'origin','Use ERM from this application.');
+    if(req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site'] as string))throw new ErmError(403,'origin','Use E-CRM from this application.');
+    if(req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw new ErmError(403,'origin','Use E-CRM from this application.');
     const root=ctx.dataRoot??ctx.eaiosRoot;
-    if(!moduleConfig(root).enabled.includes('erm'))throw new ErmError(404,'disabled','ERM is not enabled on this installation.');
+    if(!moduleConfig(root).enabled.includes('erm'))throw new ErmError(404,'disabled','E-CRM is not enabled on this installation.');
     const store=new ErmStore(root),method=req.method??'GET';
     if(!['GET','POST','PATCH'].includes(method))throw new ErmError(405,'method','Method not supported.');
     const b=method==='GET'?{}:await readBody(req),key=String(b.requestId??'');
@@ -61,7 +61,7 @@ export async function handleErmApi(req:IncomingMessage,res:ServerResponse,ctx:Ap
       const page=await readOutlookContacts(ctx,ermText(b.connectionId,'account',250,true),b.cursor===undefined?undefined:ermText(b.cursor,'cursor',12000));send(200,store.preview('outlook',page.items,page.account,page.nextCursor));return true;
     }
     if(path==='/api/erm/import/commit'&&method==='POST'){send(200,store.importContacts(ermText(b.previewId,'preview',100,true),b.selected as string[],key));return true;}
-    throw new ErmError(404,'not_found','ERM endpoint not found.');
-  }catch(e){if(e instanceof ErmError)send(e.status,{error:e.message,code:e.code});else send(500,{error:'ERM could not complete this request. Your previous saved records are unchanged.'});}
+    throw new ErmError(404,'not_found','E-CRM endpoint not found.');
+  }catch(e){if(e instanceof ErmError)send(e.status,{error:e.message,code:e.code});else send(500,{error:'E-CRM could not complete this request. Your previous saved records are unchanged.'});}
   return true;
 }

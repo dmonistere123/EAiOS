@@ -18,7 +18,7 @@ export class ErmStore {
   constructor(root: string) { this.root=root; }
   transaction<T>(run: (db: DatabaseSync) => T): T {
     const dir=join(this.root,'erm-data'),path=join(dir,'erm.db');
-    for (const entry of [dir,path,path+'-wal',path+'-shm']) if (existsSync(entry) && lstatSync(entry).isSymbolicLink()) throw new ErmError(503,'unsafe_storage','ERM storage contains an unsupported symbolic link.');
+    for (const entry of [dir,path,path+'-wal',path+'-shm']) if (existsSync(entry) && lstatSync(entry).isSymbolicLink()) throw new ErmError(503,'unsafe_storage','E-CRM storage contains an unsupported symbolic link.');
     mkdirSync(dir,{recursive:true,mode:0o700});chmodSync(dir,0o700);
     const db=new DatabaseSync(path);
     try {
