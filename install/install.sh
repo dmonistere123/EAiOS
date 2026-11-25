@@ -400,7 +400,7 @@ fi
 
 # Build only after the chosen identity and live-mode settings exist.
 log_info "Building production bundle with this box’s configuration"
-(cd "$EAIOS_ROOT/app" && npm run build)
+(cd "$EAIOS_ROOT/app" && VITE_HERMES_LIVE=1 npm run build)
 log_success "App built"
 
 # New homes receive current defaults; existing homes require explicit opt-in.
@@ -416,7 +416,7 @@ fi
 # ---------------------------------------------------------------------------
 log_info "Installing systemd user units"
 cd "$EAIOS_ROOT"
-./scripts/install-systemd-user.sh --start
+EAIOS_PRESERVE_HERMES_WORKFLOWS="$((1-FRESH_HERMES_HOME))" ./scripts/install-systemd-user.sh --start
 
 # ---------------------------------------------------------------------------
 # 10. systemd linger (boot persistence)

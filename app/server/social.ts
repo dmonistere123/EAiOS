@@ -1,3 +1,5 @@
+import { generationProviderError } from './socialProviderError.ts';
+import { cancelSocialForEdit } from './socialPublishing.ts';
 import { randomUUID } from 'node:crypto';
 import { savedKey, appKey, type KeyContext } from './apiKeys.ts';
 import { plannedDates, socialDates, socialPlan, SOCIAL_LIMITS, socialCopyLength, SOCIAL_NETWORKS, type SocialBrief, type SocialPost, type SocialAccount, type SocialCapabilities } from '../src/domain/social.ts';
@@ -5,7 +7,7 @@ import { SocialError, socialAccounts, socialBoard, socialStore, readSocialPost, 
 const rootFor = (ctx: KeyContext) => ctx.dataRoot ?? ctx.eaiosRoot;
 const key = (ctx: KeyContext, name: string) => savedKey(ctx, 'hermes', name) || process.env[name] || '';
 export function socialCapabilities(ctx: KeyContext): SocialCapabilities {
-  return { text: !!key(ctx, 'OPENROUTER_API_KEY'), images: !!key(ctx, 'OPENAI_API_KEY'), composio: !!appKey('COMPOSIO_API_KEY', ctx), publishing: false };
+  return { text: !!key(ctx, 'OPENROUTER_API_KEY'), images: !!key(ctx, 'OPENAI_API_KEY'), composio: !!appKey('COMPOSIO_API_KEY', ctx), publishing: true };
 }
 function text(value: unknown, max: number, label: string): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new SocialError(400, `Enter ${label} (maximum ${max} characters).`);
@@ -38,7 +40,7 @@ export function validateSocialBrief(input: unknown): SocialBrief {
   return {accountIds:b.accountIds as string[] | undefined,subject: text(b.subject, 1000, 'a subject'), voice: text(b.voice, 200, 'a voice'), identity: text(b.identity, 160, 'a publishing identity'), networks: [...new Set(b.networks)], days: [...new Set(b.days)], startDate: b.startDate, endDate: typeof b.endDate === 'string' ? b.endDate : undefined, time: validTime(b.time), timeZone: validZone(b.timeZone), count: b.count, imageStyle: b.imageStyle as SocialBrief['imageStyle'], kind: b.kind, sourceUrl, sourceText};
 }
 async function providerJson(response: Response, maxBytes: number): Promise<unknown> {
-  if (!response.ok) { await response.body?.cancel(); throw new SocialError(502, `Generation provider returned HTTP ${response.status}. No automatic retry was made.`); }
+  if (!response.ok) throw await generationProviderError(response);
   if (!response.body) throw new SocialError(502, 'Generation returned no response.');
   const reader = response.body.getReader(); const parts: Uint8Array[] = []; let size = 0;
   try { while (true) { const r = await reader.read(); if (r.done) break; size += r.value.byteLength; if (size > maxBytes) throw new SocialError(502, 'Generation response exceeded its size limit.'); parts.push(r.value); } return JSON.parse(Buffer.concat(parts).toString()); }
@@ -124,6 +126,8 @@ export function editSocial(root: string, id: string, body: Record<string, unknow
     const p = readSocialPost(db,id);
     if (p.revision !== body.revision) throw new SocialError(409,'This post changed. Reload it before saving.');
     if (p.status === 'published' || p.status === 'archived') throw new SocialError(409,'History is read-only.');
+    cancelSocialForEdit(db,p);
+    p.publicationError=undefined;
     if (body.action === 'review') {
       const limit = SOCIAL_LIMITS[p.network];
       if (socialCopyLength(p.copy,p.network)>limit) throw new SocialError(409, `Shorten this ${p.network} draft to ${limit} characters before marking it ready. Your draft is saved.`);
@@ -152,7 +156,7 @@ export async function generateSocialImage(ctx: KeyContext, id: string, body: Rec
   if(!p.imagePrompt) throw new SocialError(400,'Enter an image description first.');
   reserveSocialRequest(root,body.requestId);
   try {
-    const raw=await providerJson(await fetch('https://api.openai.com/v1/images/generations',{method:'POST',redirect:'error',signal:AbortSignal.timeout(180000),headers:{'content-type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({model:process.env.EAIOS_SOCIAL_IMAGE_MODEL||'gpt-image-1',prompt:p.imagePrompt,n:1,size:p.network==='snapchat'?'1024x1536':'1024x1024',quality:'low',output_format:'png'})}),20000000) as {data?:{b64_json?:string}[]};
+    const raw=await providerJson(await fetch('https://api.openai.com/v1/images/generations',{method:'POST',redirect:'error',signal:AbortSignal.timeout(180000),headers:{'content-type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({model:process.env.EAIOS_SOCIAL_IMAGE_MODEL||'gpt-image-2.5-flare',prompt:p.imagePrompt,n:1,size:p.network==='snapchat'?'1024x1536':'1024x1024',quality:'low',output_format:'png'})}),20000000) as {data?:{b64_json?:string}[]};
     const b64=raw.data?.[0]?.b64_json; if(!b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new SocialError(502,'No image was returned.');
     const image=Buffer.from(b64,'base64'); if(image.length>14000000 || !image.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new SocialError(502,'Invalid image response.');
     return socialStore(root,db=>{const current=readSocialPost(db,id); if(current.revision!==p.revision) throw new SocialError(409,'The draft changed during image generation. The image was not attached.'); const version=randomUUID(); db.prepare('INSERT INTO images VALUES (?,?)').run(version,image); current.imageVersion=version;current.status='draft';current.revision++;putSocialPost(db,current);db.prepare('UPDATE requests SET status=? WHERE id=?').run('complete',String(body.requestId));return current;});

@@ -90,12 +90,19 @@ export interface EvidenceRef {
 }
 
 export interface Approval {
+  dcrStaging?: boolean;
   /** Archived records remain historical; never treat them as queued work. */
   archived?: boolean;
   /** Latest recorded creation, execution or decision time. */
   updatedAt?: string;
+
+  detailRequired?: boolean;
+  socialPost?: { postId:string; imageVersion?:string; accountUrl:string; scheduledFor:string };
+  artifactShare?: {id:string;filename:string;sizeBytes:number;sha256:string};
   humanDelegation?: {id:string; completion?:boolean};
-  mailReply?: {senderEmail:string;recipientEmail:string;sourceConnectionId?:string;sourceMessageId?:string;senderConnectionId?:string;body?:string};
+  mailDraft?: import('./mailDraft.ts').SavedMailDraft;
+  ermQuickEmail?: { contactId:string; noteId:string };
+  mailReply?: {replyMode?:import('./mailDraft.ts').ReplyMode;to?:string[];cc?:string[];subject?:string;senderEmail:string;recipientEmail:string;sourceConnectionId?:string;sourceMessageId?:string;senderConnectionId?:string;body?:string};
   /** Exact reviewed envelope for optimistic concurrency, never an execution token. */
   reviewVersion?: string;
   id: string;
@@ -608,7 +615,7 @@ export interface BuildVersion {
   gitSha: string;
   gitBranch: string;
   gitTag?: string;
-  releaseChannel?: 'stable' | 'rc' | 'dev';
+  releaseChannel?: 'stable' | 'rc' | 'dev' | 'personal';
   dirty?: boolean;
   builtAt: string;
 }
@@ -643,7 +650,7 @@ export interface ReleaseInstallStatus {
 }
 export interface ReleaseUpdateInfo {
   repository: string; checkIntervalDays: number;
-  status: 'not_checked' | 'check_failed' | 'no_releases' | 'current' | 'ahead' | 'available';
+  status: 'personal' | 'not_checked' | 'check_failed' | 'no_releases' | 'current' | 'ahead' | 'available';
   lastCheckedAt?: string; lastSuccessfulCheckAt?: string;
   release?: PublishedRelease | null; error?: string | null;
   install?: ReleaseInstallStatus | null;

@@ -1,8 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SocialBoard, SocialBrief, SocialPost, SocialAccount } from '../src/domain/social.ts';
+import type { SocialBoard, SocialBrief, SocialPost, SocialAccount, SocialBinding } from '../src/domain/social.ts';
 export class SocialError extends Error {
+  provider?: { status: number; category: string; requestId?: string };
   status: number;
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
@@ -15,6 +16,9 @@ export function socialStore<T>(root: string, run: (db: DatabaseSync) => T): T {
       CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS preferences (id INTEGER PRIMARY KEY, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, status TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS social_bindings (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS social_publications (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS social_events (id INTEGER PRIMARY KEY, job_id TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS images (id TEXT PRIMARY KEY, data BLOB NOT NULL);
       BEGIN IMMEDIATE;`);
     try { const value = run(db); db.exec('COMMIT'); return value; }
@@ -48,6 +52,7 @@ export function socialAccounts(root: string): SocialAccount[] {
 export function socialBoard(root: string): SocialBoard {
   return socialStore(root, db => ({
     accounts: socialAccounts(root),
+    bindings: (db.prepare('SELECT body FROM social_bindings').all() as {body:string}[]).map(r=>JSON.parse(r.body) as SocialBinding),
     posts: (db.prepare('SELECT body FROM posts').all() as {body: string}[]).map(r => JSON.parse(r.body)),
     brief: JSON.parse((db.prepare('SELECT body FROM preferences WHERE id=1').get() as {body: string} | undefined)?.body ?? 'null'),
   }));

@@ -1,16 +1,19 @@
+import {dcrPolicy} from './dcrProduction.ts';
 import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
-export const coreModules=['today','assistant','staff','connections','approvals','schedule','travel','knowledge','skills','artifacts','usage','insights','backup','settings'];
+export const coreModules=['daily-planner','today','assistant','staff','connections','approvals','schedule','travel','knowledge','skills','artifacts','usage','insights','backup','settings'];
 export const fullOnlyModules=['ticker'];
 export const optionalModules=['podcasts','social','erm'];
 export function moduleConfig(dataRoot:string){
  try{
   const value=JSON.parse(readFileSync(join(dataRoot,'modules.local.json'),'utf8'));
   if(!['core','full'].includes(value.edition)||!Array.isArray(value.addons)||value.addons.some((x:unknown)=>typeof x!=='string'||!optionalModules.includes(x)))throw new Error('Invalid module configuration');
-  return {edition:value.edition,enabled:[...coreModules,...(value.edition==='full'?[...optionalModules,...fullOnlyModules]:value.addons)]};
- }catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return {edition:'full',enabled:[...coreModules,...optionalModules,...fullOnlyModules]};throw e;}
+  return {edition:value.edition,enabled:[...coreModules,...(dcrPolicy(dataRoot)?['dcr']:[]),...(value.edition==='full'?[...optionalModules,...fullOnlyModules]:value.addons)]};
+ }catch(e){if((e as NodeJS.ErrnoException).code==='ENOENT')return {edition:'full',enabled:[...coreModules,...(dcrPolicy(dataRoot)?['dcr']:[]),...optionalModules,...fullOnlyModules]};throw e;}
 }
 export function optionalModuleForPath(path:string){
+ if(/^\/(?:api\/daily-planner(?:\/|$)|daily-planner(?:\/|$))/.test(path))return 'daily-planner';
+ if(/^\/(?:api\/dcr(?:\/|$)|dcr(?:\/|$))/.test(path))return 'dcr';
  if(/^\/(?:api\/erm(?:\/|$)|erm(?:\/|$))/.test(path))return 'erm';
  if(/^\/(?:ticker(?:\/|$)|ticker-api(?:\/|$))/.test(path))return 'ticker';
  if(/^\/(?:api\/social(?:[-/]|$)|social(?:\/|$))/.test(path))return 'social';

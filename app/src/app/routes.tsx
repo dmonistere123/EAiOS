@@ -1,8 +1,10 @@
+import Dcr from '../pages/Dcr';
 import ERM from '../pages/ERM';
 import Ticker from '../pages/Ticker';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AppShell from './AppShell';
 import Today from '../pages/Today';
+import DailyPlanner from '../pages/DailyPlanner';
 import Assistant from '../pages/Assistant';
 import Staff from '../pages/Staff';
 import Connections from '../pages/Connections';
@@ -24,8 +26,10 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
+      {path:'dcr',element:<Dcr/>},
       { index: true, element: <Navigate to="/today" replace /> },
       { path: 'today', element: <Today /> },
+      { path: 'daily-planner', element: <DailyPlanner /> },
       { path: 'assistant', element: <Assistant /> },
       { path: 'staff', element: <Staff key="staff" /> },
       { path: 'human-assistant', element: <Staff key="human" humanOnly /> },

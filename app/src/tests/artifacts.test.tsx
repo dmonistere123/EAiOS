@@ -88,39 +88,16 @@ describe('live artifacts (stubbed fetch)', () => {
 describe('governed share (§8.9 — approval route, never direct)', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('live: creates an UNASSIGNED approval task with artifact evidence', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ artifacts: [row()] }) })));
-    const calls: { argv: string[] }[] = [];
-    const holder = live as unknown as { rpc: { call: (m: string, p?: Record<string, unknown>) => Promise<unknown> } };
-    const real = holder.rpc;
-    holder.rpc = {
-      call: async (_m: string, p?: Record<string, unknown>) => {
-        calls.push(p as { argv: string[] });
-        return { code: 0, output: '{"id":"t_share1"}' };
-      },
-    };
-    try {
-      const res = await live.shareArtifact('att-1');
-      expect(res.ok).toBe(true);
-      const argv = calls[0].argv;
-      expect(argv[0]).toBe('kanban');
-      expect(argv[1]).toBe('create');
-      expect(argv).not.toContain('--assignee'); // dispatcher must never execute approvals
-      const body = JSON.parse(argv[argv.indexOf('--body') + 1]);
-      expect(body.eaios).toBe('approval');
-      expect(body.actionType).toBe('send');
-      expect(body.targetObject).toBe('weekly-metrics.md');
-      expect(body.evidence[0].uri).toBe('eaios://artifact/att-1');
-    } finally {
-      holder.rpc = real;
-    }
+  it('live: asks the server to prepare the governed share approval', async () => {
+    const request=vi.fn(async()=>({ok:true,json:async()=>({ok:true,approvalId:'t_share1'})}));
+    vi.stubGlobal('fetch',request);
+    expect((await live.shareArtifact('att-1')).ok).toBe(true);
+    expect(request).toHaveBeenCalledWith('/api/artifacts/att-1/share',expect.objectContaining({method:'POST',body:'{}'}));
   });
-
-  it('live: unknown artifact → not_found, no kanban call', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ artifacts: [] }) })));
-    const res = await live.shareArtifact('att-nope');
-    expect(res.ok).toBe(false);
-    expect(res.error?.code).toBe('not_found');
+  it('live: unavailable artifact returns the server error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok:false,status:404,json:async()=>({error:'Artifact not found.'}) })));
+    const res=await live.shareArtifact('att-nope');
+    expect(res.ok).toBe(false);expect(res.error?.safeMessage).toBe('Artifact not found.');
   });
 
   it('mock: appends a pending approval linked to the artifact', async () => {

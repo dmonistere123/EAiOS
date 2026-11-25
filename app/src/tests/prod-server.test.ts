@@ -450,7 +450,7 @@ describe('persistent data root', () => {
       expect((await fetch(`http://127.0.0.1:${port}/api/eaios-settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ usageBudgetUsd: 42 }) })).status).toBe(200);
       expect(JSON.parse(readFileSync(join(data, 'settings.local.json'), 'utf8')).usageBudgetUsd).toBe(42);
       expect((await fetch(`http://127.0.0.1:${port}/api/dismissed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'preserved' }) })).status).toBe(200);
-      expect(JSON.parse(readFileSync(join(data, 'dismissed.json'), 'utf8'))).toContain('preserved');
+      expect(JSON.parse(readFileSync(join(data, 'dismissed.json'), 'utf8')).items).toHaveProperty('preserved');
       expect(() => readFileSync(join(code, 'settings.local.json'))).toThrow();
     } finally { await new Promise<void>(resolve => isolated.close(() => resolve())); }
   });

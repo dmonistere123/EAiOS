@@ -64,6 +64,7 @@ async function installFixture(t, failure = '') {
   write(join(root, 'migrations/001-additive.sql'), 'CREATE TABLE IF NOT EXISTS release_feature (id INTEGER);');
   git(root, 'add', '.'); git(root, 'commit', '-m', 'release'); const b = git(root, 'rev-parse', 'HEAD'); git(root, 'tag', 'v0.2.0');
   const remote = join(dir, 'origin.git'); git(dir, 'clone', '--bare', root, remote); git(root, 'remote', 'add', 'origin', remote); git(root, 'reset', '--hard', a);
+  git(root,'tag','v0.1.0',a);
   generateVersion(root); mkdirSync(join(root, 'app/dist'), { recursive: true }); cpSync(join(root, 'app/public/version.json'), join(root, 'app/dist/version.json'));
   const sentinels = ['modules.local.json', 'settings.local.json', 'dismissed.json', 'app/.env.local', 'sidecar/.env', 'sidecar/data/podcasts/audio/saved.mp3'];
   for (const name of sentinels) write(join(root, name), `keep:${name}`);
@@ -89,6 +90,7 @@ async function installFixture(t, failure = '') {
         if (args.includes('get-url')) return { stdout: 'https://github.com/dmonistere123/EAiOS.git\n' };
         return runCommand(command, args, config);
       }
+      if (command === 'systemctl' && args.includes('WorkingDirectory')) return {stdout:join(root,'app')+'\n'};
       if (command === 'npm' && args[0] === 'run') {
         if (failure === 'build') throw new Error('Build failure');
         const target = dirname(config.cwd); generateVersion(target); mkdirSync(join(config.cwd, 'dist')); cpSync(join(config.cwd, 'public/version.json'), join(config.cwd, 'dist/version.json'));
@@ -211,5 +213,48 @@ test('ERM provider work defers updates but expired leases and queued work do not
   assert.throws(()=>assertIdle(opts),/E-CRM review is active/);
   db.exec('UPDATE erm_jobs SET lease_until=0');assert.doesNotThrow(()=>assertIdle(opts));
   db.exec("UPDATE erm_jobs SET state='queued'");assert.doesNotThrow(()=>assertIdle(opts));
+ } finally {db.close();}
+});
+
+for (const failure of ['', 'verification', 'customized']) {
+  test(`local update bundle: ${failure||'success'} preserves archived DCR and existing box data`,async t=>{
+    const f=await installFixture(t,failure);
+    const {opts}=f;
+    const bundle=join(dirname(f.root),'update.bundle');
+    git(f.root,'tag','-f','-a','v0.2.0',f.b,'-m','Annotated release');
+    git(f.root,'bundle','create',bundle,'refs/tags/v0.2.0');
+    if(failure==='customized')write(join(f.root,'moxie-contact-sync.local.json'),'{}');
+    write(join(opts.dataRoot,'dcr.local.json'),'{"synthetic":true}');
+    const path=join(opts.hermesHome,'eaios','dcr','kanban.db');
+    mkdirSync(dirname(path),{recursive:true});
+    using db=new DatabaseSync(path);
+    db.exec("PRAGMA journal_mode=WAL; CREATE TABLE dcr_records (body TEXT); INSERT INTO dcr_records VALUES ('archived relationship'); CREATE TABLE dcr_findings (body TEXT); INSERT INTO dcr_findings VALUES ('dismissed finding');");
+    const result=await installRelease('local:v0.2.0',{...opts,localBundle:bundle,localTag:'v0.2.0',localSha:f.b});
+    assert.equal(result.ok,!failure,result.error);
+    assert.equal(db.prepare('SELECT body FROM dcr_records').get().body,'archived relationship');
+    assert.equal(db.prepare('SELECT body FROM dcr_findings').get().body,'dismissed finding');
+    assert.equal(readFileSync(join(opts.dataRoot,'dcr.local.json'),'utf8'),'{"synthetic":true}');
+    assert.equal(git(f.root,'rev-parse','HEAD'),f.a);
+    const status=JSON.parse(readFileSync(join(opts.stateDir,'install-status.json'),'utf8'));
+    if(failure==='verification'){assert.equal(f.active(),f.root);assert.equal(status.recovered,true);}
+    if(failure==='customized'){assert.match(result.error,/customized instance/i);assert.equal(f.calls.some(c=>c.args.includes('restart')),false);}
+    if(!failure){
+      assert.notEqual(f.active(),f.root);using backup=new DatabaseSync(join(status.backupDir,'dcr.db'),{readOnly:true});
+      assert.equal(backup.prepare('SELECT body FROM dcr_findings').get().body,'dismissed finding');
+    }
+  });
+}
+
+test('release backup includes Planner journal and attachment bytes from WAL', async t => {
+ const dir=temp(t),dataRoot=join(dir,'data'),hermesHome=join(dir,'hermes'),backupDir=join(dir,'backup');
+ mkdirSync(join(dataRoot,'planner-data'),{recursive:true});
+ const db=new DatabaseSync(join(dataRoot,'planner-data','planner.db'));
+ try {
+  db.exec("PRAGMA journal_mode=WAL; CREATE TABLE journals(body TEXT); CREATE TABLE files(bytes BLOB);");
+  db.prepare('INSERT INTO journals VALUES(?)').run('Private saved journal');
+  db.prepare('INSERT INTO files VALUES(?)').run(Buffer.from('Attachment bytes'));
+  await backupPersistentData({dataRoot,hermesHome},backupDir);
+  const saved=new DatabaseSync(join(backupDir,'planner.db'),{readOnly:true});
+  try {assert.equal(saved.prepare('SELECT body FROM journals').get().body,'Private saved journal');assert.equal(Buffer.from(saved.prepare('SELECT bytes FROM files').get().bytes).toString(),'Attachment bytes');}finally{saved.close();}
  } finally {db.close();}
 });

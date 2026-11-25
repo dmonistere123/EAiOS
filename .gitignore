@@ -36,3 +36,11 @@ podcast-promos/
 
 # Private optional customer relationship records
 erm-data/
+
+# Local executive DCR policy and scanner inputs
+dcr.local.json
+
+# Private per-box planner data and personal build marker
+planner-data/
+personal-build.json
+dismissed-mutex.sqlite*

@@ -5,6 +5,7 @@ import { BRAND } from '../brand';
 export const NAV_GROUPS = [
   { id: 'executive', label: BRAND.name, icon: '◈', items: [
     { to: '/today', label: 'Today', icon: '☀', module: 'today' },
+    { to: '/daily-planner', label: 'Daily Planner', icon: '▣', module: 'daily-planner' },
     { to: '/staff', label: 'Staff', icon: '⛁', module: 'staff' },
     { to: '/assistant', label: 'AI Assistant', icon: '◈', module: 'assistant' },
     { to: '/human-assistant', label: 'HI Assistant', icon: '♙', module: 'staff' },
@@ -13,6 +14,7 @@ export const NAV_GROUPS = [
     { to: '/artifacts', label: 'Artifacts', icon: '▤', module: 'artifacts' },
   ] },
   { id: 'apps', label: 'The App Stack', icon: '▧', items: [
+    { to: '/dcr', label: 'DCR', icon: '◈', module: 'dcr' },
     { to: '/erm', label: 'E-CRM', icon: '◉', module: 'erm' },
     { to: '/travel', label: 'Travel', icon: '✈', module: 'travel' },
     { to: '/podcasts', label: 'Podcasts', icon: '❚❚', module: 'podcasts' },

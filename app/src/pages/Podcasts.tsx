@@ -1,5 +1,6 @@
 /** Podcasts — document-to-podcast player and generator (Phase 8.3). */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { pauseOtherAudio } from '../state/audioPlayback';
 import { podcasts } from '../adapters';
 import type { Podcast, TtsProvider } from '../domain/types';
 import type { TtsProviderInfo } from '../adapters/interfaces';
@@ -54,6 +55,7 @@ export default function Podcasts() {
   const fileRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [mediaError, setMediaError] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState<number | undefined>();
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -121,8 +123,8 @@ export default function Podcasts() {
     const audio = audioRef.current;
     if (!audio) return;
     const onTime = () => setCurrentTime(audio.currentTime);
-    const onDuration = () => setDuration(audio.duration);
-    const onPlay = () => setPlaying(true);
+    const onDuration = () => { setDuration(audio.duration); setMediaError(false); };
+    const onPlay = () => { pauseOtherAudio(audio); setPlaying(true); setMediaError(false); };
     const onPause = () => setPlaying(false);
     const onEnded = () => setPlaying(false);
     audio.addEventListener('timeupdate', onTime);
@@ -130,20 +132,26 @@ export default function Podcasts() {
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', onEnded);
+    const onError = () => { setPlaying(false); setMediaError(true); };
+    audio.addEventListener('error', onError);
     return () => {
       audio.removeEventListener('timeupdate', onTime);
       audio.removeEventListener('loadedmetadata', onDuration);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onError);
+      audio.pause();
     };
   }, [selected?.id]);
 
-  const togglePlay = () => {
+  const togglePlay = async () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audio.paused) void audio.play();
-    else audio.pause();
+    try {
+      if (audio.paused) await audio.play();
+      else audio.pause();
+    } catch { setPlaying(false); setMediaError(true); }
   };
 
   const seek = (ratio: number) => {
@@ -376,7 +384,7 @@ export default function Podcasts() {
         <EmptyState title="No podcasts yet" hint="Upload a PDF or document to generate your first episode." />
       ) : selected ? (
         <Card className="p-6">
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <SectionTitle>{selected.sourceName}</SectionTitle>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
@@ -413,6 +421,7 @@ export default function Podcasts() {
           {(selected.status === 'ready'||selected.status === 'delivered') && (
             <>
               <audio ref={audioRef} src={podcasts.getAudioUrl(selected.id)} preload="metadata" className="hidden" />
+              {mediaError && <p role="status" className="mt-3 text-sm text-warn">Audio could not be played. The file may be unavailable or unsupported by this browser.</p>}
               <div className="mt-6 rounded-xl border border-edge bg-canvas-raised p-4">
                 <div className="flex items-center gap-4">
                   <button

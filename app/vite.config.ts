@@ -686,7 +686,6 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss(), skillsIndexMiddleware(), playbooksIndexMiddleware(), skillCreateMiddleware(), profileEnvMiddleware(), usageMiddleware(), eaiosSettingsMiddleware(), artifactsMiddleware(), kanbanDelegateMiddleware()],
     server: {
       // Allow access via the Tailscale serve URL (tailscale serve --bg 5173).
-      allowedHosts: ['ally-landry-ser9.tailf41e2c.ts.net'],
       proxy: {
         // Dev: forward the gateway socket to the local hermes serve instance.
         '/api/ws': {
@@ -694,7 +693,7 @@ export default defineConfig(({ mode }) => {
           ws: true,
           changeOrigin: true,
           // Tailscale Serve is a public-origin reverse proxy: the browser sends
-          // Origin: https://ally-landry-ser9... and Serve can drop the WS query
+          // Origin: https://executive.example.test and Serve can drop the WS query
           // string. hermes serve only accepts loopback origins + ?token=..., so
           // re-stamp both at the local edge before the upgrade reaches 9119.
           configure: (proxy) => {

@@ -1,7 +1,7 @@
 # EAiOS — Phase 0: Hermes Integration Matrix
 
 **Date:** 2026-08-25
-**Host:** ally-landry-SER9 (Linux 7.0.0-30, Hermes Agent installed at `~/.hermes/hermes-agent`, gateway live on systemd)
+**Host:** initial Linux development machine (Linux 7.0.0-30, Hermes Agent installed at `~/.hermes/hermes-agent`, gateway live on systemd)
 **Method:** Direct inspection of the installed Hermes source (`tui_gateway/` RPC registry, `state.db` schema, CLI surface, desktop plugin SDK). Every row below was verified against the running system, not assumed.
 **Verdict key:** ✅ Native = exists today, wire an adapter · 🟡 Partial = substrate exists, thin service needed · 🔴 Build-new = no Hermes equivalent · ⬜ External = third-party dependency
 

@@ -9,8 +9,10 @@ export interface ErmContact extends ErmContactInput {
   id: string; version: number; createdAt: string; updatedAt: string; archived: boolean;
   source: 'manual' | 'csv' | 'outlook';
 }
-export interface ErmNoteInput { title: string; body: string; includeInAI: boolean }
+export interface ErmNoteInput { title: string; body: string; includeInAI: boolean; followUpOn?: string | null }
 export interface ErmNote extends ErmNoteInput { id: string; contactId: string; version: number; createdAt: string; updatedAt: string }
+export interface ErmFollowUp { contactId: string; contactName: string; noteId: string; noteTitle: string; followUpOn: string }
+export interface ErmFollowUps { items: ErmFollowUp[]; total: number; hasMore: boolean }
 export interface ErmPage<T> { items: T[]; nextCursor: string | null; hasMore: boolean; total: number }
 export interface ErmEvidence { noteId: string; version: number; quote: string }
 export interface ErmClaim { text: string; kind: 'observation' | 'suggestion'; evidence: ErmEvidence[] }
@@ -47,7 +49,13 @@ export function validateErmContact(raw: unknown): ErmContactInput {
   if (input.website) { try { const u = new URL(input.website); if (!['https:','http:'].includes(u.protocol) || u.username || u.password) throw Error(); } catch { throw new ErmError(400,'invalid_input','Website must start with https:// or http://.'); } }
   return input;
 }
+export function ermDate(value: unknown): string {
+  if (typeof value !== 'string' || !/^[1-9]\d{3}-\d{2}-\d{2}$/.test(value)) throw new ErmError(400,'invalid_date','Choose a valid follow-up date.');
+  const date = new Date(value + 'T00:00:00.000Z');
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0,10) !== value) throw new ErmError(400,'invalid_date','Choose a valid follow-up date.');
+  return value;
+}
 export function validateErmNote(raw: unknown): ErmNoteInput {
   const v = raw as ErmNoteInput; if (!v || typeof v.includeInAI !== 'boolean') throw new ErmError(400,'invalid_input','Choose whether this note may inform AI reviews.');
-  return {title:ermText(v.title,'Note title',180,true),body:ermText(v.body,'Note text',50000,true),includeInAI:v.includeInAI};
+  return {title:ermText(v.title,'Note title',180,true),body:ermText(v.body,'Note text',50000,true),includeInAI:v.includeInAI,...(v.followUpOn === undefined ? {} : {followUpOn: v.followUpOn === null || v.followUpOn === '' ? null : ermDate(v.followUpOn)})};
 }

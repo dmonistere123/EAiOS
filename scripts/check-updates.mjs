@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
@@ -82,6 +82,7 @@ export async function checkUpdates(options = {}) {
   checks.set(path, task);
   try { return await task; } finally { checks.delete(path); }
 }
+export function isPersonalBuild(codeRoot) { return existsSync(join(codeRoot, 'personal-build.json')); }
 export function getUpdateStatus(options = {}, currentVersion) {
   const opts = updateOptions(options), cached = readJson(join(opts.stateDir, 'update-check.json'), {});
   const checked = cached.repository === opts.repository ? cached : {};
@@ -89,6 +90,7 @@ export function getUpdateStatus(options = {}, currentVersion) {
   if (install && ['queued','installing'].includes(install.status) && Date.now() - Date.parse(install.startedAt ?? '') > 35 * 60 * 1000) {
     install = { ...install, status: 'failed', error: 'Installation was interrupted. Ask your administrator to verify the box before retrying.' };
   }
+  if (isPersonalBuild(opts.codeRoot)) return { ...checked, repository: opts.repository, status: 'personal', checkIntervalDays: 7, install };
   let status = !checked.lastCheckedAt ? 'not_checked' : checked.error ? 'check_failed' : !checked.release ? 'no_releases' : 'current';
   if (checked.release && !checked.error) {
     const compare = compareVersions(checked.release.version, currentVersion);

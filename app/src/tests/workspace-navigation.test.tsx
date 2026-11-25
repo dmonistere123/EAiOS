@@ -11,17 +11,25 @@ function navigation(path = '/staff', modules: string[] = NAV_MODULES, collapsed 
 }
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 it('groups the executive links in order and expands without navigating away', async () => {
-  navigation(); const user = userEvent.setup();
+  navigation('/staff', NAV_MODULES.filter(module => module !== 'daily-planner'));
+  const user = userEvent.setup();
   expect(screen.getAllByRole('link').map(a => a.textContent?.replace(/^[^A-Za-z]+/, ''))).toEqual(['Today','Staff','AI Assistant','HI Assistant','Approvals2','Schedule','Artifacts']);
   await user.click(screen.getByRole('button', {name:'The App Stack'}));
   expect(screen.queryByRole('link',{name:'Staff'})).not.toBeInTheDocument();
-  expect(screen.getAllByRole('link').map(a => a.getAttribute('href'))).toEqual(['/erm','/travel','/podcasts','/social','/ticker']);
+  expect(screen.getAllByRole('link').map(a => a.getAttribute('href'))).toEqual(['/dcr','/erm','/travel','/podcasts','/social','/ticker']);
   expect(screen.getByLabelText('Current page')).toHaveTextContent('/staff');
   await user.click(screen.getByRole('button',{name:'Settings'}));
   expect(screen.getAllByRole('link').map(a=>a.getAttribute('href'))).toEqual(['/connections','/knowledge','/skills','/usage','/backup','/insights','/settings']);
   await user.click(screen.getByRole('link',{name:'Knowledge'}));
   expect(screen.getByLabelText('Current page')).toHaveTextContent('/knowledge');
   expect(screen.getByRole('link',{name:'Knowledge'})).toHaveAttribute('aria-current','page');
+});
+it('shows Daily Planner immediately below Today only when it is enabled', () => {
+  const { unmount } = navigation('/today', ['today', 'daily-planner', 'staff']);
+  expect(screen.getAllByRole('link').slice(0, 2).map(link => link.getAttribute('href'))).toEqual(['/today', '/daily-planner']);
+  unmount();
+  navigation('/today', ['today', 'staff']);
+  expect(screen.queryByRole('link', {name:'Daily Planner'})).not.toBeInTheDocument();
 });
 it('reveals the bookmarked app group and hides uninstalled modules', () => {
   navigation('/travel',['today','travel','settings']);

@@ -12,11 +12,15 @@ async function api(ctx:KeyContext,path:string,body?:unknown):Promise<Wire> {
   if(!data||typeof data!=='object'||Array.isArray(data))throw new HumanDelegationError(502,'Unexpected connection response.');
   return data as Wire;
 }
-export async function verifyMailbox(ctx:KeyContext,id:string):Promise<MailboxIdentity> {
+export async function verifyMailbox(ctx:KeyContext,id:string,requireOutlookSend=false):Promise<MailboxIdentity> {
   if(!/^ca_[\w-]+$/.test(id))throw new HumanDelegationError(400,'Choose a mailbox connection.');
   const c=await api(ctx,'/api/v3/connected_accounts/'+encodeURIComponent(id));
   const provider=typeof c.toolkit==='string'?c.toolkit:c.toolkit?.slug;
   if(c.status!=='ACTIVE'||!['outlook','gmail'].includes(provider)||c.id!==id)throw new HumanDelegationError(409,'Choose an active Gmail or Outlook connection.');
+  if(requireOutlookSend){
+    const scopes=typeof c.state?.val?.scope==='string'?c.state.val.scope.split(/\s+/):[];
+    if(provider!=='outlook'||c.is_disabled===true||!scopes.some((scope:string)=>scope==='Mail.Send'||scope==='https://graph.microsoft.com/Mail.Send')||!scopes.some((scope:string)=>scope==='Mail.ReadWrite'||scope==='https://graph.microsoft.com/Mail.ReadWrite'))throw new HumanDelegationError(409,'Choose a connected Outlook account with granted Mail.Send and Mail.ReadWrite permissions. Reconnect it in Connections if needed.');
+  }
   const endpoint=provider==='outlook'?'https://graph.microsoft.com/v1.0/me?$select=id,mail':'https://gmail.googleapis.com/gmail/v1/users/me/profile';
   const profile=await api(ctx,'/api/v3.1/tools/execute/proxy',{connected_account_id:id,endpoint,method:'GET',parameters:[]});
   if(profile.status!==200)throw new HumanDelegationError(409,'Mailbox identity could not be verified. Check its permissions.');
@@ -25,14 +29,14 @@ export async function verifyMailbox(ctx:KeyContext,id:string):Promise<MailboxIde
   if(typeof email!=='string'||! /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(email)||typeof providerUserId!=='string'||!providerUserId)throw new HumanDelegationError(409,'Provider did not return a mailbox address. Shared mailboxes and aliases require separate verification.');
   return {connectionId:id,provider,email,providerUserId,verifiedAt:new Date().toISOString()};
 }
-export async function mailboxChoices(ctx:KeyContext) {
+export async function mailboxChoices(ctx:KeyContext,outlookSendOnly=false) {
   const choices:{connectionId:string;mailbox?:MailboxIdentity;error?:string}[]=[];
   const seen=new Set<string>();let cursor='';
   for(let page=0;page<64;page++){
     const data=await api(ctx,'/api/v3/connected_accounts?limit=100'+(cursor?'&cursor='+encodeURIComponent(cursor):''));
     for(const c of data.items??[]){const slug=typeof c.toolkit==='string'?c.toolkit:c.toolkit?.slug;
-      if(c.status!=='ACTIVE'||!['gmail','outlook'].includes(slug)||typeof c.id!=='string')continue;
-      try{choices.push({connectionId:c.id,mailbox:await verifyMailbox(ctx,c.id)});}catch{choices.push({connectionId:c.id,error:'Unable to verify this mailbox. Check Connections.'});}
+      if(c.status!=='ACTIVE'||!(outlookSendOnly?['outlook']:['gmail','outlook']).includes(slug)||typeof c.id!=='string')continue;
+      try{choices.push({connectionId:c.id,mailbox:await verifyMailbox(ctx,c.id,outlookSendOnly)});}catch{choices.push({connectionId:c.id,error:'Unable to verify this mailbox. Check Connections.'});}
     }
     if(!data.next_cursor)return choices;
     if(typeof data.next_cursor!=='string'||seen.has(data.next_cursor))break;

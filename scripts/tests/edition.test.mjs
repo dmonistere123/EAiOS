@@ -27,14 +27,16 @@ while [[ $# -gt 0 ]]; do
  shift
 done
 [[ "$url" == "https://raw.githubusercontent.com/dmonistere123/EAiOS/v${version}/install/install.sh" ]]
-printf '%s\\n' 'test "$EAIOS_EDITION" = core' 'test "$EAIOS_BRANCH" = "$EAIOS_TEST_EXPECTED_REF"' 'echo BOOTSTRAP_OK' > "$target"
+printf '%s\\n' 'test "$EAIOS_EDITION" = "$EAIOS_TEST_EDITION"' 'test "$EAIOS_BRANCH" = "$EAIOS_TEST_EXPECTED_REF"' 'echo BOOTSTRAP_OK' > "$target"
 `);chmodSync(curl,0o700);
-  const source=readFileSync(new URL('../../install/install-core.sh',import.meta.url));
+  for(const [file,edition] of [['core','core'],['bare-bones','core'],['complete','full']]) {
+  const source=readFileSync(new URL('../../install/install-'+file+'.sh',import.meta.url));
   for(const override of [undefined,'chosen-version']){
-   const env={...process.env,PATH:root+':'+process.env.PATH,EAIOS_TEST_EXPECTED_REF:override??`v${version}`};
+   const env={...process.env,EAIOS_TEST_EDITION:edition,PATH:root+':'+process.env.PATH,EAIOS_TEST_EXPECTED_REF:override??`v${version}`};
    delete env.EAIOS_BRANCH;if(override)env.EAIOS_BRANCH=override;
    const result=execFileSync('bash',[],{input:source,cwd:root,env,encoding:'utf8'});
    assert.match(result,/BOOTSTRAP_OK/);
+  }
   }
  }finally{rmSync(root,{recursive:true,force:true});}
 });

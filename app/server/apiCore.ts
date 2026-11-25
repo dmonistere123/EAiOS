@@ -11,6 +11,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync, renameSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 
 /* ---------------------------------------------------------------- skills */
 
@@ -363,7 +364,7 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
   '.csv': 'text/csv',
   '.html': 'text/html',
-  '.pdf': 'application/pdf',
+  '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.flac': 'audio/flac', '.pdf': 'application/pdf',
 };
 
 export function guessMime(name: string) {
@@ -540,6 +541,47 @@ export function listKanbanTasks(dbPath: string) {
   }
 }
 
+/** Revision watermarks, not wall-clock seconds: same-second updates are visible.
+ * Only user-relevant events count. Heartbeats, claims and worker bookkeeping do
+ * not. Include task content/state so edits without a kanban event also count.
+ * Queries run in one read transaction. Unavailable DB returns no known revisions,
+ * which keeps existing dismissals hidden and defers legacy migration safely.
+ */
+export function latestTaskActivity(dbPath: string, ids: string[]): Record<string, string> {
+  const out: Record<string, string> = Object.create(null) as Record<string, string>;
+  const unique = [...new Set(ids)];
+  if (!unique.length) return out;
+  let db: DatabaseSync;
+  try { db = new DatabaseSync(dbPath, { readOnly: true }); } catch { return out; }
+  try {
+    db.exec('BEGIN');
+    const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((r) => r.name));
+    if (!tables.has('tasks')) return out;
+    const meaningful = ['created','commented','attached','attachment_removed','blocked','unblocked','completed','archived','promoted','promoted_manual','assigned','approval_decided','mail_draft_saved'];
+    const markers = meaningful.map(() => '?').join(',');
+    const event = tables.has('task_events') ? db.prepare(`SELECT COALESCE(MAX(id),0) AS id FROM task_events WHERE task_id=? AND kind IN (${markers})`) : undefined;
+    const comment = tables.has('task_comments') ? db.prepare('SELECT COALESCE(MAX(id),0) AS id FROM task_comments WHERE task_id=?') : undefined;
+    const attachment = tables.has('task_attachments') ? db.prepare('SELECT COALESCE(MAX(id),0) AS id FROM task_attachments WHERE task_id=?') : undefined;
+    const task = db.prepare('SELECT id,title,body,status,assignee,priority,result FROM tasks WHERE id=?');
+    for (const id of unique) {
+      const row = task.get(id) as Record<string, unknown> | undefined;
+      // Claiming a ready task is execution bookkeeping, not a new attention request.
+      if (row?.status === 'running') row.status = 'ready';
+      const e = event?.get(id, ...meaningful) ?? null;
+      const c = comment?.get(id) ?? null;
+      const a = attachment?.get(id) ?? null;
+      out[id] = createHash('sha256').update(JSON.stringify([row,e,c,a])).digest('hex');
+    }
+    return out;
+  } catch {
+    // Do not establish a partial baseline if any present table cannot be read.
+    return {};
+  } finally {
+    try { db.exec('ROLLBACK'); } catch { /* failed before BEGIN */ }
+    db.close();
+  }
+}
+
 /** Update a kanban task body directly. Used for approval-envelope payload
  * edits where no Hermes CLI subcommand exists. Scoped to approval tasks:
  * the body must remain a valid JSON envelope. */
@@ -672,4 +714,20 @@ export function readUpdateLog(dbPath: string, limit = 10): UpdateLogEntry[] {
   } catch {
     return [];
   }
+}
+
+/** Queue transport omits approval payloads/history; inspection reads the exact body separately. */
+export function summarizeKanbanTasks(board: { tasks: Record<string, unknown>[] }) {
+  return { tasks: board.tasks.map(task => {
+    let env: Record<string, unknown>;
+    try { env = JSON.parse(String(task.body)); } catch { return task; }
+    if (env?.eaios !== 'approval') return task;
+    const summary: Record<string, unknown> = {};
+    for (const key of ['eaios', 'requestedBy', 'actionType', 'targetSystem', 'targetObject', 'risk', 'decision', 'decidedAt']) summary[key] = env[key];
+    if (env.sourceContext && typeof env.sourceContext === 'object') {
+      const source = env.sourceContext as Record<string, unknown>;
+      summary.sourceContext = Object.fromEntries(['authorName','subject','receivedAt','sourceUrl'].map(key => [key, source[key]]));
+    }
+    return { ...task, body: JSON.stringify(summary), detailRequired: true };
+  }) };
 }

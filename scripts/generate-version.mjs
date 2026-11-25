@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -18,7 +18,7 @@ export function generateVersion(repoRoot = join(dirname(fileURLToPath(import.met
     gitBranch: git('rev-parse', '--abbrev-ref', 'HEAD'),
     ...(gitTag ? { gitTag } : {}),
     dirty,
-    releaseChannel: gitTag && !dirty ? 'stable' : 'dev',
+    releaseChannel: existsSync(join(repoRoot, 'personal-build.json')) ? 'personal' : gitTag && !dirty ? 'stable' : 'dev',
     builtAt: new Date().toISOString(),
   };
   const outFile = join(repoRoot, 'app', 'public', 'version.json');

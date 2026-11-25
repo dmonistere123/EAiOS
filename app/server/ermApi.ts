@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiContext } from './httpApi.ts';
 import { ErmStore } from './ermStore.ts';
+import { ermAttachmentRoute } from './ermAttachments.ts';
+import { queueErmQuickEmail } from './ermQuickEmail.ts';
 import { ErmError, ermText } from '../src/domain/erm.ts';
 import { csvContacts, parseCsv, suggestCsvMapping } from './ermImport.ts';
 import { ermAccounts, readOutlookContacts } from './ermProvider.ts';
@@ -25,8 +27,17 @@ export async function handleErmApi(req:IncomingMessage,res:ServerResponse,ctx:Ap
     if(!moduleConfig(root).enabled.includes('erm'))throw new ErmError(404,'disabled','E-CRM is not enabled on this installation.');
     const store=new ErmStore(root),method=req.method??'GET';
     if(!['GET','POST','PATCH'].includes(method))throw new ErmError(405,'method','Method not supported.');
+    const attachment=path.match(/^\/api\/erm\/contacts\/([\w-]+)\/notes\/([\w-]+)\/attachments(?:\/([\w-]+))?$/);
+    if(attachment){const [,contact,note,id]=attachment;await ermAttachmentRoute(req,res,store,url,contact,note,id);return true;}
+    if(path==='/api/erm/follow-ups'&&method==='GET'){send(200,store.followUps(url.searchParams.get('through')??''));return true;}
     const b=method==='GET'?{}:await readBody(req),key=String(b.requestId??'');
     const version=()=>{if(!Number.isSafeInteger(b.version)||Number(b.version)<1)throw new ErmError(400,'version','A record version is required.');return Number(b.version);};
+    const quickEmail=path.match(/^\/api\/erm\/contacts\/([\w-]+)\/notes\/([\w-]+)\/quick-email$/);
+    if(quickEmail&&method==='POST'){
+      if(isolated)throw new ErmError(503,'isolated','Outlook sending is disconnected in this preview.');
+      if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host)throw new ErmError(403,'origin','Use E-CRM from this application.');
+      send(201,await queueErmQuickEmail(ctx,quickEmail[1],quickEmail[2],b,store));return true;
+    }
     const match=path.match(/^\/api\/erm\/contacts\/([\w-]+)(?:\/(notes|review|analyze|archive)(?:\/([\w-]+))?)?$/);
     if(path==='/api/erm/status'&&method==='GET'){
       let model;try{model={available:true,name:ermModel(ctx.eaiosRoot,ctx.hermesHome,isolated).model};}catch(e){model={available:false,reason:(e as Error).message};}

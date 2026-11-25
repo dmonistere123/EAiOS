@@ -9,8 +9,8 @@ import Artifacts from '../pages/Artifacts';
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 it('requires a separate confirmation, supports cancel, and sends only the selected artifact ID',async()=>{
  const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({ok:true})});vi.stubGlobal('fetch',fetcher);const user=userEvent.setup();render(<MemoryRouter><Artifacts/></MemoryRouter>);
- await user.click(screen.getByRole('button',{name:'Delete'}));expect(fetcher).not.toHaveBeenCalled();expect(screen.getByText(/This cannot be undone/)).toBeInTheDocument();
- await user.click(screen.getByRole('button',{name:'Cancel'}));expect(fetcher).not.toHaveBeenCalled();
- await user.click(screen.getByRole('button',{name:'Delete'}));await user.click(screen.getByRole('button',{name:'Delete permanently'}));
+ await user.click(screen.getByRole('button',{name:'Delete'}));expect(fetcher.mock.calls.filter(c=>c[1]?.method==='DELETE')).toHaveLength(0);expect(screen.getByText(/cannot be undone/)).toBeInTheDocument();
+ await user.click(screen.getByRole('button',{name:'Cancel'}));expect(fetcher.mock.calls.filter(c=>c[1]?.method==='DELETE')).toHaveLength(0);
+ await user.click(screen.getByRole('button',{name:'Delete'}));await user.click(screen.getByRole('button',{name:/Delete permanently|Confirm delete/i}));
  expect(fetcher).toHaveBeenCalledWith('/api/artifacts/att-1',expect.objectContaining({method:'DELETE'}));
 });

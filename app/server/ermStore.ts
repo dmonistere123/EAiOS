@@ -2,8 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, existsSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { ErmError, validateErmContact, validateErmNote } from '../src/domain/erm.ts';
-import type { ErmContact, ErmNote, ErmPage, ErmImportPreview, ErmImportReceipt, ErmJob, ErmAnalysis } from '../src/domain/erm.ts';
+import { ErmError, ermDate, validateErmContact, validateErmNote } from '../src/domain/erm.ts';
+import type { ErmContact, ErmNote, ErmPage, ErmFollowUps, ErmImportPreview, ErmImportReceipt, ErmJob, ErmAnalysis } from '../src/domain/erm.ts';
 export const ERM_OWNER = 'local-executive';
 export const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const iso = () => new Date().toISOString();
@@ -30,6 +30,7 @@ export class ErmStore {
           CREATE INDEX IF NOT EXISTS erm_directory ON erm_contacts(owner,archived,name,id);
           CREATE TABLE IF NOT EXISTS erm_notes(owner TEXT NOT NULL,id TEXT NOT NULL,contact_id TEXT NOT NULL,created_at TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(owner,id),FOREIGN KEY(owner,contact_id) REFERENCES erm_contacts(owner,id));
           CREATE INDEX IF NOT EXISTS erm_note_history ON erm_notes(owner,contact_id,created_at DESC,id);
+          CREATE INDEX IF NOT EXISTS erm_note_followups ON erm_notes(owner,json_extract(body,'$.followUpOn'),id) WHERE json_extract(body,'$.followUpOn') IS NOT NULL;
           CREATE TABLE IF NOT EXISTS erm_operations(owner TEXT NOT NULL,key TEXT NOT NULL,hash TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(owner,key));
           CREATE TABLE IF NOT EXISTS erm_previews(owner TEXT NOT NULL,id TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(owner,id));
           CREATE TABLE IF NOT EXISTS erm_import_sources(owner TEXT NOT NULL,source_key TEXT NOT NULL,contact_id TEXT NOT NULL,PRIMARY KEY(owner,source_key),FOREIGN KEY(owner,contact_id) REFERENCES erm_contacts(owner,id));
@@ -57,6 +58,15 @@ export class ErmStore {
   notes(contactId:string,cursor:string|null=null):ErmPage<ErmNote> { const offset=pageOffset(cursor);return this.transaction(db=>{this.getContact(db,contactId);const total=(db.prepare('SELECT count(*) n FROM erm_notes WHERE owner=? AND contact_id=?').get(ERM_OWNER,contactId) as {n:number}).n;const items=db.prepare('SELECT body FROM erm_notes WHERE owner=? AND contact_id=? ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET ?').all(ERM_OWNER,contactId,offset).map(r=>body<ErmNote>(r)!);return {items,total,hasMore:offset+items.length<total,nextCursor:offset+items.length<total?String(offset+items.length):null};}); }
   saveNote(contactId:string,raw:unknown,key:string):ErmNote { const input=validateErmNote(raw);return this.transaction(db=>{this.getContact(db,contactId);return this.operation(db,'note:'+requestKey(key),{contactId,input},()=>{const now=iso(),n:ErmNote={...input,id:randomUUID(),contactId,version:1,createdAt:now,updatedAt:now};db.prepare('INSERT INTO erm_notes VALUES(?,?,?,?,?)').run(ERM_OWNER,n.id,contactId,now,JSON.stringify(n));this.audit(db,n.id,'note_created');return n;});}); }
   updateNote(contactId:string,id:string,raw:unknown,version:number):ErmNote { const input=validateErmNote(raw);return this.transaction(db=>{const n=body<ErmNote>(db.prepare('SELECT body FROM erm_notes WHERE owner=? AND contact_id=? AND id=?').get(ERM_OWNER,contactId,id));if(!n)throw new ErmError(404,'not_found','Note not found.');if(n.version!==version)throw new ErmError(409,'stale_version','This note changed. Reload before saving.');const next={...n,...input,version:n.version+1,updatedAt:iso()};db.prepare('UPDATE erm_notes SET body=? WHERE owner=? AND id=?').run(JSON.stringify(next),ERM_OWNER,id);this.audit(db,id,'note_updated');return next;}); }
+  followUps(through: string | null): ErmFollowUps {
+    const date=ermDate(through);
+    return this.transaction(db=>{
+      const due="FROM erm_notes n JOIN erm_contacts c ON c.owner=n.owner AND c.id=n.contact_id WHERE n.owner=? AND c.archived=0 AND json_extract(n.body,'$.followUpOn') IS NOT NULL AND json_extract(n.body,'$.followUpOn')<=?";
+      const total=(db.prepare('SELECT COUNT(*) AS n '+due).get(ERM_OWNER,date) as {n:number}).n;
+      const items=db.prepare("SELECT n.contact_id AS contactId,json_extract(c.body,'$.name') AS contactName,n.id AS noteId,json_extract(n.body,'$.title') AS noteTitle,json_extract(n.body,'$.followUpOn') AS followUpOn "+due+" ORDER BY followUpOn,n.id LIMIT 100").all(ERM_OWNER,date) as unknown as ErmFollowUps['items'];
+      return {items,total,hasMore:total>items.length};
+    });
+  }
   private getSnapshot(db:DatabaseSync,id:string):ErmSnapshot { const contact=this.getContact(db,id);if(contact.archived)throw new ErmError(409,'archived','Restore this contact before generating a review.');const all=db.prepare('SELECT body FROM erm_notes WHERE owner=? AND contact_id=? ORDER BY created_at DESC,id DESC').all(ERM_OWNER,id).map(r=>body<ErmNote>(r)!).filter(n=>n.includeInAI);let chars=0;const notes=all.filter(n=>{if(chars+n.body.length>80000)return false;chars+=n.body.length;return true;}).slice(0,20);return {contact,notes,eligibleNotes:all.length,fingerprint:fingerprint([contact,all.map(n=>[n.id,n.version])])}; }
   snapshot(id:string):ErmSnapshot { return this.transaction(db=>this.getSnapshot(db,id)); }
   preview(source:'csv'|'outlook',candidates:ErmImportPreview['items'],account?:string,nextCursor?:string):ErmImportPreview { return this.transaction(db=>{const contacts=db.prepare('SELECT body FROM erm_contacts WHERE owner=?').all(ERM_OWNER).map(r=>body<ErmContact>(r)!);for(const c of candidates){const key=`${source}:${account??''}:${c.id}`,prior=db.prepare('SELECT contact_id FROM erm_import_sources WHERE owner=? AND source_key=?').get(ERM_OWNER,key) as {contact_id:string}|undefined;if(prior)c.existingId=prior.contact_id;else if(c.contact){const possible=contacts.find(p=>p.emails.some(e=>c.contact!.emails.some(x=>x.toLowerCase()===e.toLowerCase())));if(possible)c.possibleDuplicate=possible.name;}}const p:ErmImportPreview={id:randomUUID(),source,items:candidates,account,nextCursor,expiresAt:new Date(Date.now()+86400000).toISOString()};db.prepare('INSERT INTO erm_previews VALUES(?,?,?)').run(ERM_OWNER,p.id,JSON.stringify(p));db.prepare('DELETE FROM erm_previews WHERE owner=? AND json_extract(body,\'$.expiresAt\')<?').run(ERM_OWNER,iso());return p;}); }

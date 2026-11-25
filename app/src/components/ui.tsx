@@ -184,6 +184,7 @@ export function Drawer({
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      if(dragRef.current)onUp();
     };
   }, [resizable, minWidth, maxWidth]);
 
@@ -196,10 +197,17 @@ export function Drawer({
   return (
     <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="absolute right-0 top-0 flex h-full flex-col border-l border-edge bg-canvas-raised shadow-2xl" style={{ width }}>
+      <div className="absolute right-0 top-0 flex h-full flex-col border-l border-edge bg-canvas-raised shadow-2xl" style={{ width, maxWidth: '100vw' }}>
         {resizable && (
           <div
             onMouseDown={startResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={minWidth}
+            aria-valuemax={maxWidth}
+            aria-valuenow={width}
+            tabIndex={0}
+            onKeyDown={e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();setWidth(w=>Math.max(minWidth,Math.min(maxWidth,w+(e.key==='ArrowLeft'?20:-20))));}}}
             className="absolute -left-2 top-0 h-full w-4 cursor-col-resize"
             title="Drag to resize"
             aria-label="Resize drawer"
@@ -223,7 +231,7 @@ export function Drawer({
 export function ToastHost() {
   const { toasts } = useRuntime();
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2" aria-live="polite">
+    <div className="pointer-events-none fixed bottom-[calc(var(--ticker-height,0px)+1rem)] right-4 z-50 flex w-80 flex-col gap-2" aria-live="polite">
       {toasts.map((t) => (
         <div
           key={t.id}

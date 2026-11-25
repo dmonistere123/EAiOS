@@ -1,4 +1,5 @@
 import { WorkspaceNavigation, NAV_MODULES } from '../components/WorkspaceNavigation';
+import { plannerPreviewEnabled } from '../adapters/planner';
 import { BottomTicker } from '../components/BottomTicker';
 import { loadTickerPrefs } from '../adapters/ticker';
 import { adapterMode } from '../adapters';
@@ -211,7 +212,7 @@ function RightRail() {
 export default function AppShell() {
   const [tickerHidden, setTickerHidden] = useState(() => loadTickerPrefs().hidden);
   const location=useLocation();
-  const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV_MODULES:null);
+  const [modules,setModules]=useState<string[]|null>(adapterMode==='mock'?NAV_MODULES.filter(m=>m!=='daily-planner'||plannerPreviewEnabled):null);
   const [moduleError,setModuleError]=useState(false);
   useEffect(()=>{if(adapterMode==='mock')return;const controller=new AbortController();
     void fetch('/api/modules',{signal:controller.signal}).then(async r=>{if(!r.ok)throw new Error('Module configuration unavailable');return r.json();}).then(v=>{if(!Array.isArray(v.enabled)||!v.enabled.every((x:unknown)=>typeof x==='string'))throw new Error('Invalid modules');setModules(v.enabled);}).catch(()=>{if(!controller.signal.aborted)setModuleError(true);});return()=>controller.abort();
@@ -241,7 +242,7 @@ export default function AppShell() {
   const navCollapsed = viewportWidth < 640 ? !mobileExpanded : prefs.leftCollapsed;
   const leftWidth = navCollapsed ? 64 : isNarrow ? LIMITS.left.min : prefs.left;
   const declaredRail = useRailDeclaration();
-  const pageHidesRail = declaredRail?.length === 0;
+  const pageHidesRail = location.pathname==='/dcr' || declaredRail?.length === 0;
   const showRail = !pageHidesRail && !isNarrow && !prefs.rightCollapsed;
   const pending = selectPendingApprovals(s).length;
 
@@ -313,15 +314,15 @@ export default function AppShell() {
 
         {/* center */}
         <main className="min-w-0 flex-1 overflow-y-auto" id="main">
-          <div className="mx-auto h-full max-w-6xl px-4 py-6 pb-24 md:px-6 lg:pb-6">
-            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts','ticker','erm'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<>{import.meta.env.VITE_TRAVEL_HANDOFF==='1'&&<div className="mb-5 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">STAGING · Separate sample data · Emails are captured, never sent · No provider booking</div>}<Outlet context={{ modules }} /></>}
+          <div className={'h-full max-w-6xl px-4 py-6 pb-24 md:px-6 lg:pb-6 '+(location.pathname==='/daily-planner'?'mr-auto':'mx-auto')}>
+            {moduleError?<p role="alert">Module configuration unavailable. Reload to try again.</p>:!modules?<p>Loading your modules…</p>:['social','podcasts','ticker','dcr','erm','daily-planner'].includes(location.pathname.split('/')[1])&&!modules.includes(location.pathname.split('/')[1])?<p>This optional module is not enabled on this box.</p>:<>{import.meta.env.VITE_TRAVEL_HANDOFF==='1'&&<div className="mb-5 rounded-lg border border-warn/40 bg-warn/10 p-3 text-sm text-warn">STAGING · Separate sample data · Emails are captured, never sent · No provider booking</div>}<Outlet context={{ modules, isNarrow }} /></>}
           </div>
         </main>
 
         {/* right rail */}
         {showRail && <DragHandle {...rightDrag} label="Resize operational rail" />}
         {showRail && (
-          <aside aria-label="Operational watchtower" style={{ width: prefs.right }} className="shrink-0 border-l border-edge bg-canvas-raised transition-[width] duration-75">
+          <aside aria-label={location.pathname==='/daily-planner'?'Daily Planner right sidebar':'Operational watchtower'} style={{ width: prefs.right }} className="shrink-0 border-l border-edge bg-canvas-raised transition-[width] duration-75">
             <RightRail />
           </aside>
         )}
@@ -329,8 +330,8 @@ export default function AppShell() {
           <button
             onClick={() => setPrefs((p) => ({ ...p, rightCollapsed: false }))}
             className="w-8 shrink-0 border-l border-edge text-ink-faint hover:bg-canvas-overlay hover:text-signal"
-            aria-label="Show operational rail"
-            title="Show operational rail"
+            aria-label={location.pathname==='/daily-planner'?'Show Daily Journal':'Show operational rail'}
+            title={location.pathname==='/daily-planner'?'Show Daily Journal':'Show operational rail'}
           >
             «
           </button>

@@ -2,7 +2,7 @@ import type { IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
-import { checkUpdates, getUpdateStatus, updateOptions, atomicJson, WEEK_MS } from '../../scripts/check-updates.mjs';
+import { checkUpdates, getUpdateStatus, updateOptions, atomicJson, WEEK_MS, isPersonalBuild } from '../../scripts/check-updates.mjs';
 import type { ApiContext } from './httpApi.ts';
 
 const execute = promisify(execFile);
@@ -15,7 +15,9 @@ export function requireSameOriginJson(req: IncomingMessage) {
   if (req.headers.origin && new URL(String(req.headers.origin)).host !== req.headers.host) throw new Error('Same-origin request required');
 }
 export async function launchReleaseInstall(ctx: ApiContext, currentVersion: string, releaseId: number) {
-  const options = optionsFor(ctx), info = getUpdateStatus(options, currentVersion);
+  const options = optionsFor(ctx);
+  if (isPersonalBuild(options.codeRoot)) throw new Error('Personal build: reconcile a future update locally before replacing it.');
+  const info = getUpdateStatus(options, currentVersion);
   if (['queued', 'installing'].includes(info.install?.status ?? '')) throw new Error('An update is already being installed');
   const checkedAt = Date.parse(info.lastSuccessfulCheckAt ?? '');
   if (info.status !== 'available' || info.release?.id !== releaseId || !Number.isFinite(checkedAt) || Date.now() - checkedAt > WEEK_MS || checkedAt > Date.now()) throw new Error('Check for updates again before installing');

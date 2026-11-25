@@ -1,11 +1,14 @@
+import {OutlookSourceReview} from '../components/OutlookSourceReview';
+import {OutlookHistory} from '../components/OutlookHistory';
+import {OutlookDraftEditor} from '../components/OutlookDraftEditor';
 import {HumanSenderReview} from '../components/HumanSenderReview';
 import { ReplyMailboxReview } from '../components/ReplyMailboxReview';
 /** Approvals — human gate. Decisions are auditable; governed actions wait here. */
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Approval } from '../domain/types';
-import { hermes, humanDelegation, adapterMode } from '../adapters';
-import { useRuntime, selectPendingApprovals, agentName, toast, refreshApprovals } from '../state/runtime';
+import { hermes, humanDelegation, social, adapterMode } from '../adapters';
+import { useRuntime, selectPendingApprovals, agentName, toast, refreshApprovals, removeConfirmedApproval } from '../state/runtime';
 import { Card, Drawer, EmptyState, RelativeTime, RiskBadge, StateBadge } from '../components/ui';
 
 function PostSource({ approval }: { approval: Approval }) {
@@ -54,8 +57,16 @@ function SourceContext({ approval }: { approval: Approval }) {
   );
 }
 
-export function Inspector({ approval, onClose }: { approval: Approval; onClose: () => void }) {
+export function Inspector({ approval: incomingApproval, onClose }: { approval: Approval; onClose: () => void }) {
   const s = useRuntime();
+  const [approval,setApproval]=useState(incomingApproval);
+  const [mailBlocked,setMailBlocked]=useState(true);
+  const [historyReady,setHistoryReady]=useState(false);
+  const [mailDirty,setMailDirty]=useState(false);
+  useEffect(()=>{if(!mailDirty)setApproval(incomingApproval);},[incomingApproval]);
+  const isOutlook= !approval.humanDelegation && approval.actionType==='send' && /^outlook$/i.test(approval.targetSystem);
+  const isErmEmail=isOutlook&&!!approval.ermQuickEmail;
+  const outlookNeedsReview=isOutlook&&(isErmEmail?!approval.mailDraft||!approval.reviewVersion:mailBlocked||!historyReady);
   const [busy, setBusy] = useState(false);
   const [completionNote,setCompletionNote]=useState('');
   const [editingPayload, setEditingPayload] = useState(false);
@@ -68,24 +79,26 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
     setEditingPayload(false);
   }, [approval.id, approval.payload]);
 
-  const needsMailbox = adapterMode==='live' && !approval.humanDelegation && !approval.mailReply && approval.actionType==='send' && /gmail|outlook|microsoft|email|e-mail|smtp/i.test(approval.targetSystem);
-  const genericApproval=!approval.humanDelegation&&!approval.mailReply&&!needsMailbox&&!('socialPost' in approval && approval.socialPost)&&!('artifactShare' in approval && approval.artifactShare);
+  const needsMailbox = !isOutlook && adapterMode==='live' && !approval.humanDelegation && !approval.mailReply && approval.actionType==='send' && /gmail|outlook|microsoft|email|e-mail|smtp/i.test(approval.targetSystem);
+  const genericApproval=!approval.humanDelegation&&!approval.mailReply&&!needsMailbox&&!isOutlook&&!approval.socialPost&&!approval.artifactShare;
   const recoverable=genericApproval&&approval.status==='approved'&&approval.executionState==='blocked';
   const resume=async()=>{setBusy(true);const res=await hermes.resumeApprovedTask(approval.id,executor,approval.reviewVersion);setBusy(false);if(res.ok){toast('ok',`Approved task queued for ${agentName(s,executor)}.`);await refreshApprovals();onClose();}else toast('error',res.error?.safeMessage??'Resume failed.');};
 
   const decide = async (decision: 'approved' | 'rejected' | 'changes_requested') => {
+    if(busy||mailDirty||(decision==='approved'&&outlookNeedsReview))return;
     setBusy(true);
     let res;
     try {
       const input = { decision, reviewVersion: approval.reviewVersion,...(approval.humanDelegation?.completion?{note:completionNote}:{}) };
-      res = approval.humanDelegation ? await humanDelegation.decide(approval.id,input) : await hermes.decideApproval(approval.id, input);
+      res = approval.humanDelegation ? await humanDelegation.decide(approval.id,input) : approval.socialPost ? await social.decide(approval.id,input) : await hermes.decideApproval(approval.id, input);
     }
     catch(e) {setBusy(false);toast('error',e instanceof Error?e.message:'Decision failed.');return;}
     setBusy(false);
     if (res.ok) {
-      toast('ok', `Decision recorded: ${decision.replace('_', ' ')}. Audit ${res.auditEventId}.`);
-      await refreshApprovals();
+      toast('ok', approval.artifactShare && decision==='approved' ? 'Public link created. Open Artifacts to copy it.' : `Decision recorded: ${decision.replace('_', ' ')}. Audit ${res.auditEventId}.`);
+      removeConfirmedApproval(approval.id);
       onClose();
+      void refreshApprovals().catch(() => toast('error', 'Decision confirmed; queue refresh failed. Refresh the page to reload it.'));
     } else {
       toast('error', res.error?.safeMessage ?? 'Decision failed.');
     }
@@ -97,6 +110,7 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
     setBusy(false);
     if (res.ok) {
       toast('ok', `Payload updated. Audit ${res.auditEventId}.`);
+      if (hermes.getApproval) setApproval(await hermes.getApproval(approval.id));
       await refreshApprovals();
       setEditingPayload(false);
     } else {
@@ -105,7 +119,7 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
   };
 
   return (
-    <Drawer title="Approval inspection" onClose={onClose} width={480}>
+    <Drawer title="Approval inspection" onClose={()=>{if(busy||mailDirty){toast('error','Save or discard email edits before closing.');return;}onClose();}} width={552} resizable>
       <div className="space-y-5">
         <div>
           <div className="text-lg font-semibold text-ink">{approval.targetObject ?? approval.targetSystem}</div>
@@ -114,7 +128,7 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-dim">
             <RiskBadge risk={approval.risk} />
             <StateBadge label={approval.actionType} tone="signal" />
-            <span>via {approval.targetSystem}</span>
+            <span>via {approval.artifactShare?'public website link':approval.targetSystem}</span>
           </div>
         </div>
 
@@ -136,8 +150,11 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
           </ul>
         </div>
 
-        {(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')&&import.meta.env.VITE_TRAVEL_HANDOFF!=='1'&&approval.humanDelegation&&!approval.humanDelegation.completion&&<HumanSenderReview approval={approval} onSaved={onClose}/>}
-        {(needsMailbox||(adapterMode==='live'&&approval.mailReply))&&<ReplyMailboxReview approval={approval} onPrepared={onClose}/>}
+        {(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')&&approval.humanDelegation&&!approval.humanDelegation.completion&&<HumanSenderReview approval={approval} onSaved={onClose}/>}
+        {isOutlook&&!isErmEmail&&!approval.mailReply&&<OutlookSourceReview approval={approval} onSaved={setApproval}/>}
+        {isOutlook&&!isErmEmail&&approval.mailReply&&<OutlookDraftEditor approval={approval} onSaved={setApproval} onBlocked={setMailBlocked} onDirty={setMailDirty}/>}
+        {isOutlook&&approval.mailReply?.sourceConnectionId&&approval.mailReply?.sourceMessageId&&<OutlookHistory connectionId={approval.mailReply.sourceConnectionId} messageId={approval.mailReply.sourceMessageId} onReady={setHistoryReady}/>}
+        {!isOutlook&&(needsMailbox||(adapterMode==='live'&&approval.mailReply))&&<ReplyMailboxReview approval={approval} onPrepared={onClose} onDirty={setMailDirty}/>}
 
         {approval.humanDelegation?.completion&&<label className="block text-sm">Feedback for your assistant<textarea className="mt-2 w-full rounded-lg border border-edge bg-canvas p-3" maxLength={4000} rows={3} value={completionNote} onChange={e=>setCompletionNote(e.target.value)}/></label>}
         {approval.proposedDiff && (
@@ -147,11 +164,17 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
           </div>
         )}
 
-        {approval.payload && (
+        {isErmEmail&&approval.mailDraft&&<section aria-label="E-CRM email review" className="space-y-2 rounded-lg border border-edge bg-canvas p-3 text-sm">
+          <p><b>From:</b> {approval.mailDraft.identity.email}</p><p><b>To:</b> {approval.mailDraft.to.join(', ')}</p>
+          <p><b>Subject:</b> {approval.mailDraft.subject}</p><p className="whitespace-pre-wrap break-words">{approval.mailDraft.body}</p>
+          <p className="text-xs text-ink-dim">New message. No attachments will be sent. To change the draft, reject it and prepare a new one from the note.</p>
+          <a className="text-signal underline" href={'/erm?contact='+encodeURIComponent(approval.ermQuickEmail!.contactId)+'&note='+encodeURIComponent(approval.ermQuickEmail!.noteId)}>Open E-CRM note</a>
+        </section>}
+        {approval.payload && !isOutlook && (
           <div>
             <div className="flex items-center justify-between">
               <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Prepared content — exactly what gets executed</div>
-              {!editingPayload && !approval.humanDelegation && !approval.mailReply && (
+              {!editingPayload && !approval.humanDelegation && !approval.mailReply && !approval.artifactShare && !approval.socialPost && (
                 <button onClick={() => setEditingPayload(true)} disabled={busy} className="rounded px-2 py-1 text-xs font-medium text-signal hover:bg-signal/10 disabled:opacity-50">
                   Edit
                 </button>
@@ -180,6 +203,9 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
           </div>
         )}
 
+        {approval.socialPost && <div className="space-y-2">{approval.socialPost.imageVersion && <img className="max-h-80 rounded-lg object-contain" src={'/api/social/images/'+approval.socialPost.imageVersion} alt="Exact image to publish"/>}<a href="/social" className="text-signal">Edit in Social Media (cancels this approval)</a></div>}
+        {approval.artifactShare && <a href={`/api/artifact-shares/${encodeURIComponent(approval.artifactShare.id)}/snapshot`} className="block rounded-lg border border-signal/40 p-3 text-sm text-signal" download>Download exact copy for review</a>}
+
         {approval.rollbackPlan && (
           <div>
             <div className="text-xs font-medium uppercase tracking-wider text-ink-faint">Rollback path</div>
@@ -188,11 +214,12 @@ export function Inspector({ approval, onClose }: { approval: Approval; onClose: 
         )}
 
         {recoverable?<div className="space-y-2 pt-2"><button onClick={()=>void resume()} disabled={busy} className="w-full rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas disabled:opacity-50">Resume with {agentName(s, executor)}</button><p className="text-[11px] text-ink-faint">Preserves the recorded approval and approved payload.</p></div>:<><div className="grid grid-cols-3 gap-2 pt-2">
-          <button onClick={() => decide('approved')} disabled={busy||needsMailbox} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">{approval.humanDelegation?.completion?'Approve completion':approval.humanDelegation&&import.meta.env.VITE_TRAVEL_HANDOFF==='1'?'Approve & capture email':'Approve & execute'}</button>
-          <button onClick={() => decide('changes_requested')} disabled={busy} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
-          <button onClick={() => decide('rejected')} disabled={busy} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
+          {busy && <p role="status" className="text-sm text-ink-dim">Recording your decision. If sending email, waiting for delivery confirmation…</p>}
+          <button onClick={() => decide('approved')} disabled={busy||mailDirty||needsMailbox||(outlookNeedsReview)} className="rounded-lg bg-ok px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-ok/90 disabled:opacity-50">{approval.humanDelegation?.completion?'Approve completion':isOutlook?'Approve & send':approval.socialPost?'Approve & schedule':'Approve & execute'}</button>
+          <button onClick={() => decide('changes_requested')} disabled={busy||mailDirty} className="rounded-lg bg-warn px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-warn/90 disabled:opacity-50">Request changes</button>
+          <button onClick={() => decide('rejected')} disabled={busy||mailDirty} className="rounded-lg bg-risk px-3 py-2.5 text-sm font-semibold text-canvas hover:bg-risk/90 disabled:opacity-50">Reject</button>
         </div>
-        <p className="text-[11px] text-ink-faint">{approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?.completion?'Approval removes this task from the open queue while preserving its itinerary, confirmations and history. Request changes to keep it open.':approval.humanDelegation&&import.meta.env.VITE_TRAVEL_HANDOFF==='1'?'Staging captures this email and attachment locally. No email is sent.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':`After your approval, ${agentName(s, executor)} ${executor === 'default' ? 'coordinates execution and delegates as needed' : 'carries out this reviewed task'}. Every decision is audited.`}</p>
+        <p className="text-[11px] text-ink-faint">{approval.socialPost?'Approval schedules this exact content, image and account. It publishes once at the displayed time; uncertain outcomes are never retried automatically.':approval.artifactShare?'Approve publishes this saved copy to your website. Return to Artifacts to copy the public link. Every decision is audited.':isErmEmail?'Approve & send sends this exact new message once, after verifying the account and saved recipient.':isOutlook&&!approval.mailReply?'Sending stays blocked until you verify the original message, review its complete history, and save the outgoing reply with its verified sending account.':approval.mailReply?'Approval sends this exact message from the displayed, verified sending account. No AI worker selects or changes the sending account.':approval.humanDelegation?.completion?'Approval removes this task from the open queue while preserving its itinerary, confirmations and history. Request changes to keep it open.':approval.humanDelegation?'Approval sends this exact email and its attachments once from the displayed mailbox. An uncertain outcome is never automatically retried.':`After your approval, ${agentName(s, executor)} ${executor === 'default' ? 'coordinates execution and delegates as needed' : 'carries out this reviewed task'}. Every decision is audited.`}</p>
         </>}
       </div>
     </Drawer>
@@ -203,14 +230,30 @@ export default function Approvals() {
   const s = useRuntime();
   const [params] = useSearchParams();
   const [riskFilter, setRiskFilter] = useState<string>('all');
-  const [selectedId, setSelectedId] = useState<string | null>(params.get('focus'));
+  const focus=params.get('focus');
+  const [selectedId, setSelectedId] = useState<string | null>(focus);
+  useEffect(()=>setSelectedId(focus),[focus]);
 
   const pending = useMemo(() => {
     const rows = selectPendingApprovals(s);
     return riskFilter === 'all' ? rows : rows.filter((a) => a.risk === riskFilter);
   }, [s, riskFilter]);
 
-  const selected = pending.find((a) => a.id === selectedId) ?? null;
+  const summary = pending.find((a) => a.id === selectedId) ?? null;
+  const directCrmFocus=!!selectedId&&/^crm_mail_[a-f0-9]{32}$/.test(selectedId)&&!summary;
+  const needsDetail=!!summary?.detailRequired||directCrmFocus;
+  const [detail, setDetail] = useState<Approval | null>(null);
+  const [detailError, setDetailError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    setDetail(null); setDetailError('');
+    if (selectedId && needsDetail) {
+      if (!hermes.getApproval) setDetailError('Approval details are unavailable.');
+      else void hermes.getApproval(selectedId).then(row => { if (!alive) return; if(row.status==='pending'||(row.status==='approved'&&row.executionState==='blocked'))setDetail(row);else setDetailError('This approval is no longer pending.'); }).catch(e => { if (alive) setDetailError(e instanceof Error ? e.message : 'Could not load approval details.'); });
+    }
+    return () => { alive = false; };
+  }, [selectedId, needsDetail]);
+  const selected = needsDetail ? (detail?.id === selectedId ? detail : null) : summary;
 
   return (
     <div className="space-y-6">
@@ -265,6 +308,7 @@ export default function Approvals() {
         </Card>
       )}
 
+      {needsDetail && !selected && <Drawer title="Approval inspection" onClose={() => setSelectedId(null)} width={552} resizable><p role="status">{detailError || 'Loading reviewed approval details…'}</p></Drawer>}
       {selected && <Inspector approval={selected} onClose={() => setSelectedId(null)} />}
     </div>
   );

@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { Agent, Approval, CronJob, ActivityEvent, WorkItem, Skill, KnowledgeSource, Playbook, PlaybookRun, UsageSummary, DailySpendReport, Artifact } from '../domain/types';
-import { hermes, adapterMode, live, knowledge, humanDelegation } from '../adapters';
+import { hermes, adapterMode, live, knowledge, social, humanDelegation } from '../adapters';
 
 export interface Toast {
   id: number;
@@ -99,8 +99,13 @@ async function guarded<T>(key: string, fn: () => Promise<T>, apply: (v: T) => vo
   }
 }
 
+export function removeConfirmedApproval(id: string) {
+  seqs.approvals = (seqs.approvals ?? 0) + 1;
+  set({ approvals: state.approvals.filter(a => a.id !== id) });
+}
+
 export async function refreshApprovals() {
-  await guarded('approvals', async () => {const rows=import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'?[]:await hermes.listApprovals({status:['pending','approved']});if(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')rows.push(...await humanDelegation.approvals());return rows;}, (approvals) => set({ approvals }));
+  await guarded('approvals', async () => {const rows=import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1'?[]:await hermes.listApprovals({status:['pending','approved']});if(adapterMode==='live'||import.meta.env.VITE_HUMAN_APPROVAL_TEST==='1')rows.push(...await humanDelegation.approvals());if(adapterMode==='live'||import.meta.env.VITE_SOCIAL_PREVIEW==='1'){try{rows.push(...await social.approvals());}catch{console.warn('Social approvals are unavailable.');}}return rows;}, (approvals) => set({ approvals }));
 }
 
 export async function refreshAgents() {
@@ -154,7 +159,16 @@ export async function refreshArtifacts() {
   await guarded('artifacts', () => hermes.listArtifacts(), (artifacts) => set({ artifacts }));
 }
 
-export async function refreshAll() {
+let refreshPending: Promise<void> | undefined;
+export function refreshAll(coalesce = false) {
+  if (!coalesce) return refreshAllSlices();
+  if (refreshPending) return refreshPending;
+  const pending = refreshAllSlices().finally(() => { if (refreshPending === pending) refreshPending = undefined; });
+  refreshPending = pending;
+  return pending;
+}
+
+async function refreshAllSlices() {
   // Per-slice tolerance: a failing slice must never take down the rest.
   await Promise.allSettled([refreshAgents(), refreshWork(), refreshApprovals(), refreshCron(), refreshActivity(), refreshSkills(), refreshKnowledge(), refreshPlaybooks(), refreshPlaybookRuns(), refreshUsage(), refreshArtifacts()]);
 }
@@ -187,12 +201,12 @@ export function startRuntime() {
     set({ gateway: 'offline' });
     live.onConnectionChange((connected) => {
       set({ gateway: connected ? 'live' : 'offline' });
-      if (connected) void refreshAll();
+      if (connected) void refreshAll(true);
     });
     live.connect();
     startLivePolling();
   }
-  void refreshAll().then(() => set({ ready: true }));
+  void refreshAll(true).then(() => set({ ready: true }));
   // Event-driven refresh, debounced (spec §15: meaningful event rendered
   // within ~1s). The gateway can emit bursts (e.g. sessions.changed storms);
   // a trailing debounce keeps refreshes cheap and ordered.
@@ -227,7 +241,7 @@ let pollTimer: ReturnType<typeof setInterval> | undefined;
 export function startLivePolling(intervalMs = 12_000) {
   if (pollTimer) return;
   pollTimer = setInterval(() => {
-    if (getState().gateway !== 'live') return;
+    if (getState().gateway !== 'live' || document.visibilityState === 'hidden') return;
     void refreshWork();
     void refreshApprovals();
     void refreshAgents();

@@ -230,7 +230,7 @@ describe('kanban<T> tolerates human-text success output', () => {
     const envelope = { eaios: 'approval', actionType: 'send', targetSystem: 'outlook', risk: 'medium' as const, requestedBy: 'quill', payload: 'Original body' };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === '/api/kanban' && (init?.method ?? 'GET') === 'GET') {
+      if (url.startsWith('/api/kanban') && (init?.method ?? 'GET') === 'GET') {
         return new Response(JSON.stringify({ tasks: [{ id: 't_810c8eff', title: 'Send email', status: 'ready', body: JSON.stringify(envelope), created_at: 1787900000 }] }), { status: 200 });
       }
       if (url === '/api/kanban' && init?.method === 'PUT') {

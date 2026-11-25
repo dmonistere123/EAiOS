@@ -13,3 +13,5 @@ export function readJson(path: string, fallback?: unknown): unknown;
 export function githubJson(path: string, options?: UpdateOptions): Promise<unknown>;
 export function normalizeRelease(value: unknown, repository: string): PublishedRelease;
 export function compareVersions(a: string, b: string): number;
+
+export function isPersonalBuild(codeRoot: string): boolean;

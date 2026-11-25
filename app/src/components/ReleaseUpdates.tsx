@@ -5,6 +5,7 @@ import { Card, SectionTitle } from './ui';
 import { toast } from '../state/runtime';
 
 const labels: Record<ReleaseUpdateInfo['status'], string> = {
+  personal: 'Personal build — standard installation is blocked',
   not_checked: 'Not checked yet', check_failed: 'Check failed', no_releases: 'No releases published',
   current: 'You are up to date', ahead: 'This box is newer than the published release', available: 'Update available',
 };
@@ -62,6 +63,7 @@ export function ReleaseUpdates() {
       </div>}
     </div>}
     {busy && <p role="status" className="mt-3 text-xs text-ink-dim">{info?.install?.stage ?? 'Starting installation'}…</p>}
+    {info?.status === 'personal' && <p className="mt-3 text-xs text-warn">This box uses a personal build. Future upgrades require local reconciliation to preserve its personal features. It is excluded from shared publishing.</p>}
     {info?.install?.status === 'succeeded' && <p className="mt-3 text-xs text-ok">Update installed{info.install.version ? `: ${info.install.version}` : ''}. Your saved data was retained.</p>}
     {info?.install?.status === 'failed' && <p role="alert" className="mt-3 text-xs text-warn">{info.install.error ?? 'Installation failed. Check the box status before retrying.'}</p>}
   </Card>;

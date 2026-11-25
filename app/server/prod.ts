@@ -1,7 +1,8 @@
+import {startDcrScanner} from './dcrProduction.ts';
 import {handlePodcastPromo,startPodcastPromos} from './podcastPromo.ts';
 import { createAssistantServer } from './assistantServer.ts';
-import { handleTickerRequest } from './ticker.ts';
 import { moduleConfig,optionalModuleForPath } from './modules.ts';
+import { startSocialPublisher } from './socialPublishing.ts';
 import { handleLiveVoice } from './liveVoice.ts';
 import { appKey } from './apiKeys.ts';
 import { reconcileReleaseArtifact } from './releaseArtifacts.ts';
@@ -39,6 +40,7 @@ import { assistantRequests } from './assistantRequests.ts';
  * Run: node server/prod.ts        (or: npm start)
  */
 import { createServer } from 'node:http';
+import { handleTickerRequest } from './ticker.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { connect } from 'node:net';
 import { createReadStream, readFileSync, statSync } from 'node:fs';
@@ -233,6 +235,7 @@ export function createEaiosServer(config: ProdConfig) {
     catch (error) { console.warn('Release report could not be saved:', error instanceof Error ? error.message : String(error)); return false; }
   };
   const reportTimer = setInterval(() => { if (saveReleaseNote()) clearInterval(reportTimer); }, 30_000);
+  const stopSocialPublisher = moduleConfig(apiCtx.dataRoot??apiCtx.eaiosRoot).enabled.includes('social') ? startSocialPublisher(apiCtx) : ()=>{};
   reportTimer.unref();
   if (saveReleaseNote()) clearInterval(reportTimer);
   const server = createServer((req, res) => {
@@ -240,7 +243,7 @@ export function createEaiosServer(config: ProdConfig) {
       const path = new URL(req.url ?? '/', 'http://localhost').pathname;
       const optional=optionalModuleForPath(path);
       if(optional&&!moduleConfig(apiCtx.dataRoot??apiCtx.eaiosRoot).enabled.includes(optional)){res.statusCode=403;res.setHeader('content-type','application/json');res.end(JSON.stringify({error:'This optional module is not enabled on this box.'}));return;}
-      if (await handleTickerRequest(req,res)) return;
+      if (await handleTickerRequest(req, res)) return;
       if (await handleLiveVoice(req, res, `http://${config.hermesWsHost}:${config.hermesWsPort}`, config.hermesToken)) return;
       if (await handlePodcastPromo(req,res,apiCtx,config.knowledgeUrl)) return;
       if (path.startsWith('/api/')) {
@@ -327,7 +330,7 @@ export function createEaiosServer(config: ProdConfig) {
     socket.on('error', () => upstream.destroy());
   });
 
-  server.on('close', () => clearInterval(reportTimer));
+  server.on('close', () => { clearInterval(reportTimer); stopSocialPublisher(); });
   return server;
 }
 
@@ -340,10 +343,11 @@ if (isMain) {
   const config = loadConfig();
   assistantRequests(config.apiCtx.dataRoot ?? config.apiCtx.eaiosRoot, config.apiCtx.hermesHome);
   const server = createEaiosServer(config);
+  const stopScanner=startDcrScanner(config.apiCtx);server.on('close',stopScanner);
   if(moduleConfig(config.apiCtx.dataRoot??config.apiCtx.eaiosRoot).enabled.includes('podcasts'))server.on('close',startPodcastPromos(config.apiCtx,config.knowledgeUrl));
   if(config.port===5173&&process.env.EAIOS_ASSISTANT_ORIGIN){
     const port=Number(process.env.EAIOS_ASSISTANT_PORT??5280);
-    createAssistantServer(config.apiCtx.hermesHome,config.distDir,process.env.EAIOS_ASSISTANT_ORIGIN,port).listen(port,'127.0.0.1');
+    createAssistantServer(config.apiCtx.hermesHome,process.env.EAIOS_ASSISTANT_DIST??config.distDir,process.env.EAIOS_ASSISTANT_ORIGIN,port).listen(port,'127.0.0.1');
   }
   server.listen(config.port, config.host, () => {
     console.log(`eaios-server listening on http://${config.host}:${config.port}`);

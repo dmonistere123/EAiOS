@@ -33,14 +33,16 @@ export interface SocialPost {
   timeZone: string;
   imagePrompt: string;
   imageVersion?: string;
-  status: 'draft' | 'reviewed' | 'published' | 'archived';
+  status: 'draft' | 'reviewed' | 'awaiting_approval' | 'scheduled' | 'publishing' | 'uncertain' | 'failed' | 'published' | 'archived';
   sourceUrl?: string;
   createdAt: string;
   publishedAt?: string;
   publishedUrl?: string;
+  publicationId?: string;
+  publicationError?: string;
 }
-export interface SocialBoard { accounts?: SocialAccount[]; posts: SocialPost[]; brief: SocialBrief | null; }
-export interface SocialCapabilities { text: boolean; images: boolean; composio: boolean; publishing: false; }
+export interface SocialBoard { accounts?: SocialAccount[]; bindings?: SocialBinding[]; posts: SocialPost[]; brief: SocialBrief | null; }
+export interface SocialCapabilities { text: boolean; images: boolean; composio: boolean; publishing: boolean; }
 export function plannedDates(start: string, days: number[], count: number): string[] {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('Choose a valid start date.');
   const date = new Date(start + 'T12:00:00Z');
@@ -80,4 +82,19 @@ export function socialDates(brief: SocialBrief): string[] {
 export function socialPlan(brief: SocialBrief) {
   const angles = ['a practical first step','a common mistake to avoid','a question to discuss','a short checklist','a clearly hypothetical example','a useful measurement','a tradeoff to consider','a team exercise','a misconception to challenge','a process improvement','an actionable reflection','a next step for the reader'];
   return socialDates(brief).map((date,index)=>({date,angle:angles[index%angles.length],instruction:`Installment ${index+1}: explore a new subtopic of the monthly theme with a fresh takeaway and opening.`}));
+}
+
+export interface SocialBinding { account:SocialAccount; connectionId:string; userId:string; actor:string; profileName:string; verifiedAt:string; }
+export interface SocialConnectionChoice { connectionId:string; actor?:string; profileName?:string; error?:string; }
+export interface SocialPublication {
+ id:string; post:SocialPost; binding:SocialBinding; fingerprint:string; dueAt:number;
+ state:'blocked'|'scheduled'|'publishing'|'published'|'uncertain'|'failed'|'cancelled';
+ decision?:'approved'|'rejected'|'changes_requested'; submittedAt:string; decidedAt?:string; claimedAt?:number;
+ receipt?:{id:string;url?:string}; error?:string;
+}
+
+/** Company publishing stays unavailable until the approved custom OAuth flow is integrated. */
+export function socialPublishingBlock(account: SocialAccount): string | undefined {
+  if (account.network === 'linkedin' && new URL(account.url).pathname.startsWith('/company/'))
+    return 'Company publishing is blocked pending LinkedIn API approval.';
 }

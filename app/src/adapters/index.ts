@@ -1,4 +1,5 @@
 export {podcastPromo} from './podcastPromo';
+export {dcr} from './dcr';
 import {liveTravel} from './live/LiveTravelAdapter';
 /**
  * Adapter entry — the ONLY adapter import pages/state are allowed to use.

@@ -70,7 +70,7 @@ describe('kanban board read path (48K cap regression)', () => {
 
     const items = await live.listWorkItems();
     expect(items.map((w: { id: string }) => w.id)).toEqual(['t_real1']);
-    expect(fetchMock).toHaveBeenCalledWith('/api/kanban');
+    expect(fetchMock).toHaveBeenCalledWith('/api/kanban', {headers:{'X-EAIOS-Board-View':'summary'}});
     // no cli.exec kanban list over the socket
     const cliCalls = FakeWebSocket.instances[0].sent.filter((s) => s.includes('cli.exec'));
     expect(cliCalls).toHaveLength(0);

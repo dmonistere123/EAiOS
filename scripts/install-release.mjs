@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdirSync, existsSync, symlinkSync, readFileSync, copyFileSync, openSync, closeSync, unlinkSync, writeFileSync, statSync, chmodSync } from 'node:fs';
-import { join, isAbsolute } from 'node:path';
+import { join, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { checkUpdates, getUpdateStatus, githubJson, normalizeRelease, compareVersions, updateOptions, atomicJson, readJson, WEEK_MS } from './check-updates.mjs';
@@ -50,7 +50,9 @@ export async function backupPersistentData(options, backupDir) {
     [join(options.dataRoot, 'travel-data', 'travel.db'), 'travel.db'],
     [join(options.dataRoot, 'social-data', 'social.db'), 'social.db'],
     [join(options.dataRoot, 'erm-data', 'erm.db'), 'erm.db'],
+    [join(options.dataRoot, 'planner-data', 'planner.db'), 'planner.db'],
     [join(options.dataRoot, 'podcast-promos', 'jobs.db'), 'podcast-promos.db'],
+    [join(options.hermesHome, 'eaios', 'dcr', 'kanban.db'), 'dcr.db'],
   ]) {
     if (!existsSync(source)) continue;
     const db = new DatabaseSync(source, { readOnly: true });
@@ -60,7 +62,7 @@ export async function backupPersistentData(options, backupDir) {
   if(existsSync(calendarFile)){copyFileSync(calendarFile,join(backupDir,'today-calendars.json'));chmodSync(join(backupDir,'today-calendars.json'),0o600);}
   const accountsFile=join(options.dataRoot,'social-data','accounts.json');
   if(existsSync(accountsFile)) { copyFileSync(accountsFile,join(backupDir,'social-accounts.json')); chmodSync(join(backupDir,'social-accounts.json'),0o600); }
-  for (const name of ['modules.local.json', 'settings.local.json', 'dismissed.json', 'notify-state.json']) {
+  for (const name of ['modules.local.json', 'dcr.local.json', 'settings.local.json', 'dismissed.json', 'notify-state.json']) {
     const path = join(options.dataRoot, name);
     if (existsSync(path)) { copyFileSync(path, join(backupDir, name)); chmodSync(join(backupDir, name), 0o600); }
   }
@@ -95,7 +97,7 @@ export async function installRelease(releaseId, options = {}) {
   }
   writeFileSync(lock, JSON.stringify({ pid: process.pid, bootId }));
   const env = { ...process.env, PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf('/'))}:${process.env.PATH}`, HERMES_HOME: opts.hermesHome,
-    EAIOS_DATA_ROOT: opts.dataRoot, EAIOS_REPO_ROOT: opts.repoRoot, EAIOS_STATE_DB: join(opts.hermesHome, 'state.db') };
+    EAIOS_DATA_ROOT: opts.dataRoot, EAIOS_REPO_ROOT: opts.repoRoot, EAIOS_STATE_DB: join(opts.hermesHome, 'state.db'), VITE_HERMES_LIVE: '1', EAIOS_PRESERVE_HERMES_WORKFLOWS: '1' };
   const previousDeployment = readJson(join(opts.stateDir, 'deployment.json'));
   const previousRoot = previousDeployment?.activeRoot || opts.codeRoot;
   const startedAt = new Date().toISOString();
@@ -106,22 +108,47 @@ export async function installRelease(releaseId, options = {}) {
     save({ status: 'installing' });
     const current = readJson(join(previousRoot, 'app', 'dist', 'version.json'));
     if (!current?.version) throw new Error('Cannot identify the running release.');
+    if ([previousRoot,opts.codeRoot].some(root=>existsSync(join(root,'personal-build.json')))) throw new Error('This is a personal build. Use its custom release process to preserve local integrations.');
     previousSha = current.gitSha;
-    const checked = getUpdateStatus(opts, current.version);
-    const checkedAt = Date.parse(checked.lastSuccessfulCheckAt);
-    if (checked.status !== 'available' || checked.release?.id !== releaseId || !Number.isFinite(checkedAt) || Date.now() - checkedAt > WEEK_MS || checkedAt > Date.now()) {
-      throw new Error('Check for updates again before installing this release.');
+    if (opts.localBundle) {
+      if(!/^[a-f0-9]{40}$/.test(opts.localSha)||!isAbsolute(opts.localBundle))throw new Error('A verified local release bundle and revision are required.');
+      const tag=opts.localTag;
+      if(typeof tag!=='string'||!/^v[0-9]+\.[0-9]+\.[0-9]+$/.test(tag)||compareVersions(tag,current.version)<=0)throw new Error('This local package must be newer than the installed release.');
+      release={tag,version:tag.slice(1)};
+      if(current.dirty!==false||current.releaseChannel!=='stable'||existsSync(join(previousRoot,'personal-build.json')))throw new Error('This package only updates standard, stable installations. Do not use it on a customized instance.');
+      if(existsSync(join(opts.dataRoot,'moxie-contact-sync.local.json')))throw new Error('This is a customized instance. Its local integration must be preserved; nothing was installed.');
+      for(const unit of ['eaios-server','eaios-server-5173']){
+        const cwd=(await run('systemctl',['--user','show',unit,'-p','WorkingDirectory','--value'],{env})).stdout.trim();
+        const dropins=(await run('systemctl',['--user','show',unit,'-p','DropInPaths','--value'],{env})).stdout.trim();
+        if(cwd!==join(previousRoot,'app')||dropins)throw new Error('Dashboard service paths or overrides differ from a standard installation. Nothing was installed.');
+      }
+      (opts.idleCheck||assertIdle)(opts);
+      step('Downloading release code');
+      const ref='refs/tags/'+tag;
+      await run('git',['-C',opts.repoRoot,'bundle','verify',opts.localBundle],{env});
+      const advertised=(await run('git',['bundle','list-heads',opts.localBundle,ref],{env})).stdout.trim();
+      const heads=advertised.split(/\s+/);
+      if(heads.length!==2||!(/^[a-f0-9]{40}$/.test(heads[0]))||heads[1]!==ref)throw new Error('The local package tag does not match its manifest.');
+      // Annotated tags advertise a tag object; verify the peeled commit after fetching.
+      await run('git',['-C',opts.repoRoot,'-c','protocol.file.allow=always','fetch','--no-tags',opts.localBundle,ref+':'+ref],{env});
+    } else {
+      const checked = getUpdateStatus(opts, current.version);
+      const checkedAt = Date.parse(checked.lastSuccessfulCheckAt);
+      if (checked.status !== 'available' || checked.release?.id !== releaseId || !Number.isFinite(checkedAt) || Date.now() - checkedAt > WEEK_MS || checkedAt > Date.now()) {
+        throw new Error('Check for updates again before installing this release.');
+      }
+      release = normalizeRelease(await githubJson(`/releases/${releaseId}`, opts), opts.repository);
+      if (release.tag !== checked.release.tag || compareVersions(release.version, current.version) <= 0) throw new Error('The selected release changed. Check for updates again.');
+      (opts.idleCheck || assertIdle)(opts);
+      const remote = (await run('git', ['-C', opts.repoRoot, 'remote', 'get-url', 'origin'], { env })).stdout.trim();
+      if (![ `git@github.com:${opts.repository}.git`, `https://github.com/${opts.repository}.git`, `https://github.com/${opts.repository}` ].includes(remote)) {
+        throw new Error('The repository remote does not match the configured GitHub release source.');
+      }
+      step('Downloading release code');
+      await run('git', ['-C', opts.repoRoot, 'fetch', '--no-tags', 'origin', `refs/tags/${release.tag}:refs/tags/${release.tag}`], { env });
     }
-    release = normalizeRelease(await githubJson(`/releases/${releaseId}`, opts), opts.repository);
-    if (release.tag !== checked.release.tag || compareVersions(release.version, current.version) <= 0) throw new Error('The selected release changed. Check for updates again.');
-    (opts.idleCheck || assertIdle)(opts);
-    const remote = (await run('git', ['-C', opts.repoRoot, 'remote', 'get-url', 'origin'], { env })).stdout.trim();
-    if (![ `git@github.com:${opts.repository}.git`, `https://github.com/${opts.repository}.git`, `https://github.com/${opts.repository}` ].includes(remote)) {
-      throw new Error('The repository remote does not match the configured GitHub release source.');
-    }
-    step('Downloading release code');
-    await run('git', ['-C', opts.repoRoot, 'fetch', '--no-tags', 'origin', `refs/tags/${release.tag}:refs/tags/${release.tag}`], { env });
     sha = (await run('git', ['-C', opts.repoRoot, 'rev-parse', '--verify', 'FETCH_HEAD^{commit}'], { env })).stdout.trim();
+    if(opts.localBundle && sha!==opts.localSha)throw new Error('The local package revision changed.');
     if (!/^[a-f0-9]{40,64}$/.test(sha)) throw new Error('Invalid release revision.');
     const manifest = JSON.parse((await run('git', ['-C', opts.repoRoot, 'show', `${sha}:release-manifest.json`], { env })).stdout);
     validateManifest(manifest, release);
@@ -166,13 +193,13 @@ export async function installRelease(releaseId, options = {}) {
     }
     atomicJson(join(opts.stateDir, 'deployment.json'), { activeRoot: preparedRoot, previousRoot, repoRoot: opts.repoRoot, dataRoot: opts.dataRoot, sha, version: release.version, backupDir });
     save({ status: 'succeeded', finishedAt: new Date().toISOString(), version: release.version, gitSha: sha, backupDir });
-    await checkUpdates(opts);
+    if(!opts.localBundle)await checkUpdates(opts);
     return { ok: true };
   } catch (error) {
     let recovered = false;
     if (activated) {
       try {
-        await run('bash', ['scripts/install-systemd-user.sh'], { cwd: previousRoot, env });
+        await run('bash', [opts.localBundle ? fileURLToPath(new URL('./install-systemd-user.sh',import.meta.url)) : 'scripts/install-systemd-user.sh'], { cwd: previousRoot, env: opts.localBundle ? {...env,EAIOS_RENDER_ROOT:previousRoot} : env });
         await run('systemctl', ['--user', 'restart', 'eaios-knowledge-sidecar', 'eaios-server', 'eaios-server-5173'], { env });
         await run('bash', ['scripts/verify-install.sh'], { cwd: previousRoot, env });
         for (const port of [5200, 5173]) {

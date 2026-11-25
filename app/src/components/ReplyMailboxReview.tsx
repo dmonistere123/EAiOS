@@ -3,19 +3,24 @@ import {mailRouting} from '../adapters';
 import type {Approval} from '../domain/types';
 import type {MailboxIdentity} from '../domain/mailRouting';
 import {refreshApprovals} from '../state/runtime';
-export function ReplyMailboxReview({approval,onPrepared}:{approval:Approval;onPrepared:()=>void}){
+export function ReplyMailboxReview({approval,onPrepared,onDirty}:{approval:Approval;onPrepared:()=>void;onDirty?:(dirty:boolean)=>void}){
  const [choices,setChoices]=useState<MailboxIdentity[]>([]),[connection,setConnection]=useState(approval.mailReply?.sourceConnectionId??''),[message,setMessage]=useState(approval.mailReply?.sourceMessageId??'');
  const [messages,setMessages]=useState<{id:string;subject:string;author:string;receivedAt?:string}[]>([]);
  const initial=approval.payload?.split(/\nBody:\s*\n?/i);const [body,setBody]=useState(approval.mailReply?.body??(initial&&initial.length>1?initial.slice(1).join('\n'):approval.payload??''));
+ const [replyMode,setReplyMode]=useState(approval.mailReply?.replyMode??'');
  const [sender,setSender]=useState(approval.mailReply?.senderConnectionId??'');
  const [busy,setBusy]=useState(true),[error,setError]=useState('');
  async function run(fn:()=>Promise<void>){setBusy(true);setError('');try{await fn();}catch(e){setError(e instanceof Error?e.message:'Mailbox verification failed.');}finally{setBusy(false);}}
+ useEffect(()=>{onDirty?.(busy||replyMode!==(approval.mailReply?.replyMode??'')||body!==(approval.mailReply?.body??(initial&&initial.length>1?initial.slice(1).join('\n'):approval.payload??''))||sender!==(approval.mailReply?.senderConnectionId??''));},[busy,replyMode,body,sender,approval,onDirty]);
  const hasSource=Boolean(approval.mailReply?.sourceConnectionId&&approval.mailReply?.sourceMessageId);
  useEffect(()=>{let active=true;mailRouting.choices().then(rows=>{if(active){setChoices(rows.flatMap(c=>c.mailbox?[c.mailbox]:[]));if(rows.some(c=>c.error))setError('Some mailboxes could not be loaded. Refresh accounts or check Connections.');}}).catch(()=>{if(active)setError('Could not load sending accounts. Refresh accounts to try again.');}).finally(()=>{if(active)setBusy(false);});return()=>{active=false;};},[approval.id]);
- const recipient=approval.mailReply?.recipientEmail??messages.find(m=>m.id===message)?.author??'';
+ const recipient=approval.mailReply?.to?.join(', ')??approval.mailReply?.recipientEmail??messages.find(m=>m.id===message)?.author??'';
  const style='mt-1 w-full rounded-lg border border-edge bg-canvas p-2 text-sm text-ink';
  return <section className="space-y-3 rounded-lg border border-warn/40 p-3"><h3 className="text-sm font-semibold">Review email and sending account</h3><p className="text-xs text-ink-dim">Replies default to the original inbox. You can explicitly choose another connected sender below. Switching inboxes sends a new email to the original reply recipient; it cannot use the original mailbox’s reply thread.</p>
  <button disabled={busy} className="text-sm text-signal" onClick={()=>void run(async()=>setChoices((await mailRouting.choices()).flatMap(c=>c.mailbox?[c.mailbox]:[])))}>Refresh accounts</button>
+ <label className="block text-xs">Reply recipients<select className={style} value={replyMode} onChange={e=>setReplyMode(e.target.value)}><option value="">Keep saved recipients</option><option value="reply">Reply — sender only</option><option value="replyAll">Reply All — sender and original To/Cc</option></select></label>
+ <p className="text-xs text-ink-dim">Save to verify recipients, then reopen to review the saved To/Cc before approval. Existing recipients stay unchanged until you save a choice.</p>
+ <label className="block text-xs">Saved Cc<input className={style} readOnly value={approval.mailReply?.cc?.join(', ')??''}/></label>
  <label className="block text-xs">Send To<input className={style} readOnly value={recipient} placeholder="Verify the source email below to identify the recipient"/></label>
  {!hasSource&&<details className="rounded border border-edge p-2"><summary className="cursor-pointer text-sm text-warn">Verify source email — required for this approval</summary><p className="my-2 text-xs text-ink-dim">This approval did not retain its inbox and message identifiers. Confirm them once so 2EP can verify the recipient. Verified replies keep this information automatically.</p>
  <label className="block text-xs">Original inbox<select className={style} value={connection} onChange={e=>{setConnection(e.target.value);setMessage('');setMessages([]);}}><option value="">Choose mailbox</option>{choices.map(c=><option key={c.connectionId} value={c.connectionId}>{c.email} ({c.provider})</option>)}</select></label>
@@ -24,6 +29,7 @@ export function ReplyMailboxReview({approval,onPrepared}:{approval:Approval;onPr
  </details>}
  <label className="block text-xs">Send From<select className={style} value={sender} onChange={e=>setSender(e.target.value)}><option value="">Original inbox (default)</option>{choices.map(c=><option key={c.connectionId} value={c.connectionId}>{c.email}</option>)}</select></label>
  <label className="block text-xs">Reply text (message body only)<textarea className={style} rows={6} value={body} onChange={e=>setBody(e.target.value)}/></label>
- <button disabled={busy||!connection||!message||!body.trim()} className="rounded bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:opacity-50" onClick={()=>void run(async()=>{await mailRouting.prepareReply(approval.id,{connectionId:connection,messageId:message,senderConnectionId:sender||connection,body,expectedBody:approval.reviewVersion??''});await refreshApprovals();onPrepared();})}>Save verified reply for review</button>
+ <button disabled={busy||!connection||!message||!body.trim()} className="rounded bg-signal px-3 py-2 text-sm font-semibold text-canvas disabled:opacity-50" onClick={()=>void run(async()=>{await mailRouting.prepareReply(approval.id,{connectionId:connection,messageId:message,senderConnectionId:sender||connection,...(replyMode?{replyMode:replyMode as 'reply'|'replyAll'}:{}),body,expectedBody:approval.reviewVersion??''});await refreshApprovals();onPrepared();})}>Save verified reply for review</button>
+ {approval.mailReply&&<button disabled={busy} className="text-sm text-signal" onClick={()=>{setBody(approval.mailReply?.body??'');setSender(approval.mailReply?.senderConnectionId??'');setReplyMode(approval.mailReply?.replyMode??'');setError('');}}>Discard edits</button>}
  <p className="text-xs text-ink-faint">This step sends nothing. Reopen the approval to review From, To and the complete reply.</p>{error&&<p role="alert" className="text-xs text-risk">{error}</p>}</section>;
 }

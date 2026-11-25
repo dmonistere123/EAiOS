@@ -17,6 +17,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+[[ ! -f personal-build.json ]] || { echo "Personal build: shared publishing is blocked." >&2; exit 1; }
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then

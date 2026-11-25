@@ -1,7 +1,7 @@
 {
   "name": "app",
   "private": true,
-  "version": "0.1.25",
+  "version": "0.1.26",
   "type": "module",
   "scripts": {
     "dev": "node ../scripts/generate-version.mjs && vite",
@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:sidecar": "../sidecar/.venv/bin/python -m unittest discover -s ../sidecar -p 'test_*.py' -v",
     "start": "node server/prod.ts",
+    "dev:planner": "vite --config vite.planner.config.ts",
     "dev:mock": "vite --config vite.mock.config.ts",
     "dev:travel": "node --env-file-if-exists=../.local/duffel-test.env ./node_modules/vite/bin/vite.js --config vite.travel.config.ts",
     "dev:social": "vite --config vite.social.config.ts",
@@ -23,6 +24,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.3",
     "yaml": "^2.8.3"
   },

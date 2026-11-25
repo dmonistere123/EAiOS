@@ -26,6 +26,8 @@ export interface HumanDelegationArtifact {
   contentHash: string;
 }
 export interface HumanDelegationPackage {
+  preserveReplyHistory?:boolean;
+  to?:string[]; cc?:string[]; bcc?:string[]; bodyType?:'Text'|'HTML';
   recipient: {displayName: string; email: string};
   sender: {provider: 'gmail'|'outlook'; accountId: string; email: string};
   subject: string;

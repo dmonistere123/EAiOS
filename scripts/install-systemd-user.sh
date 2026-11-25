@@ -8,7 +8,7 @@
 #   scripts/install-systemd-user.sh --start  # render + enable + restart now
 set -euo pipefail
 
-EAIOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+EAIOS_ROOT="${EAIOS_RENDER_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 EAIOS_DATA_ROOT="${EAIOS_DATA_ROOT:-$EAIOS_ROOT}"
 EAIOS_REPO_ROOT="${EAIOS_REPO_ROOT:-$EAIOS_DATA_ROOT}"
@@ -32,7 +32,7 @@ if [[ ! -x "$EAIOS_ROOT/sidecar/.venv/bin/python" ]]; then
 fi
 
 # Install EAiOS-managed publishing instructions and executor for this release.
-if [[ -f "$EAIOS_ROOT/scripts/install-linkedin-workflow.py" ]]; then
+if [[ "${EAIOS_PRESERVE_HERMES_WORKFLOWS:-0}" != 1 && -f "$EAIOS_ROOT/scripts/install-linkedin-workflow.py" ]]; then
   "$EAIOS_ROOT/sidecar/.venv/bin/python" "$EAIOS_ROOT/scripts/install-linkedin-workflow.py"
 fi
 

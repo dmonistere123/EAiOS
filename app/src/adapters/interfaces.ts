@@ -221,6 +221,7 @@ export interface HermesAdapter {
   undismissWorkItem(id: string): Promise<AuditResult>;
 
   listApprovals(filter?: ApprovalFilter): Promise<Approval[]>;
+  getApproval?(id: string): Promise<Approval>;
   decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult>;
   resumeApprovedTask(approvalId: string, executorProfileId: string, reviewVersion?: string): Promise<AuditResult>;
   /** Edit the prepared payload of a pending approval before deciding. */

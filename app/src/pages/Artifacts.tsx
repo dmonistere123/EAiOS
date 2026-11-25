@@ -1,3 +1,7 @@
+import { useBulkDelete } from '../components/BulkDelete';
+import { ArtifactAudio } from '../components/ArtifactAudio';
+import { isAudioArtifact } from '../state/audioPlayback';
+import { ArtifactShares } from '../components/ArtifactShares';
 /** Artifacts — large agent-created outputs with provenance (spec §8.9).
  * W8: agent filter chips ride the right rail (D-B4 framework). */
 import { useEffect, useMemo, useState } from 'react';
@@ -98,9 +102,6 @@ export default function Artifacts() {
   const s = useRuntime();
   const [q, setQ] = useState('');
   const [preview, setPreview] = useState<Artifact | null>(null);
-  const [deleting, setDeleting] = useState<Artifact | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState('');
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
@@ -152,25 +153,26 @@ export default function Artifacts() {
   );
   usePageRail(railSections);
 
-  const remove = async () => {
-    if (!deleting || deleteBusy) return;
-    setDeleteBusy(true);setDeleteError('');
-    try {
-      const response=await fetch(`/api/artifacts/${encodeURIComponent(deleting.id)}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});
-      const result=await response.json();if(!response.ok)throw new Error(result.error??'Delete failed.');
-      if(preview?.id===deleting.id)setPreview(null);
-      setDeleting(null);await refreshArtifacts();
-      toast('ok',result.sharedFileRetained?'Artifact removed. Its file is retained because another task uses it.':'Artifact and its stored file deleted.');
-    } catch(error){setDeleteError(error instanceof Error?error.message:'Could not delete artifact.');}
-    finally{setDeleteBusy(false);}
-  };
+  const bulk = useBulkDelete({
+    rows: rows.slice(0, shown), scope: JSON.stringify([q, agentFilter]), label: 'artifacts',
+    name: (a: Artifact) => a.name, kind: a => a.mimeType,
+    eligible: a => adapterMode === 'live' && /^att-[1-9]\d*$/.test(a.id),
+    explanation: 'Permanently delete these task attachments and their stored files. This cannot be undone. Tasks and conversations remain. Files still used by other task attachments are retained. Saved share snapshots (including pending approvals), published links, backups and copies in other modules remain. Manage share approvals separately.',
+    remove: async a => {
+      const response = await fetch(`/api/artifacts/${encodeURIComponent(a.id)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Deletion could not be confirmed.');
+      if (preview?.id === a.id) setPreview(null);
+    }, refresh: refreshArtifacts,
+  });
   const share = async (a: Artifact) => {
     setSharingId(a.id);
     const res = await hermes.shareArtifact(a.id);
     setSharingId(null);
     if (res.ok) {
-      toast('ok', `Share approval requested for ${a.name} — decide it on the Approvals page.`);
+      toast('ok', `Share saved for ${a.name}. Review pending requests in Approvals, or copy published links above.`);
       void refreshApprovals();
+      void refreshArtifacts();
     } else {
       toast('error', res.error?.safeMessage ?? 'Share request failed.');
     }
@@ -178,6 +180,7 @@ export default function Artifacts() {
 
   return (
     <div className="space-y-6">
+      {adapterMode==='live' && <ArtifactShares revision={s.artifacts}/>}
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Artifacts</h1>
@@ -194,14 +197,16 @@ export default function Artifacts() {
         />
       </header>
 
+      {adapterMode === 'live' && bulk.toolbar}
       {rows.length === 0 ? (
         <EmptyState title={q || agentFilter ? 'No matches' : 'No artifacts yet'} hint="Agent-created deliverables appear here with their full history." />
       ) : (
         <div className="grid gap-3">
           {rows.slice(0, shown).map((a) => (
-            <Card key={a.id} className="flex items-center gap-4 p-4">
+            <Card key={a.id} className="flex flex-wrap items-center gap-4 p-4">
+              {adapterMode === 'live' && bulk.checkbox(a)}
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-canvas-overlay text-lg" aria-hidden>{iconFor(a.mimeType)}</span>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 basis-64">
                 <div className="truncate font-mono text-sm text-ink">{a.name}</div>
                 <div className="mt-0.5 text-xs text-ink-faint">
                   {agentName(s, a.createdByAgentId)} ·{' '}
@@ -215,8 +220,9 @@ export default function Artifacts() {
                   · <RelativeTime iso={a.createdAt} /> · {fmtSize(a.sizeBytes)}
                 </div>
               </div>
+              {isAudioArtifact(a.mimeType, a.name) && <div className="order-last w-full min-w-0"><ArtifactAudio key={a.id} id={a.id} name={a.name} available={adapterMode === 'live'} /></div>}
               <StateBadge label={a.state} tone={stateTone[a.state]} />
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setPreview(a)}
                   className="rounded-lg border border-edge px-3 py-1.5 text-xs text-ink-dim hover:bg-canvas-overlay"
@@ -266,7 +272,7 @@ export default function Artifacts() {
                 >
                   {sharingId === a.id ? 'Requesting…' : 'Share…'}
                 </button>
-                {adapterMode==='live' && /^att-\d+$/.test(a.id) && <button onClick={()=>{setDeleting(a);setDeleteError('');}} className="rounded-lg border border-risk/40 px-3 py-1.5 text-xs text-risk">Delete</button>}
+                {adapterMode==='live' && /^att-\d+$/.test(a.id) && <button disabled={bulk.busy} onClick={()=>bulk.open([a])} className="rounded-lg border border-risk/40 px-3 py-1.5 text-xs text-risk">Delete</button>}
               </div>
             </Card>
           ))}
@@ -278,11 +284,7 @@ export default function Artifacts() {
         </div>
       )}
 
-      {deleting && <Drawer title="Delete artifact?" onClose={()=>{if(!deleteBusy)setDeleting(null);}}>
-        <div className="space-y-4 p-5"><p className="break-all font-medium">{deleting.name}</p><p className="text-sm text-ink-dim">Permanently delete this artifact ({fmtSize(deleting.sizeBytes)}) and remove its attachment from the task. This cannot be undone. The task and conversation remain. Shared files and copies in backups or other modules are retained.</p>
-        {deleteError&&<p role="alert" className="text-sm text-risk">{deleteError}</p>}
-        <div className="flex gap-3"><button disabled={deleteBusy} onClick={()=>setDeleting(null)} className="rounded border border-edge px-3 py-2">Cancel</button><button disabled={deleteBusy} onClick={()=>void remove()} className="rounded border border-risk px-3 py-2 text-risk">{deleteBusy?'Deleting…':'Delete permanently'}</button></div></div>
-      </Drawer>}
+      {bulk.confirmation}
       {preview && <PreviewDrawer artifact={preview} onClose={() => setPreview(null)} />}
     </div>
   );

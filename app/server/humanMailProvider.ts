@@ -6,10 +6,10 @@ import type { MailAttachment } from './humanApproval.ts';
 import { mailComposioRequest } from './mailRouting.ts';
 const encoded=(text:string)=>'=?UTF-8?B?'+Buffer.from(text).toString('base64')+'?=';
 const base64=(data:Buffer)=>data.toString('base64').match(/.{1,76}/g)?.join('\r\n')??'';
-export interface MailReplyReference {sourceMessageId:string;threadId?:string;inReplyTo?:string;}
+export interface MailReplyReference {sourceMessageId:string;conversationId?:string;internetMessageId?:string;threadId?:string;inReplyTo?:string;}
 export function mailMime(pkg:HumanDelegationPackage,files:MailAttachment[],reply?:MailReplyReference):string {
  const boundary='eaios-'+randomUUID();
- const parts=[`From: ${pkg.sender.email}`,`To: ${pkg.recipient.email}`,`Subject: ${encoded(pkg.subject)}`,'MIME-Version: 1.0',`Content-Type: multipart/mixed; boundary="${boundary}"`,'',`--${boundary}`,'Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',base64(Buffer.from(pkg.body))];
+ const parts=[`From: ${pkg.sender.email}`,`To: ${(pkg.to??[pkg.recipient.email]).join(', ')}`,...(pkg.cc?.length?['Cc: '+pkg.cc.join(', ')]:[]),`Subject: ${encoded(pkg.subject)}`,'MIME-Version: 1.0',`Content-Type: multipart/mixed; boundary="${boundary}"`,'',`--${boundary}`,'Content-Type: text/plain; charset=UTF-8','Content-Transfer-Encoding: base64','',base64(Buffer.from(pkg.body))];
  for(const f of files){const filename=f.filename.replace(/[\r\n"\\]/g,'_');const mime=/^[\w.+-]+\/[\w.+-]+$/.test(f.mimeType)?f.mimeType:'application/octet-stream';parts.push(`--${boundary}`,`Content-Type: ${mime}`,`Content-Disposition: attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,'Content-Transfer-Encoding: base64','',base64(f.data));}
  if(reply?.inReplyTo){if(/[\r\n]/.test(reply.inReplyTo))throw new Error('Invalid reply header');parts.unshift('In-Reply-To: '+reply.inReplyTo,'References: '+reply.inReplyTo);}
  parts.push(`--${boundary}--`,'');return parts.join('\r\n');
@@ -25,10 +25,18 @@ export async function sendHumanMail(ctx:KeyContext,pkg:HumanDelegationPackage,id
   const sent=await proxy('https://gmail.googleapis.com/gmail/v1/users/me/messages/send','POST',{raw:Buffer.from(mailMime(pkg,files,reply)).toString('base64url'),...(reply?.threadId?{threadId:reply.threadId}:{})});
   if(typeof sent.data?.id!=='string'||!sent.data.id)throw new Error('Gmail did not return a receipt');return {id:sent.data.id,provider:'gmail'};
  }
- const message={subject:pkg.subject,body:{contentType:'Text',content:pkg.body},toRecipients:[{emailAddress:{address:pkg.recipient.email,name:pkg.recipient.displayName}}],attachments:files.map(f=>({'@odata.type':'#microsoft.graph.fileAttachment',name:f.filename,contentType:f.mimeType,contentBytes:f.data.toString('base64')}))};
+ const message={subject:pkg.subject,body:{contentType:pkg.bodyType??'Text',content:pkg.body},toRecipients:pkg.to?pkg.to.map(address=>({emailAddress:{address}})):[{emailAddress:{address:pkg.recipient.email,name:pkg.recipient.displayName}}],...(pkg.cc?{ccRecipients:pkg.cc.map(address=>({emailAddress:{address}}))}:{}),...(pkg.bcc?{bccRecipients:pkg.bcc.map(address=>({emailAddress:{address}}))}:{}),attachments:files.map(f=>({'@odata.type':'#microsoft.graph.fileAttachment',name:f.filename,contentType:f.mimeType,contentBytes:f.data.toString('base64')}))};
  const draft=reply?await proxy('https://graph.microsoft.com/v1.0/me/messages/'+encodeURIComponent(reply.sourceMessageId)+'/createReply','POST'):await proxy('https://graph.microsoft.com/v1.0/me/messages','POST',message);
  const id=draft.data?.id;if(typeof id!=='string'||!id||draft.data?.isDraft!==true)throw new Error('Outlook draft receipt missing');
  if(reply){
+  if(pkg.preserveReplyHistory){
+   const history=draft.data?.body;
+   if(!history||typeof history.content!=='string'||!['html','text'].includes(String(history.contentType).toLowerCase())||!history.content.trim())throw new Error('Outlook did not return the original reply history; nothing was sent');
+   const escape=(value:string)=>value.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('\"','&quot;');
+   const historyIsHtml=history.contentType.toLowerCase()==='html';
+   if(historyIsHtml||pkg.bodyType==='HTML'){message.body={contentType:'HTML',content:(pkg.bodyType==='HTML'?pkg.body:escape(pkg.body).replace(/\r?\n/g,'<br>'))+'<br><br>'+(historyIsHtml?history.content:escape(history.content).replace(/\r?\n/g,'<br>'))};}
+   else message.body={contentType:'Text',content:pkg.body+'\r\n\r\n'+history.content};
+  }
   const {attachments,...content}=message;
   if(attachments.length)throw new Error('Reply attachments are not enabled');
   await proxy('https://graph.microsoft.com/v1.0/me/messages/'+encodeURIComponent(id),'PATCH',content);

@@ -1,4 +1,7 @@
+import {handlePlannerApi} from './plannerProduction.ts';
+import {DatabaseSync} from 'node:sqlite';
 import { handleErmApi } from './ermApi.ts';
+import {handleDcrProduction} from './dcrProduction.ts';
 import { assistantName, boxIdentity } from './identity.ts';
 import { converseTravel } from './travelConversation.ts';
 import { completionApprovals, decideCompletion, updateChecklist, requestHumanCompletion, issueAssistantAccess, revokeAssistantAccess } from './humanCompletion.ts';
@@ -6,6 +9,12 @@ import { prepareTravelHandoff } from './travelHandoff.ts';
 import { todayActivity, reviewActivity } from './todayActivity.ts';
 import { todayMeetings } from './todayMeetings.ts';
 import { moduleConfig } from './modules.ts';
+import {outlookHistory,associateOutlookSource,prepareOutlookEnvelope} from './mailSources.ts';
+import {saveOutlookDraft,decideOutlookDraft} from './mailDrafts.ts';
+import { sendArtifactBytes } from './artifactMedia.ts';
+import { deleteSocialPost, socialApprovals, submitSocialApproval, decideSocialApproval } from './socialPublishing.ts';
+import { socialConnectionChoices, connectSocialAccount, bindSocialAccount } from './socialPublishingProvider.ts';
+import { requestArtifactShare, decideArtifactShare, publicShares, shareSnapshot, retryArtifactShare } from './artifactSharing.ts';
 import { searchConversationSessions } from './conversationIndex.ts';
 import { insightsSnapshot, generateInsights, insightDays, InsightsError } from './executiveInsights.ts';
 import { deleteArtifact } from './artifactDelete.ts';
@@ -53,7 +62,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  latestTaskActivity,
   listArtifacts,
+  summarizeKanbanTasks,
   listKanbanRuns,
   listKanbanTasks,
   loadRateCard,
@@ -75,7 +86,7 @@ import type { CreateTripInput, TravelSearchParams } from '../src/adapters/interf
 import type { BuildVersion } from './apiCore.ts';
 import type { ApprovalDecision } from '../src/domain/types.ts';
 import { hasProfileEnvKey, setProfileEnvKey } from './profileEnv.ts';
-import { dismissWorkItem, listDismissed, undismissWorkItem } from './dismissed.ts';
+import { dismissWorkItem, listDismissed, recordedDismissalIds, undismissWorkItem } from './dismissed.ts';
 import { optionsFor, requireSameOriginJson, checkUpdates, getUpdateStatus, launchReleaseInstall } from './updates.ts';
 import { allyChat, allyChatStream } from './allyGateway.ts';
 import { detectMedia, startBackupJob, listJobs, humanSize } from './backupCore.ts';
@@ -105,7 +116,7 @@ let playbooksCache: CacheEntry | undefined;
 let usageCache: { key: string } & CacheEntry | undefined;
 let usageDailyCache: { key: string } & CacheEntry | undefined;
 let artifactsCache: CacheEntry | undefined;
-let kanbanCache: CacheEntry | undefined;
+let kanbanCache: (CacheEntry & { summary: string }) | undefined;
 let kanbanRunsCache: CacheEntry | undefined;
 
 function readJsonBody(req: IncomingMessage, maxBytes = Infinity): Promise<Record<string, unknown>> {
@@ -166,7 +177,9 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
   return keyContext.run({ ...ctx, requestKeys: new Map() }, () => routeApiRequest(req, res, ctx));
 }
 async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: ApiContext): Promise<boolean> {
+  if (await handleDcrProduction(req,res,ctx)) return true;
   if (await handleErmApi(req,res,ctx)) return true;
+  if (await handlePlannerApi(req,res,ctx)) return true;
   const url = new URL(req.url ?? '', 'http://localhost');
   const path = url.pathname;
   const skillsRoot = join(ctx.hermesHome, 'skills');
@@ -208,10 +221,11 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       return true;
     }
 
-    if (path === '/api/mail-routing' || path === '/api/mail-routing/choices' || path === '/api/mail-routing/messages') {
+    if (path === '/api/mail-routing' || path === '/api/mail-routing/choices' || path === '/api/mail-routing/messages' || path === '/api/mail-routing/history' || path === '/api/mail-routing/prepare-envelope') {
       res.setHeader('cache-control','no-store');
       try {
-        if(req.method==='GET') json(res,200,JSON.stringify(path.endsWith('/choices')?await mailboxChoices(ctx):path.endsWith('/messages')?await listReplySources(ctx,url.searchParams.get('connectionId')??'',url.searchParams.get('subject')??''):mailSettings(ctx.hermesHome)));
+        if(req.method==='POST'&&path.endsWith('/prepare-envelope')){try{requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}json(res,200,JSON.stringify(await prepareOutlookEnvelope(ctx,await readJsonBody(req,120000))));}
+        else if(req.method==='GET') json(res,200,JSON.stringify(path.endsWith('/history')?await outlookHistory(ctx,url.searchParams.get('connectionId')??'',url.searchParams.get('messageId')??''):path.endsWith('/choices')?await mailboxChoices(ctx,url.searchParams.get('purpose')==='outlook-send'):path.endsWith('/messages')?await listReplySources(ctx,url.searchParams.get('connectionId')??'',url.searchParams.get('subject')??''):mailSettings(ctx.hermesHome)));
         else if(req.method==='PUT' && path==='/api/mail-routing') {
           try {requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}
           json(res,200,JSON.stringify(await saveMailSettings(ctx,await readJsonBody(req,4000))));
@@ -271,7 +285,11 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
     if (path === '/api/social' || path.startsWith('/api/social/')) {
       res.setHeader('cache-control', 'no-store');
       try {
-        if (req.method === 'GET' && path === '/api/social') {
+        if (req.method === 'GET' && path === '/api/social/approvals') {
+          json(res,200,JSON.stringify(socialApprovals(dataRoot)));
+        } else if (req.method === 'GET' && /^\/api\/social\/accounts\/[a-z0-9-]+\/choices$/.test(path)) {
+          json(res,200,JSON.stringify(await socialConnectionChoices(ctx,path.split('/')[4])));
+        } else if (req.method === 'GET' && path === '/api/social') {
           json(res, 200, JSON.stringify(socialBoard(dataRoot)));
         } else if (req.method === 'GET' && path === '/api/social/capabilities') {
           json(res, 200, JSON.stringify(socialCapabilities(ctx)));
@@ -282,6 +300,14 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
         } else if (req.method === 'POST' || req.method === 'PUT') {
           try { requireSameOriginJson(req); } catch { throw new SocialError(403, 'A same-origin JSON request is required.'); }
           const body = await readJsonBody(req, 64000);
+          const accountAction=path.match(/^\/api\/social\/accounts\/([a-z0-9-]+)\/(connect|bind)$/);
+          const deletion=path.match(/^\/api\/social\/posts\/([a-f0-9-]{36})\/delete$/);
+          if(req.method==='POST' && deletion){json(res,200,JSON.stringify(deleteSocialPost(dataRoot,deletion[1],body.revision)));return true;}
+          const submission=path.match(/^\/api\/social\/posts\/([a-f0-9-]{36})\/submit$/);
+          const decision=path.match(/^\/api\/social\/approvals\/([a-f0-9-]{36})\/decision$/);
+          if(req.method==='POST' && accountAction){json(res,200,JSON.stringify(accountAction[2]==='connect'?await connectSocialAccount(ctx,accountAction[1]):await bindSocialAccount(ctx,accountAction[1],body)));return true;}
+          if(req.method==='POST' && submission){json(res,200,JSON.stringify(submitSocialApproval(dataRoot,submission[1],body.revision)));return true;}
+          if(req.method==='POST' && decision){json(res,200,JSON.stringify(decideSocialApproval(dataRoot,decision[1],body)));return true;}
           const match = path.match(/^\/api\/social\/posts\/([a-f0-9-]{36})(\/image)?$/);
           if (req.method === 'POST' && path === '/api/social/generate') json(res, 200, JSON.stringify(await generateSocial(ctx, body)));
           else if (req.method === 'POST' && path === '/api/social/manual') json(res, 200, JSON.stringify(manualSocial(ctx, body)));
@@ -289,7 +315,7 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
           else if (req.method === 'PUT' && match && !match[2]) json(res, 200, JSON.stringify(editSocial(dataRoot, match[1], body)));
           else throw new SocialError(404, 'Unknown Social Media action.');
         } else throw new SocialError(405, 'Method not supported.');
-      } catch (e) { json(res, e instanceof SocialError ? e.status : 500, JSON.stringify({ error: e instanceof SocialError ? e.message : 'Social Media could not complete this request.' })); }
+      } catch (e) { json(res, e instanceof SocialError ? e.status : 500, JSON.stringify({ error: e instanceof SocialError ? e.message : 'Social Media could not complete this request.', ...(e instanceof SocialError && e.provider ? { provider: e.provider } : {}) })); }
       return true;
     }
     if (path === '/api/settings/api-keys') {
@@ -601,6 +627,13 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
     /* kanban board read (dogfood 2026-08-29: cli.exec truncates at 48000
      * chars — this endpoint is the truncation-proof board read; short cache
      * because the board is the app's most-polled slice) */
+    const sourceAssociation=path.match(/^\/api\/kanban\/approvals\/([^/]+)\/associate-outlook-source$/);
+    if(req.method==='POST'&&sourceAssociation){try{try{requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}const result=await associateOutlookSource(ctx,decodeURIComponent(sourceAssociation[1]),await readJsonBody(req,120000));kanbanCache=undefined;json(res,200,JSON.stringify(result));}catch(e){json(res,e instanceof HumanDelegationError?e.status:503,JSON.stringify({error:e instanceof HumanDelegationError?e.message:'Source association failed. Nothing was sent.'}));}return true;}
+    const draftSave=path.match(/^\/api\/kanban\/approvals\/([^/]+)\/save-outlook-draft$/);
+    if(req.method==='POST'&&draftSave){
+      try{try{requireSameOriginJson(req);}catch{throw new HumanDelegationError(403,'A same-origin JSON request is required.');}const result=await saveOutlookDraft(ctx,decodeURIComponent(draftSave[1]),await readJsonBody(req,120000));kanbanCache=undefined;json(res,200,JSON.stringify(result));}
+      catch(e){json(res,e instanceof HumanDelegationError?e.status:503,JSON.stringify({error:e instanceof HumanDelegationError?e.message:'Draft could not be saved. Your edits have not been sent.'}));}return true;
+    }
     const mailPreparation=path.match(/^\/api\/kanban\/approvals\/([^/]+)\/prepare-mail$/);
     if(mailPreparation&&req.method==='POST'){
       try{requireSameOriginJson(req);const result=await bindReplyApproval(ctx,decodeURIComponent(mailPreparation[1]),await readJsonBody(req,120000));kanbanCache=undefined;json(res,200,JSON.stringify(result));}
@@ -611,7 +644,7 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       try {
         requireSameOriginJson(req);
         const input=await readJsonBody(req);
-        const result = await decideReplyApproval(ctx,decodeURIComponent(approvalDecision[1]),input) ?? decideApprovalTask(join(ctx.hermesHome, 'kanban.db'), decodeURIComponent(approvalDecision[1]), input);
+        const result = await decideArtifactShare(ctx,decodeURIComponent(approvalDecision[1]),input) ?? await decideOutlookDraft(ctx,decodeURIComponent(approvalDecision[1]),input) ?? await decideReplyApproval(ctx,decodeURIComponent(approvalDecision[1]),input) ?? decideApprovalTask(join(ctx.hermesHome, 'kanban.db'), decodeURIComponent(approvalDecision[1]), input);
         kanbanCache = undefined;
         json(res, 200, JSON.stringify(result));
       } catch (e) {
@@ -629,13 +662,34 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       try { requireSameOriginJson(req); const result=resumeApprovedTask(join(ctx.hermesHome,'kanban.db'),decodeURIComponent(approvalResume[1]),await readJsonBody(req)); kanbanCache=undefined; json(res,200,JSON.stringify(result)); }
       catch(e){json(res,e instanceof ApprovalGateError?e.status:400,JSON.stringify({error:errMessage(e)}));} return true;
     }
+    const quickEmailDetail=path.match(/^\/api\/kanban\/approvals\/(crm_mail_[a-f0-9]{32})$/);
+    if(quickEmailDetail&&req.method==='GET'){
+      if(req.headers['sec-fetch-site'] && !['same-origin','none'].includes(String(req.headers['sec-fetch-site']))){json(res,403,JSON.stringify({error:'Use Approvals from this application.'}));return true;}
+      if(!moduleConfig(dataRoot).enabled.includes('erm')){json(res,404,JSON.stringify({error:'E-CRM is not enabled.'}));return true;}
+      const db=new DatabaseSync(join(ctx.hermesHome,'kanban.db'),{readOnly:true});
+      try {
+        const row=db.prepare("SELECT id,title,body,status,assignee,created_at,block_kind FROM tasks WHERE id=? AND json_valid(body) AND json_extract(body,'$.ermQuickEmail') IS NOT NULL").get(quickEmailDetail[1]);
+        json(res,row?200:404,JSON.stringify(row??{error:'This E-CRM approval is no longer available.'}));
+      } finally {db.close();}
+      return true;
+    }
+
     if (path === '/api/kanban') {
       if (req.method === 'GET') {
         try {
-          if (!kanbanCache || Date.now() - kanbanCache.at > 5_000) {
-            kanbanCache = { at: Date.now(), body: JSON.stringify(listKanbanTasks(join(ctx.hermesHome, 'kanban.db'))) };
+          const detail = new URL(req.url ?? '/', 'http://localhost').searchParams.get('detail');
+          res.setHeader('Cache-Control', 'no-store');
+          res.setHeader('Vary', 'X-EAIOS-Board-View');
+          if (detail) {
+            const task = listKanbanTasks(join(ctx.hermesHome, 'kanban.db')).tasks.find(t => t.id === detail);
+            json(res, task ? 200 : 404, JSON.stringify({ tasks: task ? [task] : [] }));
+          } else {
+            if (!kanbanCache || Date.now() - kanbanCache.at > 5_000) {
+              const board = listKanbanTasks(join(ctx.hermesHome, 'kanban.db'));
+              kanbanCache = { at: Date.now(), body: JSON.stringify(board), summary: JSON.stringify(summarizeKanbanTasks(board)) };
+            }
+            json(res, 200, req.headers['x-eaios-board-view'] === 'summary' ? kanbanCache.summary : kanbanCache.body);
           }
-          json(res, 200, kanbanCache.body);
         } catch (e) {
           json(res, 503, JSON.stringify({ error: String(e) }));
         }
@@ -730,37 +784,29 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       return true;
     }
 
-    /* dismissed work items — server-side so dismissal follows the user across browsers/machines */
-    if (path === '/api/dismissed') {
-      if (req.method === 'GET') {
-        json(res, 200, JSON.stringify({ ids: listDismissed(dataRoot) }));
-        return true;
-      }
-      if (req.method === 'POST') {
-        try {
+    /* Version-aware dismissals: baseline legacy IDs once, then only meaningful
+     * revision changes resurface an item. No TTL and no production task writes. */
+    if (path === '/api/dismissed' || path.startsWith('/api/dismissed/')) {
+      res.setHeader('Cache-Control', 'no-store');
+      try {
+        const activity = (extra?: string) => latestTaskActivity(join(ctx.hermesHome, 'kanban.db'), [...recordedDismissalIds(dataRoot), ...(extra ? [extra] : [])]);
+        if (path === '/api/dismissed' && req.method === 'GET') {
+          json(res, 200, JSON.stringify({ ids: listDismissed(dataRoot, activity()) }));
+        } else if (path === '/api/dismissed' && req.method === 'POST') {
           const body = await readJsonBody(req);
-          const id = String(body.id ?? '');
-          if (!id) {
-            json(res, 400, JSON.stringify({ error: 'id is required' }));
-            return true;
-          }
-          json(res, 200, JSON.stringify({ ids: dismissWorkItem(dataRoot, id) }));
-        } catch (e) {
-          json(res, 500, JSON.stringify({ error: errMessage(e) }));
+          const id = typeof body.id === 'string' ? body.id : '';
+          if (!id.trim()) { json(res, 400, JSON.stringify({ error: 'id is required' })); return true; }
+          json(res, 200, JSON.stringify({ ids: dismissWorkItem(dataRoot, id, activity(id)) }));
+        } else if (path.startsWith('/api/dismissed/') && req.method === 'DELETE') {
+          const id = decodeURIComponent(path.slice('/api/dismissed/'.length));
+          if (!id) { json(res, 400, JSON.stringify({ error: 'id is required' })); return true; }
+          json(res, 200, JSON.stringify({ ids: undismissWorkItem(dataRoot, id, activity()) }));
+        } else {
+          json(res, 405, JSON.stringify({ error: path === '/api/dismissed' ? 'GET or POST only' : 'DELETE only' }));
         }
-        return true;
+      } catch (e) {
+        json(res, 503, JSON.stringify({ error: errMessage(e) }));
       }
-      json(res, 405, JSON.stringify({ error: 'GET or POST only' }));
-      return true;
-    }
-    if (path.startsWith('/api/dismissed/')) {
-      const id = path.slice('/api/dismissed/'.length);
-      if (!id) return false;
-      if (req.method === 'DELETE') {
-        json(res, 200, JSON.stringify({ ids: undismissWorkItem(dataRoot, id) }));
-        return true;
-      }
-      json(res, 405, JSON.stringify({ error: 'DELETE only' }));
       return true;
     }
 
@@ -768,6 +814,32 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
       if (req.method !== 'GET') { json(res, 405, JSON.stringify({ error: 'GET only' })); return true; }
       try { json(res, 200, JSON.stringify(readCronPrompts(ctx.hermesHome, url.searchParams.get('profile') || undefined))); }
       catch { json(res, 503, JSON.stringify({ error: 'Full schedule instructions could not be loaded. Retry before editing.' })); }
+      return true;
+    }
+
+    const shareRequest = path.match(/^\/api\/artifacts\/([^/]+)\/share$/);
+    const shareFile = path.match(/^\/api\/artifact-shares\/([a-f0-9]{48})\/snapshot$/);
+    const shareRetry = path.match(/^\/api\/artifact-shares\/([a-f0-9]{48})\/retry$/);
+    if (shareRequest || shareFile || shareRetry || path === '/api/artifact-shares') {
+      try {
+        if (shareRequest && req.method === 'POST') {
+          requireSameOriginJson(req);
+          const result = requestArtifactShare(ctx, decodeURIComponent(shareRequest[1]));
+          kanbanCache=undefined;json(res,200,JSON.stringify(result));
+        } else if (shareRetry && req.method === 'POST') {
+          requireSameOriginJson(req);
+          const result=await retryArtifactShare(ctx,shareRetry[1]);kanbanCache=undefined;json(res,200,JSON.stringify(result));
+        } else if (shareFile && req.method === 'GET') {
+          const file=shareSnapshot(ctx.hermesHome,shareFile[1]);
+          if(!file){json(res,404,JSON.stringify({error:'Share not found.'}));return true;}
+          res.setHeader('content-type','application/octet-stream');res.setHeader('x-content-type-options','nosniff');
+          res.setHeader('cache-control','no-store');
+          res.setHeader('content-disposition',`attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+          res.end(Buffer.from(file.content));
+        } else if (path === '/api/artifact-shares' && req.method === 'GET') {
+          res.setHeader('cache-control','no-store');json(res,200,JSON.stringify({shares:publicShares(ctx.hermesHome)}));
+        } else json(res,405,JSON.stringify({error:'Method not allowed.'}));
+      } catch(e) { json(res,e instanceof ApprovalGateError?e.status:400,JSON.stringify({error:e instanceof ApprovalGateError?e.message:'Could not process this share. The artifact remains available locally.'})); }
       return true;
     }
 
@@ -807,14 +879,14 @@ async function routeApiRequest(req: IncomingMessage, res: ServerResponse, ctx: A
           if (url.searchParams.get('download') === '1') {
             res.setHeader('content-disposition', `attachment; filename="${rec.filename.replace(/"/g, '')}"`);
           }
-          res.end(readFileSync(rec.path));
+          sendArtifactBytes(req, res, readFileSync(rec.path));
           return true;
         }
         if (path !== '/api/artifacts') return false; // unknown subpath → 404 by caller
         if (!artifactsCache || Date.now() - artifactsCache.at > CACHE_TTL) {
           artifactsCache = { at: Date.now(), body: JSON.stringify(listArtifacts(join(ctx.hermesHome, 'kanban.db'))) };
         }
-        json(res, 200, JSON.stringify({ artifacts: [...listReleaseArtifacts(ctx), ...JSON.parse(artifactsCache.body).artifacts] }));
+        json(res, 200, JSON.stringify({ artifacts: [...JSON.parse(artifactsCache.body).artifacts, ...listReleaseArtifacts(ctx)] }));
       } catch (e) {
         json(res, 503, JSON.stringify({ error: String(e) }));
       }

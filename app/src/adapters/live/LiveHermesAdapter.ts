@@ -179,6 +179,7 @@ interface HermesCronJob {
 // ---------- kanban shapes (verified via cli.exec probe) ----------
 
 interface KanbanTask {
+  detailRequired?: boolean;
   id: string;
   title: string;
   body?: string | null;
@@ -199,7 +200,10 @@ interface KanbanTask {
 /** Approval metadata rides in the task body as a JSON envelope (Phase 3). */
 interface ApprovalEnvelope {
   eaios: 'approval';
-  mailReply?: {identity:{connectionId:string};sourceIdentity?:{connectionId:string};reference:{sourceMessageId:string};package:{body:string;sender:{email:string};recipient:{email:string}}};
+  artifactShare?: Approval['artifactShare'];
+  mailDraft?: Approval['mailDraft'];
+  ermQuickEmail?: Approval['ermQuickEmail'];
+  mailReply?: {replyMode?:import('../../domain/mailDraft').ReplyMode;identity:{connectionId:string};sourceIdentity?:{connectionId:string};reference:{sourceMessageId:string};package:{to?:string[];cc?:string[];subject?:string;body:string;sender:{email:string};recipient:{email:string}}};
   linkedinComment?: Approval['linkedinComment'];
   sourceContext?: Approval['sourceContext'];
   actionType: Approval['actionType'];
@@ -301,15 +305,19 @@ function mapTaskToApproval(t: KanbanTask, env: ApprovalEnvelope): Approval {
     workItemId: t.id,
     archived: t.status === 'archived',
     updatedAt: [epochToIso(t.created_at),epochToIso(t.started_at ?? undefined),epochToIso(t.completed_at ?? undefined),env.decidedAt].filter((at): at is string => typeof at === 'string' && Number.isFinite(Date.parse(at))).sort((a,b)=>Date.parse(b)-Date.parse(a))[0],
-    reviewVersion: t.body ?? undefined,
+    reviewVersion: t.detailRequired ? undefined : t.body ?? undefined,
+    detailRequired: t.detailRequired,
     requestedByAgentId: env.requestedBy ?? t.assignee ?? 'default',
     executorProfileId: env.executorProfile,
     executionState: t.status === 'running' ? 'running' : t.status === 'blocked' ? 'blocked' : t.status === 'done' ? 'delivered' : 'queued',
     actionType: env.actionType,
     targetSystem: env.targetSystem,
     targetObject: env.targetObject,
+    artifactShare: env.artifactShare,
     linkedinComment: env.linkedinComment,
-    mailReply: env.mailReply ? {senderEmail:env.mailReply.package.sender.email,recipientEmail:env.mailReply.package.recipient.email,sourceConnectionId:(env.mailReply.sourceIdentity??env.mailReply.identity).connectionId,sourceMessageId:env.mailReply.reference.sourceMessageId,senderConnectionId:env.mailReply.identity.connectionId,body:env.mailReply.package.body}:undefined,
+    mailDraft: env.mailDraft,
+    ermQuickEmail: env.ermQuickEmail,
+    mailReply: env.mailReply ? {replyMode:env.mailReply.replyMode,to:env.mailReply.package.to,cc:env.mailReply.package.cc,subject:env.mailReply.package.subject,senderEmail:env.mailReply.package.sender.email,recipientEmail:env.mailReply.package.recipient.email,sourceConnectionId:(env.mailReply.sourceIdentity??env.mailReply.identity).connectionId,sourceMessageId:env.mailReply.reference.sourceMessageId,senderConnectionId:env.mailReply.identity.connectionId,body:env.mailReply.package.body}:undefined,
     sourceContext: env.sourceContext,
     risk: env.risk,
     status,
@@ -410,7 +418,7 @@ function mapProfile(p: HermesProfile, activeProfileNames: Set<string>): Agent {
   const active = activeProfileNames.has(p.name);
   return {
     id: p.name,
-    name: isAlly ? AGENT_NAME : p.display_name || p.name.charAt(0).toUpperCase() + p.name.slice(1),
+    name: p.display_name || (isAlly ? AGENT_NAME : p.name.charAt(0).toUpperCase() + p.name.slice(1)),
     role: p.description || (isAlly ? 'Chief of Staff / Orchestrator' : 'Specialist agent'),
     reportsToAgentId: isAlly ? undefined : 'default',
     model: { provider: p.provider ?? 'unknown', model: p.model ?? 'unknown' },
@@ -850,18 +858,30 @@ class LiveHermesAdapter implements HermesAdapter {
 
   /** Shared task fetch with a short TTL — one subprocess serves several callers. */
   private tasksCache?: { at: number; tasks: KanbanTask[] };
+  private tasksPending?: Promise<KanbanTask[]>;
+  private tasksGeneration = 0;
 
   private async kanbanTasks(): Promise<KanbanTask[]> {
     if (this.tasksCache && Date.now() - this.tasksCache.at < 4000) return this.tasksCache.tasks;
+    if (this.tasksPending) return this.tasksPending;
+    const generation = this.tasksGeneration;
+    const pending = this.readKanbanTasks().then(tasks => {
+      if (generation === this.tasksGeneration) this.tasksCache = { at: Date.now(), tasks };
+      return tasks;
+    }).finally(() => { if (this.tasksPending === pending) this.tasksPending = undefined; });
+    this.tasksPending = pending;
+    return pending;
+  }
+
+  private async readKanbanTasks(): Promise<KanbanTask[]> {
     // HTTP-first: /api/kanban (node:sqlite read, like /api/usage + /api/artifacts)
     // is immune to the cli.exec 48000-char cap. cli.exec stays as fallback;
     // its parse failure now carries an explicit truncation message.
     try {
-      const res = await fetch('/api/kanban');
+      const res = await fetch('/api/kanban', { headers: { 'X-EAIOS-Board-View': 'summary' } });
       if (!res.ok) throw new Error(`kanban index HTTP ${res.status}`);
       const data = (await res.json()) as { tasks?: KanbanTask[] };
       const tasks = data.tasks ?? [];
-      this.tasksCache = { at: Date.now(), tasks };
       return tasks;
     } catch {
       const tasks = await this.kanban<KanbanTask[]>(['list', '--json', '--archived']);
@@ -871,6 +891,8 @@ class LiveHermesAdapter implements HermesAdapter {
   }
 
   private invalidateTasks() {
+    this.tasksGeneration++;
+    this.tasksPending = undefined;
     this.tasksCache = undefined;
   }
 
@@ -949,9 +971,15 @@ class LiveHermesAdapter implements HermesAdapter {
       if (approvalEnvelope && (input.agentId || approvalEnvelope.decision)) {
         throw new Error('New approvals must be undecided and unassigned.');
       }
+      let preparedSummary=input.summary;
+      if(approvalEnvelope?.actionType==='send'&&approvalEnvelope.targetSystem==='outlook'){
+        const response=await fetch('/api/mail-routing/prepare-envelope',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({envelope:approvalEnvelope})});
+        const result=await response.json();if(!response.ok)throw new Error(result.error??'Original Outlook source verification failed. No approval created.');
+        preparedSummary=JSON.stringify(result.envelope);
+      }
       const prioNum = { critical: 1, high: 2, medium: 3, low: 4 }[input.priority ?? 'medium'];
       const argv = ['create', input.title, '--priority', String(prioNum), '--created-by', 'eaios-executive', '--json'];
-      if (input.summary?.trim()) argv.push('--body', input.summary.trim());
+      if (preparedSummary?.trim()) argv.push('--body', preparedSummary.trim());
       if (approvalEnvelope) argv.push('--initial-status', 'blocked');
       if (input.agentId) argv.push('--assignee', input.agentId);
       const created = await this.kanban<{ id?: string; task_id?: string }>(argv);
@@ -999,22 +1027,33 @@ class LiveHermesAdapter implements HermesAdapter {
     }
   }
 
+  async getApproval(id: string): Promise<Approval> {
+    const response = await fetch(`/api/kanban?detail=${encodeURIComponent(id)}`);
+    if (!response.ok) throw new Error('Approval details could not be loaded. Try inspecting again.');
+    const data = await response.json() as { tasks: KanbanTask[] };
+    const task = data.tasks.find(t => t.id === id);
+    const env = parseEnvelope(task?.body);
+    if (!task || !env) throw new Error('Approval is no longer available.');
+    return mapTaskToApproval(task, env);
+  }
+
   async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<AuditResult> {
     try {
-      const task = (await this.kanbanTasks()).find((t) => t.id === approvalId);
-      const env = parseEnvelope(task?.body);
-      if (!task || !env) {
+      const reviewed = decision.reviewVersion ?? (await this.getApproval(approvalId)).reviewVersion;
+      if (!reviewed || !parseEnvelope(reviewed)) {
         return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Approval task not found or not an envelope.', retryable: false } };
       }
 
       const response = await fetch(`/api/kanban/approvals/${encodeURIComponent(approvalId)}/decision`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...decision, expectedBody: decision.reviewVersion ?? task.body }),
+        body: JSON.stringify({ ...decision, expectedBody: reviewed }),
       });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? 'Could not record approval. Refresh before retrying.');
+      const result = await response.json() as AuditResult & { error?: AuditResult['error'] | string };
       this.invalidateTasks();
-      return { ok: true, auditEventId: `kb-decision-${approvalId}` };
+      if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : result.error?.safeMessage ?? 'Could not record approval. Refresh before retrying.');
+      if (result.ok === false) return result as AuditResult;
+      if (result.ok !== true) throw new Error('Decision confirmation is missing. Refresh before taking further action.');
+      return { ok: true, auditEventId: result.auditEventId ?? `kb-decision-${approvalId}` };
     } catch (e) {
       return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'decision_failed', safeMessage: e instanceof Error ? e.message : 'Decision failed.', retryable: true } };
     }
@@ -1041,10 +1080,10 @@ class LiveHermesAdapter implements HermesAdapter {
 
   async updateApprovalPayload(approvalId: string, payload: string): Promise<AuditResult> {
     try {
-      const tasks = await this.kanbanTasks();
-      const task = tasks.find((t) => t.id === approvalId);
+      const detail = await this.getApproval(approvalId);
+      const task = { body: detail.reviewVersion };
       const env = parseEnvelope(task?.body);
-      if (!task || !env) {
+      if (!task.body || !env) {
         return { ok: false, auditEventId: `kb-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Approval task not found or not an envelope.', retryable: false } };
       }
       await this.writeEnvelopeBody(approvalId, { ...env, payload }, task.body ?? '');
@@ -1354,25 +1393,14 @@ class LiveHermesAdapter implements HermesAdapter {
   /**
    * Governed share: creates an UNASSIGNED kanban task carrying an approval
    * envelope — it surfaces on the Approvals page and the kanban dispatcher
-   * never executes it (approvals-stay-unassigned invariant). Approving is a
-   * decision record, not a send: post-approval execution is the agent's work.
+   * never executes it. The dedicated server publisher uploads the reviewed
+   * snapshot only after approval; no agent receives a runnable sharing task.
    */
   async shareArtifact(id: string): Promise<AuditResult> {
     try {
-      const all = await this.listArtifacts();
-      const a = all.find((x) => x.id === id);
-      if (!a) return { ok: false, auditEventId: `art-err-${Date.now()}`, error: { code: 'not_found', safeMessage: 'Artifact not found.', retryable: false } };
-      const envelope = {
-        eaios: 'approval',
-        actionType: 'send',
-        targetSystem: 'external',
-        targetObject: a.name,
-        risk: 'medium',
-        requestedBy: a.createdByAgentId,
-        evidence: [{ kind: 'artifact', label: a.name, uri: `eaios://artifact/${a.id}` }],
-        rollbackPlan: 'Share not yet executed — approving records the decision; the sharing agent executes under the approvals policy.',
-      };
-      await this.kanban<unknown>(['create', `Share externally: ${a.name}`, '--body', JSON.stringify(envelope), '--json']);
+      const response = await fetch(`/api/artifacts/${encodeURIComponent(id)}/share`, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Share request failed.');
       this.invalidateTasks();
       return { ok: true, auditEventId: `art-share-${id}-${Date.now()}` };
     } catch (e) {

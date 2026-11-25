@@ -68,7 +68,9 @@ export function decideApprovalTask(path: string, id: string, input: Record<strin
     if (task.body !== input.expectedBody) fail('The draft changed since you reviewed it. Refresh and review it again.');
     idle(task);
     if (decision === 'approved') {
+      if(env.artifactShare || env.targetSystem==='artifact-public-link')fail('Artifact shares require the dedicated publisher.');
       if(env.actionType==='send'&&/gmail|outlook|microsoft|email|e-mail|smtp/i.test(String(env.targetSystem)))fail('Email approvals require verified mailbox routing and the dedicated mail sender.');
+      if(env.targetSystem==='external' && Array.isArray(env.evidence) && env.evidence.some((item: {uri?: string})=>item.uri?.startsWith('eaios://artifact/')))fail('This older share request has no saved copy. Click Share again from Artifacts to create a public-link approval.');
       if (!isAwaitingApproval(task)) fail('Resolve the execution blocker before approving this task.');
       executor(path, env);
       if (typeof env.payload !== 'string' || !env.payload.trim()) fail('The draft has no prepared content to approve.');
@@ -101,6 +103,7 @@ export function resumeApprovedTask(path: string, id: string, input: Record<strin
     const task = taskFor(db, id), env = envelope(task.body);
     if (task.body !== input.expectedBody) fail('The approved task changed. Refresh before assigning an executor.');
     if (env.decision !== 'approved') fail('Only an already-approved task can resume without another approval.');
+    if(env.ermQuickEmail)fail('Do not resume an E-CRM email. Review the delivery status before preparing a new draft.');
     if (task.status !== 'blocked' || task.claim_lock || task.current_run_id) fail('Only an unclaimed blocked task can be resumed.');
     const executorProfile = executor(path, env, input.executorProfile ?? env.executorProfile ?? 'default');
     const now = Math.floor(Date.now() / 1000), body = JSON.stringify({ ...env, executorProfile });
@@ -131,6 +134,8 @@ export function editApprovalTask(path: string, id: string, nextBody: string, exp
   return transaction(path, db => {
     const task = taskFor(db, id), env = envelope(task.body), next = envelope(nextBody);
     idle(task);
+    if(env.artifactShare || env.targetSystem==='artifact-public-link')fail('Shared snapshots cannot be edited. Create a new share from the updated artifact.');
+    if(env.ermQuickEmail)fail('Reject this E-CRM draft and prepare a new one to change its content.');
     if (env.decision) fail('A decided draft cannot be edited. Create a new approval.');
     if (typeof expectedBody !== 'string' || expectedBody !== task.body) fail('The draft changed. Refresh before editing.');
     if (JSON.stringify({ ...next, payload: env.payload }) !== JSON.stringify(env)) fail('Only the draft content can be edited here.');

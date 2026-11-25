@@ -1,0 +1,34 @@
+import {ContactEditor} from '../pages/ERM';
+import {emptyErmContact} from '../domain/erm';
+import {Link} from 'react-router-dom';
+import {useState,type ComponentType} from 'react';
+import {dcr} from '../adapters';
+import type {DcrFields,DcrSnapshot} from '../domain/dcr';
+import type {DcrFinding} from '../domain/dcrScanner';
+type Run=(fn:()=>Promise<unknown>)=>Promise<void>;
+export function DcrScannerStatus({snapshot,run,busy,expanded=false}:{snapshot:DcrSnapshot;run:Run;busy:boolean;expanded?:boolean}){
+ const s=snapshot.scanner;if(!s?.configured)return null;
+ const time=(iso?:string)=>iso?new Date(iso).toLocaleString(undefined,{timeZone:s.timezone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Not run yet';
+ return <section className="dcr-scan-status" aria-label="Automatic DCR scanning"><div className="dcr-row"><div><strong>{s.paused?'Automatic scanning paused':s.lastRun?.state==='running'?`${snapshot.assistantName} is scanning…`:`${snapshot.assistantName} is keeping watch`}</strong><small>{s.hours.map(h=>h===0?'12 AM':h<12?`${h} AM`:h===12?'12 PM':`${h-12} PM`).join(' · ')} · {s.timezone}</small></div><div className="dcr-actions"><button disabled={busy||s.paused||s.lastRun?.state==='running'} onClick={()=>void run(()=>dcr.scan())}>Scan now</button>{expanded&&<button disabled={busy} onClick={()=>void run(()=>dcr.pauseScan(!s.paused))}>{s.paused?'Resume scanning':'Pause scanning'}</button>}</div></div>
+ <small>Last scan: {time(s.lastRun?.finishedAt??s.lastRun?.startedAt)}{s.lastRun?` · ${s.lastRun.state} · ${s.lastRun.analyzed} sources reviewed · ${s.lastRun.found} findings`:''}{s.pending?` · ${s.pending} queued`:''}</small>
+ {s.lastRun?.errors.map((e,i)=><p className="dcr-warning" role="status" key={i}>{e}</p>)}
+ {expanded&&<p className="dcr-muted">Sent and received email, including filed messages, and default calendars for {s.accounts.join(' and ')}{s.artifacts?'; saved text Artifacts':''}. Each scan covers email from the last {s.lookbackDays} days and calendars from {s.lookbackDays} days ago through 7 days ahead. Previously surfaced items are remembered across scans. Deleted mail and junk are excluded. Selected source excerpts go to your configured AI provider. Detected items appear automatically; confirmed records change when you confirm them.</p>}
+ </section>;
+}
+type FieldsComponent=ComponentType<{value:DcrFields;onChange:(value:DcrFields)=>void;lockedKind?:boolean}>;
+function FindingCard({finding,snapshot,run,busy,Fields,onSaved}:{finding:DcrFinding;snapshot:DcrSnapshot;run:Run;busy:boolean;Fields:FieldsComponent;onSaved?:()=>void}){
+ const [review,setReview]=useState(false),[contactEditor,setContactEditor]=useState(false),[savedContact,setSavedContact]=useState(''),[value,setValue]=useState(finding.fields);
+ const relationship=finding.fields.kind==='relationship';
+ if(savedContact)return <article className="dcr-detected"><p role="status">Contact saved in E-CRM.</p><Link to={'/erm?contact='+savedContact}>Open contact in E-CRM →</Link><button onClick={()=>void run(async()=>{})}>Done</button></article>;
+ return <article className="dcr-detected">{contactEditor&&<ContactEditor initial={{...emptyErmContact(),category:'Other',name:value.personName||value.owner,company:value.organization,emails:value.email?[value.email]:[]}} save={p=>dcr.saveFindingContact(finding.id,finding.revision,p)} onClose={()=>setContactEditor(false)} onSaved={p=>{setContactEditor(false);setSavedContact(p.id);}}/>}<div className="dcr-eyebrow">Detected {finding.fields.kind} · {finding.fields.status==='completed'?'Decision reported in source':'Needs review'}</div><h3>{finding.fields.kind==='relationship'?finding.fields.personName||finding.fields.title:finding.fields.title}</h3><p>{finding.explanation}</p><p className="dcr-muted">{finding.fields.what}</p>
+ {finding.fields.kind==='relationship'&&<><p className="dcr-muted">One relationship · {finding.sourceIds.length} supporting {finding.sourceIds.length===1?'source':'sources'}</p><p><strong>Why your attention matters:</strong> {finding.fields.why}</p><p><strong>Suggested next step:</strong> {finding.fields.recommendation}</p></>}
+ {finding.targetRecordId&&<div className="dcr-warning">New evidence for an existing record. Review the proposed update.<p>Current record: {snapshot.records.find(r=>r.id===finding.targetRecordId)?.what??'Unavailable'}</p></div>}
+ <details><summary>View source evidence · {finding.sourceIds.length} {finding.sourceIds.length===1?'source':'sources'}</summary>{finding.citations.map((c,i)=>{const s=snapshot.sources.find(s=>s.id===c.sourceId);return <blockquote key={i}>“{c.quote}”<small>{s?.title??'Source unavailable'}{s?.origin?.email?` · ${s.origin.email}`:''}</small>{s?.origin?.url&&<a className="dcr-text-link" href={s.origin.url} target="_blank" rel="noreferrer">Open original source ↗</a>}</blockquote>;})}</details>
+ {review?<form onSubmit={e=>{e.preventDefault();void run(async()=>{if(relationship){await dcr.editFinding(finding.id,finding.revision,value);setReview(false);}else{await dcr.decideFinding(finding.id,finding.revision,'confirm',value);onSaved?.();}});}}><Fields value={value} onChange={setValue} lockedKind/><div className="dcr-actions"><button className="dcr-primary" disabled={busy}>{relationship?'Save changes':'Confirm & save'}</button><button type="button" onClick={()=>{setValue(finding.fields);setReview(false);}}>Cancel review</button></div></form>:<div className="dcr-actions"><button disabled={busy} onClick={()=>setReview(true)}>{relationship?'Edit record':'Review detected item'}</button><button disabled={busy} onClick={()=>void run(()=>dcr.decideFinding(finding.id,finding.revision,'dismiss'))}>{relationship?'Delete record':'Dismiss'}</button>{relationship&&<button className="dcr-primary" disabled={busy} onClick={()=>setContactEditor(true)}>Save as contact in E-CRM</button>}</div>}
+ </article>;
+}
+export function DcrDetectedList({snapshot,kind,search,run,busy,Fields,onSaved}:{snapshot:DcrSnapshot;kind:string;search:string;run:Run;busy:boolean;Fields:FieldsComponent;onSaved?:()=>void}){
+ const findings=snapshot.scanner?.findings.filter(f=>(kind==='all'||f.fields.kind===kind)&&`${f.fields.title} ${f.fields.what} ${f.fields.owner}`.toLowerCase().includes(search.toLowerCase()))??[];
+ if(!snapshot.scanner?.configured)return null;
+ return <section className="dcr-detected-list"><div className="dcr-eyebrow">Found automatically</div><h2>Detected by {snapshot.assistantName} <span className="dcr-count">{findings.length}</span></h2>{findings.map(f=><FindingCard key={f.id+':'+f.revision} finding={f} snapshot={snapshot} run={run} busy={busy} Fields={Fields} onSaved={onSaved}/>)}{!findings.length&&<p className="dcr-muted">{snapshot.scanner.lastRun?'No new detected items in this category.':'Findings will appear here after the first scan.'} You can still create your own records.</p>}</section>;
+}

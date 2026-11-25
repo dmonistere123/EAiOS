@@ -1,10 +1,12 @@
 import { AGENT_NAME } from '../config';
 /** Today is a source-backed attention view, not the general task backlog. */
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { adapterMode, humanDelegation, today } from '../adapters';
 import { EXECUTIVE_NAME } from '../config';
 import { BrandStatement } from '../components/Brand';
+import MyPlan from '../components/MyPlan';
+import { plannerPreviewEnabled } from '../adapters/planner';
 import { useRuntime, refreshWork, refreshApprovals } from '../state/runtime';
 import { usePageRail } from '../state/rail';
 import { Card, Drawer, EmptyState, KpiCard, SectionTitle, StateBadge, RelativeTime } from '../components/ui';
@@ -12,13 +14,17 @@ import { SavedWorkDrawer } from '../components/SavedWorkDrawer';
 import { NewDelegationDrawer } from '../components/NewDelegationDrawer';
 import { attentionItems, localDayRange, needsDecision, recentApproval } from '../domain/today';
 import type { AttentionItem, AttentionKind, TodayActivity, TodayMeetings } from '../domain/today';
+import type { ErmFollowUps } from '../domain/erm';
 import type { HumanDelegation } from '../domain/humanDelegation';
 const empty:TodayActivity={runs:[],links:{},reviewed:[],report:null,warnings:[]};
 const filters:('all'|AttentionKind)[]=['all','approvals','delegated','scheduled'];
 const labels={all:'All',approvals:'Approvals',delegated:'Delegated',scheduled:'Scheduled · 24h',delivered:'Delivered'};
+const calendarDate=(at:Date)=>`${at.getFullYear()}-${String(at.getMonth()+1).padStart(2,'0')}-${String(at.getDate()).padStart(2,'0')}`;
 const clock=(at:string)=>new Date(at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
 
 export default function Today() {
+  const {modules=[]}=useOutletContext<{modules?:string[]}>()??{};
+  const plannerAvailable=plannerPreviewEnabled||modules.includes('daily-planner');
   const s=useRuntime(), navigate=useNavigate();
   const [activity,setActivity]=useState<TodayActivity|null>(null),[humans,setHumans]=useState<HumanDelegation[]>([]);
   const [meetings,setMeetings]=useState<TodayMeetings|null>(null),[errors,setErrors]=useState<string[]>([]),[calendarError,setCalendarError]=useState('');
@@ -26,6 +32,23 @@ export default function Today() {
   const [filter,setFilter]=useState<'all'|AttentionKind>('all'),[shown,setShown]=useState(5),[selected,setSelected]=useState<AttentionItem|null>(null);
   const [savedWork,setSavedWork]=useState(false);
   const [newDelegation,setNewDelegation]=useState(false);
+  const [crmFollowUps,setCrmFollowUps]=useState<ErmFollowUps|null>(null);
+  const [crmError,setCrmError]=useState(false);
+  const through=calendarDate(new Date(now));
+  useEffect(()=>{
+    if(adapterMode!=='live'&&!plannerPreviewEnabled)return;
+    const controller=new AbortController();
+    void (async()=>{
+      try {
+        const response=await fetch('/api/erm/follow-ups?'+new URLSearchParams({through}),{signal:controller.signal});
+        if(response.status===403||response.status===404||(plannerPreviewEnabled&&response.status===401)){if(!controller.signal.aborted){setCrmFollowUps(null);setCrmError(false);}return;}
+        if(!response.ok)throw new Error('Follow-ups could not be loaded.');
+        const payload=await response.json() as ErmFollowUps;
+        if(!controller.signal.aborted){setCrmFollowUps(payload);setCrmError(false);}
+      }catch{if(!controller.signal.aborted){setCrmFollowUps(null);setCrmError(true);}}
+    })();
+    return()=>controller.abort();
+  },[through,refresh]);
   useEffect(()=>{
     const controller=new AbortController();
     void Promise.allSettled([today.activity(controller.signal),adapterMode==='live'?humanDelegation.list():Promise.resolve([] as HumanDelegation[])]).then(([a,h])=>{
@@ -73,6 +96,7 @@ export default function Today() {
   }
   return <div className="space-y-6 pb-6">
     <header className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-widest text-signal">Your executive operating system</p><h1 className="mt-1 text-2xl font-semibold">Today</h1><p className="mt-1 text-sm text-ink-dim">{new Date(now).toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})} · {EXECUTIVE_NAME}, here’s what needs your attention.</p></div><div className="flex flex-wrap gap-2"><button onClick={()=>setSavedWork(true)} className="rounded-lg border border-edge px-3 py-2 text-xs text-ink-dim">Saved tasks</button><button className="rounded-lg border border-edge px-3 py-2 text-xs" onClick={()=>{setNow(Date.now());setRefresh(n=>n+1);void Promise.allSettled([refreshWork(),refreshApprovals()]);}}>Refresh</button><button onClick={()=>setNewDelegation(true)} className="rounded-lg border border-signal/40 px-3 py-2 text-xs font-medium text-signal">＋ New delegated task</button></div></header>
+    {plannerAvailable&&<MyPlan key={through} day={through} refresh={refresh}/>}
     <BrandStatement />
     <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
       <KpiCard label="Priorities" value={ready?`${queue.length}${incomplete?'+':''}`:'—'} hint={incomplete?'Partial view · check sources':'Unique items to track'}/>
@@ -81,6 +105,12 @@ export default function Today() {
       <KpiCard label="Next meeting" value={next?clock(next.startsAt):'—'} hint={calendarPartial?'Calendar coverage incomplete':next?.title??(meetings?'No upcoming meeting today':'Loading calendars…')}/>
     </div>
     {allErrors.length>0&&<div role="alert" className="rounded-lg border border-warn/30 bg-warn/5 p-3 text-xs text-warn">Some sources could not be loaded. Counts reflect available records.<ul className="mt-2 list-inside list-disc">{allErrors.map((e,i)=><li key={i}>{e}</li>)}</ul></div>}
+    {(!!crmFollowUps?.total||crmError)&&<section aria-label="E-CRM follow-ups">
+      <div className="flex items-center justify-between"><SectionTitle>E-CRM follow-ups</SectionTitle><span className="text-xs text-ink-faint">{crmFollowUps?.total??'—'} due</span></div>
+      {crmError?<p role="alert" className="text-xs text-warn">E-CRM follow-ups are unavailable. Use Refresh to try again.</p>:<Card className="overflow-hidden"><ul className="divide-y divide-edge">
+        {crmFollowUps?.items.map(item=><li key={item.noteId}><Link to={'/erm?'+new URLSearchParams({contact:item.contactId,note:item.noteId})} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-signal/5"><span className="min-w-0"><span className="block break-words text-sm font-medium text-signal">{item.contactName}</span><span className="block break-words text-xs text-ink-dim">{item.noteTitle}</span></span><span className="shrink-0 text-xs text-ink-faint">{item.followUpOn===through?'Due today':`Overdue · ${item.followUpOn}`}</span></Link>{plannerAvailable&&<Link className="mb-3 ml-4 inline-block rounded-lg border border-signal/40 px-3 py-1.5 text-xs text-signal" to={plannerPreviewEnabled?'/daily-planner?source=sample-crm':'/daily-planner?'+new URLSearchParams({contact:item.contactId,note:item.noteId})}>Add to My Plan</Link>}</li>)}
+      </ul>{crmFollowUps?.hasMore&&<p className="p-3 text-xs text-ink-dim">Showing the first {crmFollowUps.items.length} due follow-ups.</p>}</Card>}
+    </section>}
     <section aria-label="Operating queue"><div className="flex items-center justify-between"><SectionTitle>Operating queue</SectionTitle><span className="text-xs text-ink-faint">{queue.length} items</span></div><p className="mb-3 text-xs text-ink-dim">Unfinished approvals, delegations and scheduled work from the last 24 hours.</p>
       <div className="mb-3 flex flex-wrap gap-2" aria-label="Queue filters">{filters.map(f=><button key={f} aria-pressed={filter===f} onClick={()=>{setFilter(f);setShown(5);}} className={'rounded-lg border px-3 py-1.5 text-xs '+(filter===f?'border-signal/40 bg-signal/10 text-signal':'border-edge text-ink-dim')}>{labels[f]} <span className="ml-1 text-ink-faint">{f==='all'?queue.length:queue.filter(i=>i.kinds.includes(f)).length}</span></button>)}</div>
       {!s.ready||(!activity&&!errors.length)?<p className="p-4 text-sm text-ink-dim">Loading module activity…</p>:!filtered.length?<EmptyState title={incomplete?'No items in the available sources':'You’re caught up'} hint={incomplete?'Refresh to retry the unavailable sources.':'New decisions, delegations and results will appear here.'}/>:<Card className="overflow-hidden"><ul className="divide-y divide-edge">{filtered.slice(0,shown).map(item=><li key={item.id} className="flex items-center gap-3 px-4 py-4"><span aria-hidden className={'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border '+(item.kinds.includes('approvals')?'border-warn/30 bg-warn/5 text-warn':item.kinds.includes('delivered')?'border-ok/30 bg-ok/5 text-ok':'border-signal/25 bg-signal/5 text-signal')}>{item.kinds.includes('approvals')?'◇':item.kinds.includes('delivered')?'✓':item.kinds.includes('scheduled')?'◷':'↗'}</span><div className="min-w-0 flex-1"><button className="text-left text-sm font-medium hover:text-signal" onClick={()=>setSelected(item)}>{item.title}</button><p className="mt-1 text-[11px] text-ink-faint">{item.kinds.map(k=>labels[k]).join(' · ')} · {item.status} · <RelativeTime iso={item.at}/></p></div><button aria-label={`Review ${item.title}`} onClick={()=>item.kinds.includes('approvals')?navigate(item.route):setSelected(item)} className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-xs text-signal">Review</button></li>)}</ul>{filtered.length>shown&&<button onClick={()=>setShown(n=>n+20)} className="m-3 rounded border border-edge px-3 py-2 text-xs text-signal">Show more ({filtered.length-shown} remaining)</button>}</Card>}

@@ -66,3 +66,20 @@ it('keeps two LinkedIn destinations separate and refuses unknown account IDs',()
 it('preserves legacy Snapchat drafts without converting them to Instagram',()=>{
  const c=setup();const p=manualSocial(c,{brief,requestId:rid()})[0];socialStore(c.dataRoot,db=>putSocialPost(db,{...p,network:'snapchat'}));expect(socialBoard(c.dataRoot).posts.find(x=>x.id===p.id)?.network).toBe('snapchat');
 });
+it('publishes only a current approved snapshot and never repeats an uncertain send',async()=>{
+ const {submitSocialApproval,decideSocialApproval,runSocialPublishing,socialApprovals,socialDueAt}=await import('../../server/socialPublishing');
+ const c=setup(),account={id:'test-account',network:'x' as const,label:'Test executive',url:'https://x.com/example'};
+ mkdirSync(join(c.dataRoot,'social-data'),{recursive:true});writeFileSync(join(c.dataRoot,'social-data','accounts.json'),JSON.stringify([account]));
+ let p=manualSocial(c,{brief:{...brief,networks:['x'],accountIds:[account.id],time:'12:00'},requestId:rid()})[0];
+ p=editSocial(c.dataRoot,p.id,{...p,action:'edit',copy:'Reviewed public content'});
+ const binding={account,connectionId:'test-connection',userId:'test-user',actor:'123',profileName:'@example',verifiedAt:new Date().toISOString()};
+ socialStore(c.dataRoot,db=>db.prepare('INSERT INTO social_bindings VALUES (?,?)').run(account.id,JSON.stringify(binding)));
+ const due=socialDueAt(p),job=submitSocialApproval(c.dataRoot,p.id,p.revision,due-3600000);
+ const provider={verify:vi.fn().mockResolvedValue(binding),publish:vi.fn().mockRejectedValue(new Error('Unknown delivery'))};
+ await runSocialPublishing(c,provider,due-1000);expect(provider.publish).not.toHaveBeenCalled();
+ expect(socialApprovals(c.dataRoot)).toHaveLength(1);
+ expect(()=>decideSocialApproval(c.dataRoot,job.id,{decision:'approved',reviewVersion:'stale'},due-1000)).toThrow();
+ decideSocialApproval(c.dataRoot,job.id,{decision:'approved',reviewVersion:job.fingerprint},due-1000);
+ await runSocialPublishing(c,provider,due);await runSocialPublishing(c,provider,due+30000);
+ expect(provider.publish).toHaveBeenCalledTimes(1);expect(socialBoard(c.dataRoot).posts[0].status).toBe('uncertain');
+});

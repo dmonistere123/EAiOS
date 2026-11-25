@@ -31,3 +31,9 @@ if (typeof window !== 'undefined') {
 if (typeof Element !== 'undefined' && !Element.prototype.scrollTo) {
   Element.prototype.scrollTo = () => undefined;
 }
+
+// jsdom does not implement native dialog visibility methods.
+if (typeof HTMLDialogElement !== 'undefined') {
+ HTMLDialogElement.prototype.showModal = function(){this.setAttribute('open','');};
+ HTMLDialogElement.prototype.close = function(){this.removeAttribute('open');};
+}
